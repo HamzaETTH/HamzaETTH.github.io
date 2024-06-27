@@ -1,18 +1,42 @@
 @import url(https://fonts.googleapis.com/css?family=Inter:400,500,600,700,800&display=swap);
 
-
-
-
-
 body {
   display: flex;
   justify-content: center;
   overflow: hidden;
+  background: #000;
+  -moz-osx-font-smoothing: grayscale;
+  -webkit-font-smoothing: antialiased;
+  color: #dedede;
+  font-size: 1rem;
+  font-family: "Fira code", monospace; 
+  font-weight: 400;
+  margin: 0;
 }
 
-.main-content {
-  position: relative;
-  z-index: 1;
+html {
+  line-height: 1.15;
+  -ms-text-size-adjust: 100%;
+  -webkit-text-size-adjust: 100%;
+  box-sizing: border-box;
+  font-size: 20px;
+  line-height: 30px;
+  letter-spacing: -0.1px;
+}
+
+*,
+:after,
+:before {
+  box-sizing: inherit;
+}
+
+section, main {
+  display: block;
+}
+
+::-webkit-file-upload-button {
+  -webkit-appearance: button;
+  font: inherit;
 }
 
 #particle-canvas {
@@ -24,6 +48,14 @@ body {
   z-index: 0;
 }
 
+.tp-dfwv {
+  width: 400px !important;
+}
+
+.performance-overlay {
+  z-index: 1000;
+}
+
 .center {
   position: absolute;
   top: 50%;
@@ -32,7 +64,6 @@ body {
 }
 
 .typewriter h1 {
-  /* display:inline-block; */
   color: #fff;
   overflow: hidden;
   border-right: 0.15em solid #fff;
@@ -41,9 +72,11 @@ body {
   letter-spacing: 0;
   animation: typing 2.5s steps(10), blink-caret 0.75s step-end infinite;
 }
+
 .center-text {
   text-align: center;
 }
+
 @keyframes typing {
   0% {
     width: 0;
@@ -52,34 +85,66 @@ body {
     width: 100%;
   }
 }
+
 @keyframes blink-caret {
-  0%,
-  to {
+  0%, to {
     border-color: transparent;
   }
   50% {
     border-color: #fff;
   }
 }
+
 .blobs-container {
   display: flex;
   width: 100%;
   justify-content: center;
 }
+
 .blob {
-  background: #000;
   border-radius: 50%;
-  box-shadow: 0 0 0 0 #000;
+  box-shadow: 0 0 0 0;
   margin: 10px;
   height: 20px;
   width: 20px;
   transform: scale(1);
-  animation: pulse-black 2s infinite;
+  animation: pulse 2s infinite;
 }
-@keyframes pulse-black {
+
+.blob.black {
+  background: #000;
+  animation-name: pulse-black;
+}
+
+.blob.white {
+  background: #fff;
+  animation-name: pulse-white;
+}
+
+.blob.red {
+  background: #ff5252;
+  animation-name: pulse-red;
+}
+
+.blob.orange {
+  background: #ff793f;
+  animation-name: pulse-orange;
+}
+
+.blob.yellow {
+  background: #ffb142;
+  animation-name: pulse-yellow;
+}
+
+.blob.blue {
+  background: #34ace0;
+  animation-name: pulse-blue;
+}
+
+@keyframes pulse {
   0% {
     transform: scale(0.95);
-    box-shadow: 0 0 0 0 rgba(0, 0, 0, 0.7);
+    box-shadow: 0 0 0 0;
   }
   70% {
     transform: scale(1);
@@ -87,198 +152,88 @@ body {
   }
   to {
     transform: scale(0.95);
-    box-shadow: 0 0 0 0 transparent;
+    box-shadow: 0 0 0 0;
   }
 }
-.blob.white {
-  background: #fff;
-  box-shadow: 0 0 0 0 #fff;
-  animation: pulse-white 2s infinite;
+
+@keyframes pulse-black {
+  0% {
+    box-shadow: 0 0 0 0 rgba(0, 0, 0, 0.7);
+  }
 }
+
 @keyframes pulse-white {
   0% {
-    transform: scale(0.95);
     box-shadow: 0 0 0 0 hsla(0, 0%, 100%, 0.7);
   }
-  70% {
-    transform: scale(1);
-    box-shadow: 0 0 0 10px hsla(0, 0%, 100%, 0);
-  }
-  to {
-    transform: scale(0.95);
-    box-shadow: 0 0 0 0 hsla(0, 0%, 100%, 0);
-  }
 }
-.blob.red {
-  background: #ff5252;
-  box-shadow: 0 0 0 0 #ff5252;
-  animation: pulse-red 2s infinite;
-}
+
 @keyframes pulse-red {
   0% {
-    transform: scale(0.95);
     box-shadow: 0 0 0 0 rgba(255, 82, 82, 0.7);
   }
-  70% {
-    transform: scale(1);
-    box-shadow: 0 0 0 10px rgba(255, 82, 82, 0);
-  }
-  to {
-    transform: scale(0.95);
-    box-shadow: 0 0 0 0 rgba(255, 82, 82, 0);
-  }
 }
-.blob.orange {
-  background: #ff793f;
-  box-shadow: 0 0 0 0 #ff793f;
-  animation: pulse-orange 2s infinite;
-}
+
 @keyframes pulse-orange {
   0% {
-    transform: scale(0.95);
     box-shadow: 0 0 0 0 rgba(255, 121, 63, 0.7);
   }
-  70% {
-    transform: scale(1);
-    box-shadow: 0 0 0 10px rgba(255, 121, 63, 0);
-  }
-  to {
-    transform: scale(0.95);
-    box-shadow: 0 0 0 0 rgba(255, 121, 63, 0);
-  }
 }
-.blob.yellow {
-  background: #ffb142;
-  box-shadow: 0 0 0 0 #ffb142;
-  animation: pulse-yellow 2s infinite;
-}
+
 @keyframes pulse-yellow {
   0% {
-    transform: scale(0.95);
     box-shadow: 0 0 0 0 rgba(255, 177, 66, 0.7);
   }
-  70% {
-    transform: scale(1);
-    box-shadow: 0 0 0 10px rgba(255, 177, 66, 0);
-  }
-  to {
-    transform: scale(0.95);
-    box-shadow: 0 0 0 0 rgba(255, 177, 66, 0);
-  }
 }
-.blob.blue {
-  background: #34ace0;
-  box-shadow: 0 0 0 0 #34ace0;
-  animation: pulse-blue 2s infinite;
-}
+
 @keyframes pulse-blue {
   0% {
-    transform: scale(0.95);
     box-shadow: 0 0 0 0 rgba(52, 172, 224, 0.7);
   }
-  70% {
-    transform: scale(1);
-    box-shadow: 0 0 0 10px rgba(52, 172, 224, 0);
-  }
-  to {
-    transform: scale(0.95);
-    box-shadow: 0 0 0 0 rgba(52, 172, 224, 0);
-  }
 }
-html {
-  line-height: 1.15;
-  -ms-text-size-adjust: 100%;
-  -webkit-text-size-adjust: 100%;
-}
-body {
-  margin: 0;
-}
-section {
-  display: block;
-}
+
 h1 {
   font-size: 2em;
   margin: 0.67em 0;
-}
-main {
-  display: block;
-}
-::-webkit-file-upload-button {
-  -webkit-appearance: button;
-  font: inherit;
-}
-html {
-  box-sizing: border-box;
-}
-*,
-:after,
-:before {
-  box-sizing: inherit;
-}
-body {
-  background: #000;
-  -moz-osx-font-smoothing: grayscale;
-  -webkit-font-smoothing: antialiased;
-}
-html {
-  font-size: 20px;
-  line-height: 30px;
-  letter-spacing: -0.1px;
-}
-body {
-  color: #dedede;
-  font-size: 1rem;
-}
-body {
-  font-family: "Fira code", monospace; 
-  font-weight: 400;
-}
-h1 {
   font-weight: 800;
   clear: both;
   color: #eceded;
   word-wrap: break-word;
   overflow-wrap: break-word;
-}
-h1 {
   font-size: 44px;
   line-height: 54px;
-}
-h1 {
   letter-spacing: -0.3px;
-}
-h1 {
   margin-top: 48px;
   margin-bottom: 32px;
 }
+
 @media (min-width: 641px) {
   h1 {
     font-size: 52px;
     line-height: 62px;
   }
-  h1 {
-    letter-spacing: -0.3px;
-  }
 }
+
 .container {
   width: 100%;
   margin: 0 auto;
   padding-left: 16px;
   padding-right: 16px;
+  max-width: 1128px;
 }
+
 @media (min-width: 481px) {
   .container {
     padding-left: 24px;
     padding-right: 24px;
   }
 }
-.container {
-  max-width: 1128px;
-}
+
 [class*="container"] [class*="container"] {
   padding-left: 0;
   padding-right: 0;
 }
+
 .site-content {
   flex: 1 0 auto;
 }
