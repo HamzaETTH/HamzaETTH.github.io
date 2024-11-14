@@ -9,6 +9,35 @@
     ? (module.exports = a(b, {}))
     : (b.ParticleNetwork = a(b, {}));
 })(function (a, b) {
+  function hexToRgb(hex) {
+    var bigint = parseInt(hex.slice(1), 16);
+    return [(bigint >> 16) & 255, (bigint >> 8) & 255, bigint & 255];
+  }
+
+  function interpolateColor(startColor, endColor, factor) {
+    var result = [];
+    for (var i = 0; i < 3; i++) {
+      result[i] = Math.round(startColor[i] + factor * (endColor[i] - startColor[i]));
+    }
+    return result;
+  }
+
+  function rgbToString(rgb) {
+    return "rgb(" + rgb[0] + "," + rgb[1] + "," + rgb[2] + ")";
+  }
+
+  function generateRandomColor() {
+    return Math.floor(Math.random() * 360);
+  }
+
+  function generateDistinctColor(hue1, minDifference) {
+    let hue2;
+    const range = 360 - 2 * minDifference;
+    const randomValue = Math.floor(Math.random() * range);
+    hue2 = (hue1 + minDifference + randomValue) % 360;
+    return hue2;
+  }
+
   var c = function (a) {
     (this.canvas = a.canvas),
       (this.g = a.g),
@@ -21,49 +50,52 @@
       (this.size = a.options.particleSize),
       (this.options = a.options);
 
+    this.hue = generateRandomColor();
     if (this.options.randomIndividualParticleColor) {
-      this.particleColor = `hsl(${Math.random() * 360}, 100%, 50%)`;
+      this.particleColor = `hsl(${this.hue}, 100%, 50%)`;
     } else if (this.options.randomParticleColor) {
       if (!this.options.calculatedParticleColor) {
-        this.options.calculatedParticleColor = `hsl(${Math.random() * 360}, 100%, 50%)`;
+        this.options.calculatedParticleColor = `hsl(${this.hue}, 100%, 50%)`;
       }
       this.particleColor = this.options.calculatedParticleColor;
     } else {
       this.particleColor = this.options.particleColor;
     }
-    this.hue = Math.random() * 360;
   };
 
-  c.prototype.update = function (attractiveForce, repulsiveForce, forceDistance, forceStrength) {
+  c.prototype.update = function (
+    attractionForce,
+    repulsionForce,
+    repulsionRange,
+    repulsionIntensity,
+    attractionRange,
+    attractionIntensity
+  ) {
     var originalSpeed = this.options.velocity;
     var speedRecoveryRate = 0.01;
 
-    if (this.options.interactive && attractiveForce) {
-      var dx = attractiveForce.x - this.x;
-      var dy = attractiveForce.y - this.y;
-      var distance = Math.sqrt(dx * dx + dy * dy);
-      if (distance < 50) distance = 50;
-      var forceDirectionX = dx / distance;
-      var forceDirectionY = dy / distance;
-      var force = (-100 / (distance * distance)) * forceDistance * forceStrength;
-      var accelerationX = force * forceDirectionX;
-      var accelerationY = force * forceDirectionY;
-      this.velocity.x += accelerationX;
-      this.velocity.y += accelerationY;
+    if (this.options.interactive && attractionForce) {
+      var attractionDx = attractionForce.x - this.x;
+      var attractionDy = attractionForce.y - this.y;
+      var attractionDistance = Math.sqrt(attractionDx * attractionDx + attractionDy * attractionDy);
+      if (attractionDistance < 50) attractionDistance = 50; // Ensure minimum distance
+      var attractionForceDirectionX = attractionDx / attractionDistance;
+      var attractionForceDirectionY = attractionDy / attractionDistance;
+      var attractionforce = (-100 / (attractionDistance * attractionDistance)) * attractionRange * attractionIntensity;
+      this.velocity.x += attractionforce * attractionForceDirectionX;
+      this.velocity.y += attractionforce * attractionForceDirectionY;
     }
 
-    if (this.options.interactive && repulsiveForce) {
-      var dx = repulsiveForce.x - this.x;
-      var dy = repulsiveForce.y - this.y;
-      var distance = Math.sqrt(dx * dx + dy * dy);
-      if (distance < 50) distance = 50;
-      var forceDirectionX = dx / distance;
-      var forceDirectionY = dy / distance;
-      var force = (100 / (distance * distance)) * forceDistance * forceStrength;
-      var accelerationX = force * forceDirectionX;
-      var accelerationY = force * forceDirectionY;
-      this.velocity.x += accelerationX;
-      this.velocity.y += accelerationY;
+    if (this.options.interactive && repulsionForce) {
+      var repulsiveDx = repulsionForce.x - this.x;
+      var repulsiveDy = repulsionForce.y - this.y;
+      var repulsiveDistance = Math.sqrt(repulsiveDx * repulsiveDx + repulsiveDy * repulsiveDy);
+      if (repulsiveDistance < 50) repulsiveDistance = 50; // Ensure minimum distance
+      var repulsiveForceDirectionX = repulsiveDx / repulsiveDistance;
+      var repulsiveForceDirectionY = repulsiveDy / repulsiveDistance;
+      var repulsiveforce = (100 / (repulsiveDistance * repulsiveDistance)) * repulsionRange * repulsionIntensity;
+      this.velocity.x += repulsiveforce * repulsiveForceDirectionX;
+      this.velocity.y += repulsiveforce * repulsiveForceDirectionY;
     }
 
     var currentSpeed = Math.sqrt(this.velocity.x * this.velocity.x + this.velocity.y * this.velocity.y);
@@ -75,29 +107,26 @@
       this.velocity.y *= 1 - speedRecoveryRate;
     }
 
-    if (this.x > this.canvas.width) {
-      this.x = this.canvas.width;
-      this.velocity.x = -this.velocity.x;
-    } else if (this.x < 0) {
-      this.x = 0;
-      this.velocity.x = -this.velocity.x;
-    }
-
-    if (this.y > this.canvas.height) {
-      this.y = this.canvas.height;
-      this.velocity.y = -this.velocity.y;
-    } else if (this.y < 0) {
-      this.y = 0;
-      this.velocity.y = -this.velocity.y;
-    }
-
+    // Update positions
     this.x += this.velocity.x;
     this.y += this.velocity.y;
 
+    // Wrap particles around the edges
+    if (this.x > this.canvas.width + this.size) {
+      this.x = -this.size;
+    } else if (this.x < -this.size) {
+      this.x = this.canvas.width + this.size;
+    }
+
+    if (this.y > this.canvas.height + this.size) {
+      this.y = -this.size;
+    } else if (this.y < -this.size) {
+      this.y = this.canvas.height + this.size;
+    }
+
     if (this.options.particleColorCycling) {
       if (this.options.randomIndividualParticleColor) {
-        this.hue += this.options.particleCyclingSpeed;
-        if (this.hue >= 360) this.hue -= 360;
+        this.hue = (this.hue + this.options.particleCyclingSpeed) % 360;
         this.particleColor = `hsl(${this.hue}, 100%, 50%)`;
       } else {
         this.options.globalHue = (this.options.globalHue || 0) + this.options.particleCyclingSpeed;
@@ -115,23 +144,31 @@
     this.g.fill();
   };
 
-  var createExplosion = function (particles, centerX, centerY, explosionRadius) {
-    particles.forEach(function (particle) {
+  var applyParticleInteraction = function (
+    particles,
+    centerX,
+    centerY,
+    particleInteractionDistance,
+    particleRepulsionForce
+  ) {
+    for (var i = 0; i < particles.length; i++) {
+      var particle = particles[i];
       var dx = particle.x - centerX;
       var dy = particle.y - centerY;
-      var distance = Math.sqrt(dx * dx + dy * dy);
+      var distanceSq = dx * dx + dy * dy;
 
-      if (distance < explosionRadius && distance > 0) {
+      if (distanceSq < particleInteractionDistance * particleInteractionDistance && distanceSq > 0) {
+        var distance = Math.sqrt(distanceSq);
         var forceDirectionX = dx / distance;
         var forceDirectionY = dy / distance;
-        var force = (explosionRadius - distance) / explosionRadius;
-        var explosionForce = force * 5;
-        particle.velocity.x += forceDirectionX * explosionForce;
-        particle.velocity.y += forceDirectionY * explosionForce;
+        var force = (particleRepulsionForce * (particleInteractionDistance - distance)) / particleInteractionDistance;
+        particle.velocity.x += forceDirectionX * force;
+        particle.velocity.y += forceDirectionY * force;
       }
-    });
+    }
   };
 
+  // ParticleNetwork Class
   return (
     (b = function (a, b) {
       (this.i = a),
@@ -145,7 +182,7 @@
           particleColor: void 0 !== b.particleColor ? b.particleColor : "#fff",
           particleSize: void 0 !== b.particleSize ? b.particleSize : 2,
           particleColorCycling: void 0 !== b.particleColorCycling ? b.particleColorCycling : false,
-          particleCyclingSpeed: void 0 !== b.particleCyclingSpeed ? b.particleCyclingSpeed : 0.01, // Adjust the speed
+          particleCyclingSpeed: void 0 !== b.particleCyclingSpeed ? b.particleCyclingSpeed : 0.01,
           randomParticleColor: void 0 !== b.randomParticleColor ? b.randomParticleColor : false,
           randomIndividualParticleColor:
             void 0 !== b.randomIndividualParticleColor ? b.randomIndividualParticleColor : false,
@@ -161,8 +198,10 @@
           interactive: void 0 !== b.interactive ? b.interactive : true,
           proximityEffectColor: void 0 !== b.proximityEffectColor ? b.proximityEffectColor : "#ff0000",
           proximityEffectDistance: void 0 !== b.proximityEffectDistance ? b.proximityEffectDistance : 100,
-          forceDistance: void 0 !== b.forceDistance ? b.forceDistance : 1,
-          forceStrength: void 0 !== b.forceStrength ? b.forceStrength : 1,
+          attractionRange: void 0 !== b.attractionRange ? b.attractionRange : 1,
+          attractionIntensity: void 0 !== b.attractionIntensity ? b.attractionIntensity : 1,
+          repulsionRange: void 0 !== b.repulsionRange ? b.repulsionRange : 1,
+          repulsionIntensity: void 0 !== b.repulsionIntensity ? b.repulsionIntensity : 1,
 
           // Velocity and density options
           velocity: this.setVelocity(b.speed),
@@ -176,7 +215,10 @@
           endColor: void 0 !== b.endColor ? b.endColor : "#BF00FF",
 
           // Explosion options
-          explosionRadius: void 0 !== b.explosionRadius ? b.explosionRadius : 50,
+          particleInteractionDistance: void 0 !== b.particleInteractionDistance ? b.particleInteractionDistance : 50,
+          particleRepulsionForce: void 0 !== b.particleRepulsionForce ? b.particleRepulsionForce : 5,
+
+          lineConnectionDistance: void 0 !== b.lineConnectionDistance ? b.lineConnectionDistance : 120,
 
           // Performance overlay
           performanceOverlay: void 0 !== b.performanceOverlay ? b.performanceOverlay : false,
@@ -187,89 +229,193 @@
       if (
         ((this.k = document.createElement("div")),
         this.i.appendChild(this.k),
+        (this.performanceMonitor = new PerformanceMonitor(this.i)),
         this.l(this.k, { position: "absolute", top: 0, left: 0, bottom: 0, right: 0, "z-index": 1 }),
         /(^#[0-9A-F]{6}$)|(^#[0-9A-F]{3}$)/i.test(this.options.background))
-      )
+      ) {
         this.l(this.k, { background: this.options.background });
-      else {
-        if (!/\.(gif|jpg|jpeg|tiff|png)$/i.test(this.options.background))
-          return console.error("Invalid background image or hexadecimal color"), !1;
+      } else {
+        if (!/\.(gif|jpg|jpeg|tiff|png)$/i.test(this.options.background)) {
+          console.error("Invalid background image or hexadecimal color");
+          return false;
+        }
         this.l(this.k, {
           background: 'url("' + this.options.background + '") no-repeat center',
           "background-size": "cover",
         });
       }
-      if (!/(^#[0-9A-F]{6}$)|(^#[0-9A-F]{3}$)/i.test(this.options.particleColor))
-        return console.error("Invalid particleColor hexadecimal color"), !1;
-      (this.canvas = document.createElement("canvas")),
-        this.i.appendChild(this.canvas),
-        (this.g = this.canvas.getContext("2d")),
-        (this.canvas.width = this.i.size.width),
-        (this.canvas.height = this.i.size.height),
-        this.l(this.i, { position: "relative" }),
-        this.l(this.canvas, { "z-index": "20", position: "relative" }),
-        window.addEventListener(
-          "resize",
-          function () {
-            return this.i.offsetWidth === this.i.size.width && this.i.offsetHeight === this.i.size.height
-              ? !1
-              : ((this.canvas.width = this.i.size.width = this.i.offsetWidth),
-                (this.canvas.height = this.i.size.height = this.i.offsetHeight),
-                clearTimeout(this.m),
-                void (this.m = setTimeout(
-                  function () {
-                    this.o = [];
-                    for (var a = 0; a < (this.canvas.width * this.canvas.height) / this.options.density; a++)
-                      this.o.push(new c(this));
-                    this.options.interactive && this.o.push(this.p), requestAnimationFrame(this.update.bind(this));
-                  }.bind(this),
-                  500
-                )));
-          }.bind(this)
-        ),
-        (this.o = []);
-      for (var a = 0; a < (this.canvas.width * this.canvas.height) / this.options.density; a++)
-        this.o.push(new c(this));
-      this.options.interactive &&
-        ((this.p = new c(this)),
-        (this.p.velocity = { x: 0, y: 0 }),
-        this.o.push(this.p),
+
+      if (!/(^#[0-9A-F]{6}$)|(^#[0-9A-F]{3}$)/i.test(this.options.particleColor)) {
+        console.error("Invalid particleColor hexadecimal color");
+        return false;
+      }
+
+      // Canvas setup
+      this.canvas = document.createElement("canvas");
+      this.i.appendChild(this.canvas);
+      this.g = this.canvas.getContext("2d");
+      this.canvas.width = this.i.size.width;
+      this.canvas.height = this.i.size.height;
+      this.l(this.i, { position: "relative" });
+      this.l(this.canvas, { "z-index": "20", position: "relative" });
+
+      // Color setups
+      this.startColorRgb = hexToRgb(this.options.startColor);
+      this.endColorRgb = hexToRgb(this.options.endColor);
+      if (this.options.lineColorCycling) {
+        this.lineHue1 = generateRandomColor();
+        this.lineHue2 = generateDistinctColor(this.lineHue1, 50);
+      }
+
+      // Initialize grid variables
+      this.initGrid();
+
+      // Resize event listener
+      window.addEventListener(
+        "resize",
+        function () {
+          if (this.i.offsetWidth === this.i.size.width && this.i.offsetHeight === this.i.size.height) {
+            return false;
+          } else {
+            this.canvas.width = this.i.size.width = this.i.offsetWidth;
+            this.canvas.height = this.i.size.height = this.i.offsetHeight;
+            clearTimeout(this.m);
+            this.m = setTimeout(
+              function () {
+                this.o = [];
+                for (var a = 0; a < (this.canvas.width * this.canvas.height) / this.options.density; a++) {
+                  var particle = new c(this);
+                  particle.index = a;
+                  this.o.push(particle);
+                }
+                if (this.options.interactive) {
+                  this.o.push(this.p);
+                }
+                // Re-initialize the grid on resize
+                this.initGrid();
+                requestAnimationFrame(this.update);
+              }.bind(this),
+              500
+            );
+          }
+        }.bind(this)
+      );
+
+      // Particle array initialization
+      this.o = [];
+      for (var a = 0; a < (this.canvas.width * this.canvas.height) / this.options.density; a++) {
+        var particle = new c(this);
+        particle.index = a;
+        this.o.push(particle);
+      }
+
+      // Interactive particle setup
+      if (this.options.interactive) {
+        this.p = new c(this);
+        this.p.velocity = { x: 0, y: 0 };
+        this.p.index = this.o.length;
+        this.o.push(this.p);
+
+        // Mouse events
         this.canvas.addEventListener(
           "mousemove",
           function (a) {
-            if (this.attractiveForce) {
-              this.attractiveForce.x = a.clientX - this.canvas.offsetLeft;
-              this.attractiveForce.y = a.clientY - this.canvas.offsetTop;
+            var rect = this.canvas.getBoundingClientRect();
+            var x = (a.clientX - rect.left) * (this.canvas.width / rect.width);
+            var y = (a.clientY - rect.top) * (this.canvas.height / rect.height);
+
+            if (this.attractionForce) {
+              this.attractionForce.x = x;
+              this.attractionForce.y = y;
             }
-            if (this.repulsiveForce) {
-              this.repulsiveForce.x = a.clientX - this.canvas.offsetLeft;
-              this.repulsiveForce.y = a.clientY - this.canvas.offsetTop;
+            if (this.repulsionForce) {
+              this.repulsionForce.x = x;
+              this.repulsionForce.y = y;
             }
-            (this.p.x = a.clientX - this.canvas.offsetLeft), (this.p.y = a.clientY - this.canvas.offsetTop);
+            this.p.x = x;
+            this.p.y = y;
           }.bind(this)
-        ),
+        );
+
         document.addEventListener("contextmenu", function (a) {
           a.preventDefault();
-        }),
+        });
+
         this.canvas.addEventListener(
           "mousedown",
           function (a) {
-            if (a.button === 0)
-              this.repulsiveForce = { x: a.clientX - this.canvas.offsetLeft, y: a.clientY - this.canvas.offsetTop };
-            else if (a.button === 2)
-              this.attractiveForce = { x: a.clientX - this.canvas.offsetLeft, y: a.clientX - this.canvas.offsetLeft };
+            var rect = this.canvas.getBoundingClientRect();
+            var x = (a.clientX - rect.left) * (this.canvas.width / rect.width);
+            var y = (a.clientY - rect.top) * (this.canvas.height / rect.height);
+            if (a.button === 0) {
+              this.repulsionForce = { x: x, y: y };
+            } else if (a.button === 2) {
+              this.attractionForce = { x: x, y: y };
+            }
           }.bind(this)
-        ),
+        );
+
         this.canvas.addEventListener(
           "mouseup",
           function (a) {
-            if (a.button === 0) this.repulsiveForce = null;
-            else if (a.button === 2) this.attractiveForce = null;
+            if (a.button === 0) {
+              this.repulsionForce = null;
+            } else if (a.button === 2) {
+              this.attractionForce = null;
+            }
           }.bind(this)
-        )),
-        // Performance overlay setup
-        this.options.performanceOverlay && this.setupPerformanceOverlay(),
-        requestAnimationFrame(this.update.bind(this));
+        );
+      }
+
+      // Performance overlay setup
+      if (this.options.performanceOverlay) {
+        this.setupPerformanceOverlay();
+      }
+
+      // **Event listeners for particle count adjustment**
+      this.canvas.addEventListener(
+        "wheel",
+        function (event) {
+          if (event.deltaY < 0) {
+            // mwheelup - Increase particles by X2
+            this.adjustParticleCount(true);
+          } else {
+            // mwheeldown - Decrease particles by /2
+            this.adjustParticleCount(false);
+          }
+          event.preventDefault();
+        }.bind(this)
+      );
+
+      document.addEventListener(
+        "keydown",
+        function (event) {
+          if (event.key === "ArrowUp") {
+            // Up arrow key - Increase particles by X2
+            this.adjustParticleCount(true);
+          } else if (event.key === "ArrowDown") {
+            // Down arrow key - Decrease particles by /2
+            this.adjustParticleCount(false);
+          }
+        }.bind(this)
+      );
+
+      // Bind update function once
+      this.update = this.update.bind(this);
+      requestAnimationFrame(this.update);
+    }),
+    // Initialize grid dimensions and variables
+    (b.prototype.initGrid = function () {
+      this.gridCellSize = Math.max(
+        this.options.particleInteractionDistance,
+        this.options.lineConnectionDistance,
+        this.options.maxColorChangeDistance,
+        this.options.proximityEffectDistance
+      );
+
+      this.gridWidth = Math.ceil(this.canvas.width / this.gridCellSize);
+      this.gridHeight = Math.ceil(this.canvas.height / this.gridCellSize);
+      this.gridSize = this.gridWidth * this.gridHeight;
     }),
     (b.prototype.setupPerformanceOverlay = function () {
       this.performanceDiv = document.createElement("div");
@@ -281,7 +427,9 @@
       this.performanceDiv.style.backgroundColor = "rgba(0, 0, 0, 0.5)";
       this.performanceDiv.style.padding = "5px";
       this.performanceDiv.style.fontFamily = "monospace";
+      this.performanceDiv.style.zIndex = "1000";
       this.i.appendChild(this.performanceDiv);
+
       this.lastFrameTime = performance.now();
       this.frameCount = 0;
       this.fpsHistory = [];
@@ -294,118 +442,167 @@
         var fps = (this.frameCount / delta) * 1000;
         this.fpsHistory.push(fps);
         if (this.fpsHistory.length > 10) this.fpsHistory.shift();
-        var avgFps = this.fpsHistory.reduce((a, b) => a + b) / this.fpsHistory.length;
-        this.performanceDiv.innerHTML = `FPS: ${fps.toFixed(2)}<br>Avg FPS (last 10s): ${avgFps.toFixed(2)}`;
+        var avgFps =
+          this.fpsHistory.reduce(function (a, b) {
+            return a + b;
+          }, 0) / this.fpsHistory.length;
+        this.performanceDiv.innerHTML = "FPS: " + fps.toFixed(2) + "<br>Avg FPS (last 10s): " + avgFps.toFixed(2);
         this.lastFrameTime = now;
         this.frameCount = 0;
       }
     }),
     (b.prototype.update = function () {
-      this.g.clearRect(0, 0, this.canvas.width, this.canvas.height), (this.g.globalAlpha = 1);
+      var options = this.options;
+      var particles = this.o;
+      var numParticles = particles.length;
+      var g = this.g;
 
-      function hexToRgb(hex) {
-        var bigint = parseInt(hex.slice(1), 16);
-        return [(bigint >> 16) & 255, (bigint >> 8) & 255, bigint & 255];
+      g.clearRect(0, 0, this.canvas.width, this.canvas.height);
+      g.globalAlpha = 1;
+
+      if (options.performanceOverlay) {
+        this.updatePerformanceOverlay();
       }
 
-      function interpolateColor(startColor, endColor, factor) {
-        var result = [];
-        for (var i = 0; i < 3; i++) {
-          result[i] = Math.round(startColor[i] + factor * (endColor[i] - startColor[i]));
+      // Update particles
+      for (var i = 0; i < numParticles; i++) {
+        particles[i].update(
+          this.attractionForce,
+          this.repulsionForce,
+          options.attractionRange,
+          options.attractionIntensity,
+          options.repulsionRange,
+          options.repulsionIntensity
+        );
+      }
+
+      // Build the grid
+      var gridCellSize = this.gridCellSize;
+      var gridWidth = this.gridWidth;
+      var gridHeight = this.gridHeight;
+      var gridSize = this.gridSize;
+
+      var grid = new Array(gridSize);
+      for (i = 0; i < gridSize; i++) {
+        grid[i] = [];
+      }
+
+      // Assign particles to grid cells
+      for (i = 0; i < numParticles; i++) {
+        var particle = particles[i];
+
+        var gridX = Math.floor(particle.x / gridCellSize);
+        var gridY = Math.floor(particle.y / gridCellSize);
+
+        gridX = Math.min(Math.max(gridX, 0), gridWidth - 1);
+        gridY = Math.min(Math.max(gridY, 0), gridHeight - 1);
+
+        var cellIndex = gridX + gridY * gridWidth;
+        grid[cellIndex].push(particle);
+      }
+
+      var interactionDistanceSq = options.particleInteractionDistance * options.particleInteractionDistance;
+      var lineConnectionDistanceSq = options.lineConnectionDistance * options.lineConnectionDistance;
+      var maxColorChangeDistanceSq = options.maxColorChangeDistance * options.maxColorChangeDistance;
+
+      var maxOffset = Math.ceil(options.lineConnectionDistance / gridCellSize);
+
+      // Update line hues if cycling
+      if (options.lineColorCycling) {
+        var minDifference = 50;
+        var cyclingSpeed = options.lineCyclingSpeed;
+
+        // Gradually change hues
+        this.lineHue1 = (this.lineHue1 + cyclingSpeed) % 360;
+        this.lineHue2 = (this.lineHue2 + cyclingSpeed) % 360;
+
+        // Ensure minimum difference is maintained
+        var diff = Math.abs(this.lineHue1 - this.lineHue2);
+        diff = diff > 180 ? 360 - diff : diff;
+
+        if (diff < minDifference) {
+          // Adjust hue2 gradually
+          var adjustment = (minDifference - diff) * 0.1; // Gradual adjustment
+          this.lineHue2 = (this.lineHue2 + adjustment) % 360;
         }
-        return result;
-      }
 
-      function rgbToString(rgb) {
-        return "rgb(" + rgb[0] + "," + rgb[1] + "," + rgb[2] + ")";
-      }
-
-      var startColorRgb = hexToRgb(this.options.startColor);
-      var endColorRgb = hexToRgb(this.options.endColor);
-
-      if (this.options.lineColorCycling) {
-        this.lineHue1 = (this.lineHue1 || Math.random() * 360) + this.options.lineCyclingSpeed + (Math.random() - 0.5);
-        this.lineHue2 = (this.lineHue2 || Math.random() * 360) + this.options.lineCyclingSpeed + (Math.random() - 0.5); // Start lineHue2 with a different value
-        if (this.lineHue1 >= 360) this.lineHue1 -= 360;
-        if (this.lineHue2 >= 360) this.lineHue2 -= 360;
-        var currentLineColor1 = `hsl(${this.lineHue1}, 100%, 50%)`;
-        var currentLineColor2 = `hsl(${this.lineHue2}, 100%, 50%)`;
+        this.currentLineColor1 = "hsl(" + this.lineHue1 + ", 100%, 50%)";
+        this.currentLineColor2 = "hsl(" + this.lineHue2 + ", 100%, 50%)";
       } else {
-        var currentLineColor1 = this.options.gradientColor1;
-        var currentLineColor2 = this.options.gradientColor2;
+        this.currentLineColor1 = options.gradientColor1;
+        this.currentLineColor2 = options.gradientColor2;
       }
 
-      for (var a = 0; a < this.o.length; a++) {
-        this.o[a].update(
-          this.attractiveForce,
-          this.repulsiveForce,
-          this.options.forceDistance,
-          this.options.forceStrength
-        ),
-          this.o[a].h();
-        for (var b = this.o.length - 1; b > a; b--) {
-          var c = Math.sqrt(Math.pow(this.o[a].x - this.o[b].x, 2) + Math.pow(this.o[a].y - this.o[b].y, 2));
-          if (c < this.options.explosionRadius) {
-            createExplosion(
-              this.o,
-              (this.o[a].x + this.o[b].x) / 2,
-              (this.o[a].y + this.o[b].y) / 2,
-              this.options.explosionRadius
-            );
-          }
-          if (c > this.options.maxColorChangeDistance) continue;
-          var gradient = this.g.createLinearGradient(this.o[a].x, this.o[a].y, this.o[b].x, this.o[b].y);
-          if (this.options.useDistanceEffect) {
-            var colorFactor = Math.min(c / this.options.maxColorChangeDistance, 1);
-            var interpolatedColor = interpolateColor(startColorRgb, endColorRgb, colorFactor);
-            var colorString = rgbToString(interpolatedColor);
-            gradient.addColorStop(0, colorString);
-            gradient.addColorStop(1, colorString);
-          } else if (this.options.lineColorCycling && this.options.gradientEffect) {
-            gradient.addColorStop(0, currentLineColor1);
-            gradient.addColorStop(1, currentLineColor2);
-          } else if (this.options.lineColorCycling) {
-            gradient.addColorStop(0, currentLineColor1);
-            gradient.addColorStop(1, currentLineColor1);
-          } else if (this.options.gradientEffect) {
-            gradient.addColorStop(0, this.options.gradientColor1);
-            gradient.addColorStop(1, this.options.gradientColor2);
-          } else {
-            gradient.addColorStop(0, this.options.gradientColor1);
-            gradient.addColorStop(1, this.options.gradientColor1);
-          }
-          if (this.options.interactive && this.p) {
-            var d = Math.sqrt(Math.pow(this.p.x - this.o[a].x, 2) + Math.pow(this.p.y - this.o[a].y, 2));
-            if (d < this.options.proximityEffectDistance) {
-              gradient = this.g.createLinearGradient(this.o[a].x, this.o[a].y, this.o[b].x, this.o[b].y);
-              gradient.addColorStop(0, this.options.proximityEffectColor);
-              if (this.options.useDistanceEffect) {
-                gradient.addColorStop(1, colorString);
-              } else if (this.options.lineColorCycling && this.options.gradientEffect) {
-                gradient.addColorStop(1, currentLineColor2);
-              } else if (this.options.lineColorCycling) {
-                gradient.addColorStop(1, currentLineColor1);
-              } else if (this.options.gradientEffect) {
-                gradient.addColorStop(1, this.options.gradientColor2);
-              } else {
-                gradient.addColorStop(1, this.options.gradientColor1);
+      // Process interactions
+      for (var x = 0; x < gridWidth; x++) {
+        for (var y = 0; y < gridHeight; y++) {
+          var cellIndex = x + y * gridWidth;
+          var cellParticles = grid[cellIndex];
+          var numCellParticles = cellParticles.length;
+
+          for (var m = 0; m < numCellParticles; m++) {
+            var particleA = cellParticles[m];
+
+            particleA.h(); // Draw particle
+
+            // Interactions within the same cell
+            for (var n = m + 1; n < numCellParticles; n++) {
+              var particleB = cellParticles[n];
+              interactParticles(this, particleA, particleB);
+            }
+
+            // Interactions with neighboring cells
+            for (var offsetX = -1; offsetX <= 1; offsetX++) {
+              var neighborX = x + offsetX;
+              if (neighborX < 0 || neighborX >= gridWidth) continue;
+
+              for (var offsetY = -1; offsetY <= 1; offsetY++) {
+                var neighborY = y + offsetY;
+                if (neighborY < 0 || neighborY >= gridHeight) continue;
+                if (offsetX === 0 && offsetY === 0) continue;
+
+                var neighborIndex = neighborX + neighborY * gridWidth;
+                var neighborParticles = grid[neighborIndex];
+                var numNeighborParticles = neighborParticles.length;
+
+                for (var k = 0; k < numNeighborParticles; k++) {
+                  var particleB = neighborParticles[k];
+                  if (particleA.index < particleB.index) {
+                    interactParticles(this, particleA, particleB);
+                  }
+                }
               }
             }
           }
-          this.g.beginPath(),
-            (this.g.strokeStyle = gradient),
-            (this.g.globalAlpha = (120 - c) / 120),
-            (this.g.lineWidth = 1.2),
-            this.g.moveTo(this.o[a].x, this.o[a].y),
-            this.g.lineTo(this.o[b].x, this.o[b].y),
-            this.g.stroke();
         }
       }
-      // Update performance overlay
-      if (this.options.performanceOverlay) {
-        this.updatePerformanceOverlay();
+
+      if (options.velocity !== 0) {
+        requestAnimationFrame(this.update);
       }
-      0 !== this.options.velocity && requestAnimationFrame(this.update.bind(this));
+    }),
+    (b.prototype.adjustParticleCount = function (increase) {
+      if (increase) {
+        // Double the number of particles
+        var currentCount = this.o.length;
+        for (var i = 0; i < currentCount; i++) {
+          var particle = new c(this);
+          particle.index = this.o.length;
+          this.o.push(particle);
+        }
+      } else {
+        // Halve the number of particles
+        var halfCount = Math.floor(this.o.length / 2);
+        this.o = this.o.slice(0, halfCount);
+      }
+
+      // Recalculate indices
+      for (var i = 0; i < this.o.length; i++) {
+        this.o[i].index = i;
+      }
+
+      // Re-initialize the grid with the new particle count
+      this.initGrid();
     }),
     (b.prototype.setVelocity = function (a) {
       return "fast" === a ? 1 : "slow" === a ? 0.33 : "none" === a ? 0 : 0.66;
@@ -418,10 +615,148 @@
     }),
     b
   );
+
+  function interactParticles(network, particleA, particleB) {
+    var options = network.options;
+    var dx = particleA.x - particleB.x;
+    var dy = particleA.y - particleB.y;
+    var distanceSq = dx * dx + dy * dy;
+
+    if (distanceSq < 0.0001) return;
+
+    if (distanceSq < options.particleInteractionDistance * options.particleInteractionDistance) {
+      var distance = Math.sqrt(distanceSq);
+      applyParticleInteraction(
+        [particleA, particleB],
+        (particleA.x + particleB.x) / 2,
+        (particleA.y + particleB.y) / 2,
+        options.particleInteractionDistance,
+        options.particleRepulsionForce
+      );
+    }
+
+    if (distanceSq > options.maxColorChangeDistance * options.maxColorChangeDistance) return;
+
+    if (distanceSq <= options.lineConnectionDistance * options.lineConnectionDistance) {
+      var distance = Math.sqrt(distanceSq);
+      var g = network.g;
+      var gradient;
+
+      if (options.useDistanceEffect) {
+        var colorFactor = Math.min(distance / options.maxColorChangeDistance, 1);
+        var interpolatedColor = interpolateColor(network.startColorRgb, network.endColorRgb, colorFactor);
+        var colorString = rgbToString(interpolatedColor);
+        gradient = g.createLinearGradient(particleA.x, particleA.y, particleB.x, particleB.y);
+        gradient.addColorStop(0, colorString);
+        gradient.addColorStop(1, colorString);
+      } else if (options.lineColorCycling && options.gradientEffect) {
+        gradient = g.createLinearGradient(particleA.x, particleA.y, particleB.x, particleB.y);
+        gradient.addColorStop(0, network.currentLineColor1);
+        gradient.addColorStop(1, network.currentLineColor2);
+      } else if (options.lineColorCycling) {
+        gradient = network.cachedGradient1;
+        if (!gradient) {
+          gradient = g.createLinearGradient(0, 0, 0, 0);
+          gradient.addColorStop(0, network.currentLineColor1);
+          gradient.addColorStop(1, network.currentLineColor1);
+          network.cachedGradient1 = gradient;
+        }
+      } else if (options.gradientEffect) {
+        gradient = g.createLinearGradient(particleA.x, particleA.y, particleB.x, particleB.y);
+        gradient.addColorStop(0, options.gradientColor1);
+        gradient.addColorStop(1, options.gradientColor2);
+      } else {
+        gradient = network.cachedGradient2;
+        if (!gradient) {
+          gradient = g.createLinearGradient(0, 0, 0, 0);
+          gradient.addColorStop(0, options.gradientColor1);
+          gradient.addColorStop(1, options.gradientColor1);
+          network.cachedGradient2 = gradient;
+        }
+      }
+
+      if (options.interactive && network.p) {
+        var dX = network.p.x - particleA.x;
+        var dY = network.p.y - particleA.y;
+        var dSq = dX * dX + dY * dY;
+        var d = Math.sqrt(dSq);
+        if (d < options.proximityEffectDistance) {
+          gradient = g.createLinearGradient(particleA.x, particleA.y, particleB.x, particleB.y);
+          gradient.addColorStop(0, options.proximityEffectColor);
+          if (options.useDistanceEffect) {
+            gradient.addColorStop(1, colorString);
+          } else if (options.lineColorCycling && options.gradientEffect) {
+            gradient.addColorStop(1, network.currentLineColor2);
+          } else if (options.lineColorCycling) {
+            gradient.addColorStop(1, network.currentLineColor1);
+          } else if (options.gradientEffect) {
+            gradient.addColorStop(1, options.gradientColor2);
+          } else {
+            gradient.addColorStop(1, options.gradientColor1);
+          }
+        }
+      }
+      g.beginPath();
+      g.strokeStyle = gradient;
+      g.globalAlpha = (options.lineConnectionDistance - distance) / options.lineConnectionDistance;
+      g.lineWidth = 1.2;
+      g.moveTo(particleA.x, particleA.y);
+      g.lineTo(particleB.x, particleB.y);
+      g.stroke();
+    }
+    if (isNaN(particleA.velocity.x) || isNaN(particleA.velocity.y)) {
+      console.warn("particleA velocity is NaN. Resetting to zero.");
+      particleA.velocity.x = 0;
+      particleA.velocity.y = 0;
+    }
+
+    if (isNaN(particleB.velocity.x) || isNaN(particleB.velocity.y)) {
+      console.warn("particleB velocity is NaN. Resetting to zero.");
+      particleB.velocity.x = 0;
+      particleB.velocity.y = 0;
+    }
+  }
+
+  // Include the PerformanceMonitor class within the scope
+  function PerformanceMonitor(container) {
+    this.performanceDiv = document.createElement("div");
+    this.performanceDiv.className = "performance-overlay";
+    this.performanceDiv.style.position = "absolute";
+    this.performanceDiv.style.top = "10px";
+    this.performanceDiv.style.left = "10px";
+    this.performanceDiv.style.color = "white";
+    this.performanceDiv.style.backgroundColor = "rgba(0, 0, 0, 0.5)";
+    this.performanceDiv.style.padding = "5px";
+    this.performanceDiv.style.fontFamily = "monospace";
+    this.performanceDiv.style.zIndex = "1000";
+    container.appendChild(this.performanceDiv);
+
+    this.lastFrameTime = performance.now();
+    this.frameCount = 0;
+    this.fpsHistory = [];
+  }
+
+  PerformanceMonitor.prototype.update = function () {
+    var now = performance.now();
+    this.frameCount++;
+    var delta = now - this.lastFrameTime;
+    if (delta >= 1000) {
+      var fps = (this.frameCount / delta) * 1000;
+      this.fpsHistory.push(fps);
+      if (this.fpsHistory.length > 10) this.fpsHistory.shift();
+      var avgFps = this.fpsHistory.reduce((a, b) => a + b, 0) / this.fpsHistory.length;
+      this.performanceDiv.innerHTML = `FPS: ${fps.toFixed(2)}<br>
+            Avg FPS (last 10s): ${avgFps.toFixed(2)}`;
+      this.lastFrameTime = now;
+      this.frameCount = 0;
+    }
+  };
 });
 
+// Usage example (unchanged)
 var canvasDiv = document.getElementById("particle-canvas");
 var options = {
+  performanceOverlay: false,
   // Background options
   background: "#000000",
 
@@ -444,8 +779,10 @@ var options = {
   interactive: true,
   proximityEffectColor: "#0080ff",
   proximityEffectDistance: 125,
-  forceDistance: 5,
-  forceStrength: 5,
+  attractionRange: 5,
+  attractionIntensity: 5,
+  repulsionRange: 2,
+  repulsionIntensity: 2,
 
   // Velocity and density options
   speed: "1",
@@ -459,10 +796,10 @@ var options = {
   endColor: "#BF00FF",
 
   // Explosion options
-  explosionRadius: 2,
+  particleInteractionDistance: 1,
+  particleRepulsionForce: 3,
 
-  // Performance overlay
-  performanceOverlay: false,
+  lineConnectionDistance: 120,
 };
 
 var particleCanvas = new ParticleNetwork(canvasDiv, options);

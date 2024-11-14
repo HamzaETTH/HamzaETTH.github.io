@@ -71,6 +71,8 @@ section, main {
   margin: 0 auto;
   letter-spacing: 0;
   animation: typing 2.5s steps(10), blink-caret 0.75s step-end infinite;
+  user-select: none;
+  pointer-events: none;
 }
 
 .center-text {
