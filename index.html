@@ -44,6 +44,486 @@
         </div>
       </section>
     </main>
-    <script src="./js/particleNetwork.js"></script>
+    <!-- Load modules in the right order -->
+    <script src="./js/Config.js"></script>
+    <script src="./js/ColorUtils.js"></script>
+    <script src="./js/PerformanceMonitor.js"></script>
+    <script src="./js/ParticleRenderer.js"></script>
+    <script src="./js/ParticlePhysics.js"></script>
+    <script src="./js/ParticleCore.js"></script>
+    <script src="./js/ParticleRendererGL.js"></script>
+    <script src="./js/ParticleNetwork.js"></script>
+    <script>
+      // Initialize on page load
+      document.addEventListener('DOMContentLoaded', function() {
+        // Access the existing particleInstance
+        console.log('Initialized: particleInstance exists =', !!window.particleInstance);
+        if (window.particleInstance) {
+          console.log('performanceMonitor exists =', !!window.particleInstance.performanceMonitor);
+        }
+      });
+      
+      // Color method cycling
+      const colorMethods = [
+        'hueDistance',
+        'complementary',
+        'triadic',
+        'analogous', 
+        'labPerceptual',
+        'wcagContrast'
+      ];
+      
+      let currentColorMethodIndex = 0;
+      
+      // Method to cycle to the next color method
+      function cycleColorMethod() {
+        currentColorMethodIndex = (currentColorMethodIndex + 1) % colorMethods.length;
+        const newMethod = colorMethods[currentColorMethodIndex];
+        
+        console.log('Color method changed to:', newMethod);
+        
+        // Show temporary indicator of which method is active
+        const methodIndicator = document.createElement('div');
+        methodIndicator.textContent = `Color Method: ${newMethod}`;
+        methodIndicator.style.position = 'fixed';
+        methodIndicator.style.top = '10px';
+        methodIndicator.style.right = '10px';
+        methodIndicator.style.background = 'rgba(0,0,0,0.7)';
+        methodIndicator.style.color = 'white';
+        methodIndicator.style.padding = '8px 12px';
+        methodIndicator.style.borderRadius = '4px';
+        methodIndicator.style.fontFamily = 'Fira Code, monospace';
+        methodIndicator.style.zIndex = '1000';
+        document.body.appendChild(methodIndicator);
+        
+        // Remove the indicator after 2 seconds
+        setTimeout(() => {
+          document.body.removeChild(methodIndicator);
+        }, 2000);
+        
+        // Direct manipulation of the colors of the auto-created instance
+        if (window.ColorUtils && window.ColorDiffMethod && window.particleInstance) {
+          const methodName = newMethod.toUpperCase();
+          const method = window.ColorDiffMethod[methodName] || window.ColorDiffMethod.HUE_DISTANCE;
+          
+          // Get the lineHue1 from the existing network and generate a new lineHue2
+          if (window.particleInstance.lineHue1) {
+            // Generate new color based on the selected method
+            window.particleInstance.lineHue2 = window.ColorUtils.generateDistinctColor(
+              window.particleInstance.lineHue1, 
+              method,
+              {}
+            );
+          }
+        }
+      }
+      
+      // Add key event listener for 'M' key (color method cycle)
+      window.addEventListener('keydown', function(event) {
+        // Check if 'm' or 'M' was pressed
+        if (event.key.toLowerCase() === 'm') {
+          console.log('M key pressed');
+          cycleColorMethod();
+        }
+        
+        // Check if 'p' or 'P' was pressed to toggle performance overlay
+        if (event.key.toLowerCase() === 'p') {
+          console.log('P key pressed - toggling performance overlay');
+          
+          // DEBUG: Check if we can access particleInstance
+          console.log('particleInstance exists:', !!window.particleInstance);
+          if (window.particleInstance) {
+            console.log('performanceMonitor exists:', !!window.particleInstance.performanceMonitor);
+            if (window.particleInstance.performanceMonitor) {
+              console.log('toggleOverlay method exists:', !!window.particleInstance.performanceMonitor.toggleOverlay);
+            }
+          }
+          
+          // Access the performance monitor instance
+          if (window.particleInstance && window.particleInstance.performanceMonitor) {
+            // Toggle the overlay visibility
+            window.particleInstance.performanceMonitor.toggleOverlay();
+            
+            // Show a temporary indicator
+            const overlayEnabled = window.particleInstance.performanceMonitor.options.showOverlay;
+            const statusIndicator = document.createElement('div');
+            statusIndicator.textContent = `Performance Overlay: ${overlayEnabled ? 'Enabled' : 'Disabled'}`;
+            statusIndicator.style.position = 'fixed';
+            statusIndicator.style.top = '10px';
+            statusIndicator.style.right = '10px';
+            statusIndicator.style.background = 'rgba(0,0,0,0.7)';
+            statusIndicator.style.color = 'white';
+            statusIndicator.style.padding = '8px 12px';
+            statusIndicator.style.borderRadius = '4px';
+            statusIndicator.style.fontFamily = 'Fira Code, monospace';
+            statusIndicator.style.zIndex = '1000';
+            document.body.appendChild(statusIndicator);
+            
+            // Remove the indicator after 2 seconds
+            setTimeout(() => {
+              document.body.removeChild(statusIndicator);
+            }, 2000);
+            
+            // Special fix: Force-hide all performance overlays in the DOM to ensure clean state
+            const allOverlays = document.querySelectorAll('.performance-overlay');
+            allOverlays.forEach(overlay => {
+              if (!overlayEnabled) {
+                overlay.style.display = 'none';
+              } else {
+                // Only show the main one
+                if (overlay === window.particleInstance.performanceMonitor.performanceDiv) {
+                  overlay.style.display = 'block';
+                } else {
+                  overlay.style.display = 'none';
+                }
+              }
+            });
+          } else {
+            console.error('Could not access performanceMonitor. Make sure particleInstance is properly exported and includes a performanceMonitor property.');
+          }
+        }
+      });
+      
+      console.log('Color cycling script loaded. Press M to cycle through color methods.');
+      console.log('Press P to toggle performance overlay.');
+    </script>
+    <script type="module">
+      import {Pane} from 'https://cdn.jsdelivr.net/npm/tweakpane@4.0.5/dist/tweakpane.min.js';
+
+      // Utility: create container for pane we can show/hide
+      function ensurePaneContainer() {
+        let el = document.getElementById('tp-container');
+        if (!el) {
+          el = document.createElement('div');
+          el.id = 'tp-container';
+          el.style.position = 'fixed';
+          el.style.top = '12px';
+          el.style.right = '12px';
+          el.style.zIndex = '2000';
+          el.style.display = 'none';
+          document.body.appendChild(el);
+        }
+        return el;
+      }
+
+      function buildParamsFromNetwork(pn) {
+        const o = pn.options || {};
+        return {
+          // Background
+          background: o.background || '#000000',
+
+          // Particles
+          particleColor: o.particleColor || '#ffffff',
+          particleSize: o.particleSize != null ? o.particleSize : 2,
+          particleColorCycling: !!o.particleColorCycling,
+          particleCyclingSpeed: o.particleCyclingSpeed != null ? o.particleCyclingSpeed : 0.01,
+          randomParticleColor: !!o.randomParticleColor,
+          randomIndividualParticleColor: !!o.randomIndividualParticleColor,
+
+          // Lines
+          gradientEffect: o.gradientEffect !== false,
+          gradientColor1: o.gradientColor1 || '#00bfff',
+          gradientColor2: o.gradientColor2 || '#ff4500',
+          lineColorCycling: o.lineColorCycling !== false,
+          lineCyclingSpeed: o.lineCyclingSpeed != null ? o.lineCyclingSpeed : 1,
+          colorDifferentiationMethod: (o.colorDifferentiationMethod || 'hueDistance'),
+
+          // Interaction
+          interactive: o.interactive !== false,
+          proximityEffectColor: o.proximityEffectColor || '#ff0000',
+          proximityEffectDistance: o.proximityEffectDistance != null ? o.proximityEffectDistance : 100,
+          attractionRange: o.attractionRange != null ? o.attractionRange : 1,
+          attractionIntensity: o.attractionIntensity != null ? o.attractionIntensity : 1,
+          repulsionRange: o.repulsionRange != null ? o.repulsionRange : 1,
+          repulsionIntensity: o.repulsionIntensity != null ? o.repulsionIntensity : 1,
+
+          // Physics
+          speed: typeof o.velocity === 'number' ? o.velocity : 0.66,
+          density: pn.options && pn.options.density ? pn.options.density : 10000,
+          boundaryMode: o.boundaryMode || 'bounce',
+
+          // Effects
+          opacity: o.opacity != null ? o.opacity : 0.7,
+          useDistanceEffect: !!o.useDistanceEffect,
+          maxColorChangeDistance: o.maxColorChangeDistance != null ? o.maxColorChangeDistance : 120,
+          startColor: o.startColor || '#0BDA51',
+          endColor: o.endColor || '#BF00FF',
+          lineConnectionDistance: o.lineConnectionDistance != null ? o.lineConnectionDistance : 120,
+          particleInteractionDistance: o.particleInteractionDistance != null ? o.particleInteractionDistance : 50,
+          particleRepulsionForce: o.particleRepulsionForce != null ? o.particleRepulsionForce : 5,
+
+          // Perf
+          performanceOverlay: !!o.performanceOverlay,
+        };
+      }
+
+      function buildDefaultParams() {
+        const D = (window.ParticleNetworkConfig && window.ParticleNetworkConfig.DEFAULT_CONFIG) || {};
+        return {
+          // Background
+          background: D.background || '#000000',
+
+          // Particles
+          particleColor: D.particleColor || '#fff',
+          particleSize: D.particleSize != null ? D.particleSize : 2,
+          particleColorCycling: !!D.particleColorCycling,
+          particleCyclingSpeed: D.particleCyclingSpeed != null ? D.particleCyclingSpeed : 0.01,
+          randomParticleColor: !!D.randomParticleColor,
+          randomIndividualParticleColor: !!D.randomIndividualParticleColor,
+
+          // Lines
+          gradientEffect: D.gradientEffect !== false,
+          gradientColor1: D.gradientColor1 || '#00bfff',
+          gradientColor2: D.gradientColor2 || '#ff4500',
+          lineColorCycling: D.lineColorCycling !== false,
+          lineCyclingSpeed: D.lineCyclingSpeed != null ? D.lineCyclingSpeed : 1,
+          colorDifferentiationMethod: (D.colorDifferentiationMethod || 'hueDistance'),
+
+          // Interaction
+          interactive: D.interactive !== false,
+          proximityEffectColor: D.proximityEffectColor || '#ff0000',
+          proximityEffectDistance: D.proximityEffectDistance != null ? D.proximityEffectDistance : 100,
+          attractionRange: D.attractionRange != null ? D.attractionRange : 1,
+          attractionIntensity: D.attractionIntensity != null ? D.attractionIntensity : 1,
+          repulsionRange: D.repulsionRange != null ? D.repulsionRange : 1,
+          repulsionIntensity: D.repulsionIntensity != null ? D.repulsionIntensity : 1,
+
+          // Physics (Config has no explicit defaults for these)
+          speed: 0.66,
+          density: 10000,
+          boundaryMode: D.boundaryMode || 'bounce',
+
+          // Effects
+          opacity: D.opacity != null ? D.opacity : 0.7,
+          useDistanceEffect: !!D.useDistanceEffect,
+          maxColorChangeDistance: D.maxColorChangeDistance != null ? D.maxColorChangeDistance : 120,
+          startColor: D.startColor || '#0BDA51',
+          endColor: D.endColor || '#BF00FF',
+          lineConnectionDistance: D.lineConnectionDistance != null ? D.lineConnectionDistance : 120,
+          particleInteractionDistance: D.particleInteractionDistance != null ? D.particleInteractionDistance : 50,
+          particleRepulsionForce: D.particleRepulsionForce != null ? D.particleRepulsionForce : 5,
+
+          // Perf
+          performanceOverlay: !!D.performanceOverlay,
+        };
+      }
+
+      function applyParamsToNetwork(pn, p) {
+        if (!pn) return;
+        const o = pn.options;
+
+        // Color helpers
+        const normalizeHex = (hex) => {
+          if (typeof hex !== 'string') return hex;
+          const m = /^#([0-9a-f])([0-9a-f])([0-9a-f])$/i.exec(hex);
+          if (!m) return hex;
+          return `#${m[1]}${m[1]}${m[2]}${m[2]}${m[3]}${m[3]}`;
+        };
+        const toCssColor = (val) => {
+          if (typeof val === 'string') return normalizeHex(val);
+          if (val && typeof val === 'object') {
+            const r = 'r' in val ? val.r : 0;
+            const g = 'g' in val ? val.g : 0;
+            const b = 'b' in val ? val.b : 0;
+            const a = 'a' in val ? val.a : 1;
+            const ri = r > 1 ? Math.round(r) : Math.round(r * 255);
+            const gi = g > 1 ? Math.round(g) : Math.round(g * 255);
+            const bi = b > 1 ? Math.round(b) : Math.round(b * 255);
+            const aa = a > 1 ? a / 255 : a;
+            return `rgba(${ri}, ${gi}, ${bi}, ${aa})`;
+          }
+          return val;
+        };
+
+        // Simple assigns
+        const keys = [
+          'particleColor','particleColorCycling','particleCyclingSpeed','randomParticleColor','randomIndividualParticleColor',
+          'gradientEffect','gradientColor1','gradientColor2','lineColorCycling','lineCyclingSpeed',
+          'interactive','proximityEffectColor','proximityEffectDistance','attractionRange','attractionIntensity','repulsionRange','repulsionIntensity',
+          'opacity','useDistanceEffect','maxColorChangeDistance','startColor','endColor','lineConnectionDistance',
+          'particleInteractionDistance','particleRepulsionForce','performanceOverlay','boundaryMode','colorDifferentiationMethod'
+        ];
+        keys.forEach(k => { o[k] = p[k]; });
+
+        // Normalize key color strings
+        o.particleColor = toCssColor(o.particleColor);
+        o.gradientColor1 = toCssColor(o.gradientColor1);
+        o.gradientColor2 = toCssColor(o.gradientColor2);
+        o.proximityEffectColor = toCssColor(o.proximityEffectColor);
+        o.startColor = toCssColor(o.startColor);
+        o.endColor = toCssColor(o.endColor);
+
+        // Background update (color or image URL)
+        o.background = toCssColor(p.background);
+        if (pn.k) {
+          const isHex = typeof o.background === 'string' && /^#([0-9a-f]{3}|[0-9a-f]{6})$/i.test(o.background);
+          const isRgba = typeof o.background === 'string' && /^rgba?\(/i.test(o.background);
+          const isColor = isHex || isRgba;
+          if (isColor) {
+            // Apply solid color to wrapper and body
+            pn.k.style.background = o.background;
+            pn.k.style.backgroundImage = '';
+            document.body.style.background = o.background;
+            document.body.style.backgroundImage = '';
+          } else if (typeof o.background === 'string' && o.background.length > 0) {
+            // Treat as image URL for wrapper and body
+            const url = o.background;
+            pn.k.style.background = '';
+            pn.k.style.backgroundImage = 'url("' + url + '")';
+            pn.k.style.backgroundRepeat = 'no-repeat';
+            pn.k.style.backgroundPosition = 'center';
+            pn.k.style.backgroundSize = 'cover';
+
+            document.body.style.background = '';
+            document.body.style.backgroundImage = 'url("' + url + '")';
+            document.body.style.backgroundRepeat = 'no-repeat';
+            document.body.style.backgroundPosition = 'center';
+            document.body.style.backgroundSize = 'cover';
+          }
+        }
+
+        // Speed: numeric velocity
+        o.velocity = typeof p.speed === 'number' ? p.speed : pn.setVelocity(p.speed);
+
+        // Density: rebuild particle arrays based on new density
+        if (typeof p.density === 'number' && p.density > 0) {
+          o.density = p.density;
+          if (typeof pn._rebuildOnResize === 'function') pn._rebuildOnResize();
+        }
+
+        // Line grid impact
+        if (typeof pn.initGrid === 'function') pn.initGrid();
+
+        // Particle size and color reapply
+        if (Array.isArray(pn.o)) {
+          for (let i = 0; i < pn.o.length; i++) {
+            const part = pn.o[i];
+            if (part) {
+              part.size = p.particleSize;
+              if (!p.randomIndividualParticleColor && !p.randomParticleColor) {
+                part.particleColor = p.particleColor;
+              }
+            }
+          }
+          // sync SoA size array if present
+          if (pn.sizeA && pn.sizeA.length) {
+            for (let i = 0; i < pn.sizeA.length; i++) pn.sizeA[i] = p.particleSize;
+          }
+        }
+        o.particleSize = p.particleSize;
+
+        // Random color modes immediate application
+        if (p.randomIndividualParticleColor && Array.isArray(pn.o)) {
+          for (let i = 0; i < pn.o.length; i++) {
+            const hue = Math.floor(Math.random() * 360);
+            pn.o[i].particleColor = `hsl(${hue}, 100%, 50%)`;
+          }
+        } else if (p.randomParticleColor && Array.isArray(pn.o)) {
+          const hue = Math.floor(Math.random() * 360);
+          const col = `hsl(${hue}, 100%, 50%)`;
+          o.calculatedParticleColor = col;
+          for (let i = 0; i < pn.o.length; i++) pn.o[i].particleColor = col;
+        }
+
+        // Update lineHue2 if method changed
+        if (window.ColorUtils && window.ColorDiffMethod && typeof window.ColorUtils.generateDistinctColor === 'function') {
+          const method = window.ColorDiffMethod[(p.colorDifferentiationMethod || 'hueDistance').toUpperCase()] || window.ColorDiffMethod.HUE_DISTANCE;
+          pn.lineHue2 = window.ColorUtils.generateDistinctColor(pn.lineHue1 || 0, method, o.colorDifferentiationOptions || {});
+        }
+
+        // Performance overlay
+        if (pn.performanceMonitor && typeof pn.performanceMonitor.toggleOverlay === 'function') {
+          pn.performanceMonitor.toggleOverlay(!!p.performanceOverlay);
+        }
+      }
+
+      window.addEventListener('DOMContentLoaded', () => {
+        const pn = window.particleInstance;
+        if (!pn) return;
+
+        const container = ensurePaneContainer();
+        const pane = new Pane({ title: 'Controls', container });
+
+        const PARAMS = buildParamsFromNetwork(pn);
+        // Snapshot current as reset baseline rather than global defaults
+        const DEFAULTS = { ...PARAMS };
+
+        const bg = pane.addFolder({ title: 'Background' });
+        bg.addBinding(PARAMS, 'background', { view: 'color' }).on('change', () => applyParamsToNetwork(pn, PARAMS));
+
+        const part = pane.addFolder({ title: 'Particles' });
+        part.addBinding(PARAMS, 'particleColor', { view: 'color' }).on('change', () => applyParamsToNetwork(pn, PARAMS));
+        part.addBinding(PARAMS, 'particleSize', { min: 1, max: 8, step: 1 }).on('change', () => applyParamsToNetwork(pn, PARAMS));
+        part.addBinding(PARAMS, 'opacity', { min: 0.1, max: 1, step: 0.05 }).on('change', () => applyParamsToNetwork(pn, PARAMS));
+        part.addBinding(PARAMS, 'randomParticleColor').on('change', () => applyParamsToNetwork(pn, PARAMS));
+        part.addBinding(PARAMS, 'randomIndividualParticleColor').on('change', () => applyParamsToNetwork(pn, PARAMS));
+        part.addBinding(PARAMS, 'particleColorCycling').on('change', () => applyParamsToNetwork(pn, PARAMS));
+        part.addBinding(PARAMS, 'particleCyclingSpeed', { min: 0.001, max: 0.1, step: 0.001 }).on('change', () => applyParamsToNetwork(pn, PARAMS));
+
+        const lines = pane.addFolder({ title: 'Lines' });
+        lines.addBinding(PARAMS, 'gradientEffect').on('change', () => applyParamsToNetwork(pn, PARAMS));
+        lines.addBinding(PARAMS, 'gradientColor1', { view: 'color' }).on('change', () => applyParamsToNetwork(pn, PARAMS));
+        lines.addBinding(PARAMS, 'gradientColor2', { view: 'color' }).on('change', () => applyParamsToNetwork(pn, PARAMS));
+        lines.addBinding(PARAMS, 'lineColorCycling').on('change', () => applyParamsToNetwork(pn, PARAMS));
+        lines.addBinding(PARAMS, 'lineCyclingSpeed', { min: 0, max: 5, step: 0.1 }).on('change', () => applyParamsToNetwork(pn, PARAMS));
+        lines.addBinding(PARAMS, 'lineConnectionDistance', { min: 20, max: 300, step: 5 }).on('change', () => applyParamsToNetwork(pn, PARAMS));
+        lines.addBinding(PARAMS, 'colorDifferentiationMethod', { options: {
+          HueDistance: 'hueDistance',
+          Complementary: 'complementary',
+          Triadic: 'triadic',
+          Analogous: 'analogous',
+          LabPerceptual: 'labPerceptual',
+          WCAGContrast: 'wcagContrast'
+        }}).on('change', () => applyParamsToNetwork(pn, PARAMS));
+
+        const inter = pane.addFolder({ title: 'Interaction' });
+        inter.addBinding(PARAMS, 'interactive').on('change', () => applyParamsToNetwork(pn, PARAMS));
+        inter.addBinding(PARAMS, 'proximityEffectColor', { view: 'color' }).on('change', () => applyParamsToNetwork(pn, PARAMS));
+        inter.addBinding(PARAMS, 'proximityEffectDistance', { min: 20, max: 250, step: 5 }).on('change', () => applyParamsToNetwork(pn, PARAMS));
+        inter.addBinding(PARAMS, 'attractionRange', { min: 0, max: 10, step: 0.5 }).on('change', () => applyParamsToNetwork(pn, PARAMS));
+        inter.addBinding(PARAMS, 'attractionIntensity', { min: 0, max: 10, step: 0.5 }).on('change', () => applyParamsToNetwork(pn, PARAMS));
+        inter.addBinding(PARAMS, 'repulsionRange', { min: 0, max: 10, step: 0.5 }).on('change', () => applyParamsToNetwork(pn, PARAMS));
+        inter.addBinding(PARAMS, 'repulsionIntensity', { min: 0, max: 10, step: 0.5 }).on('change', () => applyParamsToNetwork(pn, PARAMS));
+        inter.addBinding(PARAMS, 'particleInteractionDistance', { min: 0, max: 200, step: 1 }).on('change', () => applyParamsToNetwork(pn, PARAMS));
+        inter.addBinding(PARAMS, 'particleRepulsionForce', { min: 0, max: 20, step: 0.5 }).on('change', () => applyParamsToNetwork(pn, PARAMS));
+
+        const phys = pane.addFolder({ title: 'Physics' });
+        phys.addBinding(PARAMS, 'speed', { min: 0, max: 2, step: 0.01 }).on('change', () => applyParamsToNetwork(pn, PARAMS));
+        phys.addBinding(PARAMS, 'density', { min: 1000, max: 20000, step: 500 }).on('change', () => applyParamsToNetwork(pn, PARAMS));
+        phys.addBinding(PARAMS, 'boundaryMode', { options: { bounce: 'bounce', wrap: 'wrap', none: 'none' }}).on('change', () => applyParamsToNetwork(pn, PARAMS));
+
+        const effects = pane.addFolder({ title: 'Color Distance Effect' });
+        effects.addBinding(PARAMS, 'useDistanceEffect').on('change', () => applyParamsToNetwork(pn, PARAMS));
+        effects.addBinding(PARAMS, 'maxColorChangeDistance', { min: 20, max: 400, step: 5 }).on('change', () => applyParamsToNetwork(pn, PARAMS));
+        effects.addBinding(PARAMS, 'startColor', { view: 'color' }).on('change', () => applyParamsToNetwork(pn, PARAMS));
+        effects.addBinding(PARAMS, 'endColor', { view: 'color' }).on('change', () => applyParamsToNetwork(pn, PARAMS));
+
+        const perf = pane.addFolder({ title: 'Performance' });
+        perf.addBinding(PARAMS, 'performanceOverlay').on('change', () => applyParamsToNetwork(pn, PARAMS));
+
+        // Reset to default button
+        const resetBtn = pane.addButton({ title: 'Reset to Default' });
+        const doReset = () => {
+          Object.keys(DEFAULTS).forEach(k => { PARAMS[k] = DEFAULTS[k]; });
+          applyParamsToNetwork(pn, PARAMS);
+          if (typeof pane.refresh === 'function') pane.refresh();
+        };
+        resetBtn.on('click', doReset);
+
+        // Toggle pane with 'c'
+        function togglePane() {
+          const isHidden = container.style.display === 'none';
+          container.style.display = isHidden ? 'block' : 'none';
+        }
+        window.addEventListener('keydown', (e) => {
+          if (e.key.toLowerCase() === 'c') {
+            togglePane();
+          }
+          if (e.key.toLowerCase() === 'r') {
+            doReset();
+          }
+        });
+      });
+    </script>
   </body>
 </html>
