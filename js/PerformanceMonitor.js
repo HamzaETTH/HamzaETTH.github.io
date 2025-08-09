@@ -12,50 +12,58 @@
    * @param {Object} options - Optional configuration settings
    */
   function PerformanceMonitor(container, options = {}) {
-    // Default options
+    // Options
+    const o = options || {};
     this.options = {
-      showOverlay: true,
-      historyLength: 10,
-      updateInterval: 1000, // ms
-      ...options
+      showOverlay: !!o.showOverlay,
+      displayInterval: 1000, // ms between text refreshes
+      memoryInterval: 1000  // ms between memory reads
     };
 
-    // Check for existing monitors and remove them (prevents duplicates)
-    const existingMonitors = container.querySelectorAll('.performance-overlay');
-    existingMonitors.forEach(monitor => {
-      monitor.remove();
-    });
-    
-    // Create overlay element if enabled
-    this.performanceDiv = document.createElement("div");
-    this.performanceDiv.className = "performance-overlay";
-    this.performanceDiv.style.position = "absolute";
-    this.performanceDiv.style.top = "10px";
-    this.performanceDiv.style.left = "10px";
-    this.performanceDiv.style.color = "white";
-    this.performanceDiv.style.backgroundColor = "rgba(0, 0, 0, 0.5)";
-    this.performanceDiv.style.padding = "5px";
-    this.performanceDiv.style.fontFamily = "monospace";
-    this.performanceDiv.style.zIndex = "1000";
-    
-    // Set initial visibility based on options
-    if (!this.options.showOverlay) {
-      this.performanceDiv.style.display = 'none';
+    // Ensure a single active monitor updates; others become no-ops
+    if (!window.__PN_ACTIVE_MONITOR__) {
+      window.__PN_ACTIVE_MONITOR__ = this;
     }
-    
-    container.appendChild(this.performanceDiv);
+    this._isActive = window.__PN_ACTIVE_MONITOR__ === this;
+
+    // Reuse existing overlay if present; otherwise create one and attach to body
+    let overlay = document.querySelector('.performance-overlay');
+    if (!overlay) {
+      overlay = document.createElement('div');
+      overlay.className = 'performance-overlay';
+      document.body.appendChild(overlay);
+    }
+    this.performanceDiv = overlay;
+
+    // Stable text node using <pre> to avoid reflow/jitter
+    let pre = this.performanceDiv.querySelector('pre');
+    if (!pre) {
+      pre = document.createElement('pre');
+      pre.textContent = '';
+      pre.style.margin = '0';
+      this.performanceDiv.appendChild(pre);
+    }
+    this._textEl = pre;
+
+    // Initial visibility
+    if (this.options.showOverlay) {
+      this.performanceDiv.classList.add('visible');
+    } else {
+      this.performanceDiv.classList.remove('visible');
+    }
 
     // Initialize tracking variables
-    this.lastFrameTime = performance.now();
-    this.frameCount = 0;
-    this.fpsHistory = [];
-    this.memoryHistory = [];
+    const now = performance.now();
+    this._prevTime = now;
+    this._displayAcc = 0;
+    this._lastMemUpdate = 0;
+    this._smoothedFps = 0;
     this.isRunning = true;
-    
-    // Additional metrics
+
+    // Metrics
     this.metrics = {
-      avgFps: 0,
       currentFps: 0,
+      avgFps: 0,
       peakFps: 0,
       lowestFps: Infinity,
       memoryUsage: null,
@@ -67,57 +75,45 @@
    * Updates FPS calculation and overlay display
    */
   PerformanceMonitor.prototype.update = function() {
-    // Skip all calculations if not running or overlay is hidden
-    if (!this.isRunning || !this.options.showOverlay) return;
-    
+    // Only the first constructed monitor is active; others are no-ops
+    if (!this._isActive) return;
+    if (!this.isRunning) return;
+
     const now = performance.now();
-    this.frameCount++;
-    const delta = now - this.lastFrameTime;
-    
-    // Update every second
-    if (delta >= this.options.updateInterval) {
-      const fps = (this.frameCount / delta) * 1000;
-      this.fpsHistory.push(fps);
-      
-      // Maintain history length
-      if (this.fpsHistory.length > this.options.historyLength) {
-        this.fpsHistory.shift();
-      }
-      
-      // Calculate metrics
-      this.metrics.currentFps = fps;
-      this.metrics.avgFps = this.fpsHistory.reduce((a, b) => a + b, 0) / this.fpsHistory.length;
-      this.metrics.peakFps = Math.max(this.metrics.peakFps, fps);
-      this.metrics.lowestFps = Math.min(this.metrics.lowestFps, fps);
-      
-      // Get memory usage if available
+    const dt = now - (this._prevTime || now);
+    this._prevTime = now;
+
+    if (dt > 0 && dt < 1000) {
+      const inst = 1000 / dt;
+      this.metrics.currentFps = inst;
+      // EMA with ~250ms time constant
+      const alpha = 1 - Math.exp(-dt / 250);
+      this._smoothedFps = this._smoothedFps ? (this._smoothedFps + alpha * (inst - this._smoothedFps)) : inst;
+      this.metrics.avgFps = this._smoothedFps;
+      this.metrics.peakFps = Math.max(this.metrics.peakFps, this._smoothedFps);
+      this.metrics.lowestFps = Math.min(this.metrics.lowestFps, this._smoothedFps);
+    }
+
+    // Memory sampling
+    if (now - this._lastMemUpdate >= this.options.memoryInterval) {
+      this._lastMemUpdate = now;
       if (window.performance && window.performance.memory) {
         this.metrics.memoryUsage = window.performance.memory.usedJSHeapSize / (1024 * 1024);
-        this.memoryHistory.push(this.metrics.memoryUsage);
-        
-        if (this.memoryHistory.length > this.options.historyLength) {
-          this.memoryHistory.shift();
-        }
       }
-      
-      // Update display (we already know showOverlay is true at this point)
-      if (this.performanceDiv) {
-        let displayText = `FPS: ${fps.toFixed(1)}<br>`;
-        displayText += `Avg FPS (${this.options.historyLength}s): ${this.metrics.avgFps.toFixed(1)}<br>`;
-        
-        if (this.metrics.memoryUsage) {
-          displayText += `Memory: ${this.metrics.memoryUsage.toFixed(1)} MB`;
-        }
-        if (this.metrics.particleCount !== null) {
-          displayText += `<br>Particles: ${this.metrics.particleCount}`;
-        }
-        
-        this.performanceDiv.innerHTML = displayText;
-      }
-      
-      // Reset for next interval
-      this.lastFrameTime = now;
-      this.frameCount = 0;
+    }
+
+    // Throttle text updates to avoid thrash
+    this._displayAcc += dt;
+    if (!this.options.showOverlay || this._displayAcc < this.options.displayInterval) return;
+    this._displayAcc = 0;
+
+    if (this.performanceDiv && this._textEl) {
+      const fps = this._smoothedFps || this.metrics.currentFps || 0;
+      const lines = [];
+      lines.push(`FPS: ${fps.toFixed(1)}`);
+      if (this.metrics.memoryUsage != null) lines.push(`Mem: ${this.metrics.memoryUsage.toFixed(1)} MB`);
+      if (this.metrics.particleCount != null) lines.push(`Particles: ${this.metrics.particleCount}`);
+      this._textEl.textContent = lines.join('\n');
     }
   };
 
@@ -127,18 +123,6 @@
    */
   PerformanceMonitor.prototype.setParticleCount = function(count) {
     this.metrics.particleCount = count;
-    // If overlay visible, refresh text immediately without recomputing FPS
-    if (this.options.showOverlay && this.performanceDiv) {
-      const existing = this.performanceDiv.innerHTML;
-      // regenerate minimal text with latest metrics; don't compute fps here
-      let displayText = `FPS: ${this.metrics.currentFps.toFixed ? this.metrics.currentFps.toFixed(1) : '—'}<br>`;
-      displayText += `Avg FPS (${this.options.historyLength}s): ${this.metrics.avgFps.toFixed ? this.metrics.avgFps.toFixed(1) : '—'}<br>`;
-      if (this.metrics.memoryUsage) {
-        displayText += `Memory: ${this.metrics.memoryUsage.toFixed(1)} MB`;
-      }
-      displayText += `<br>Particles: ${this.metrics.particleCount}`;
-      this.performanceDiv.innerHTML = displayText;
-    }
   };
 
   /**
@@ -146,8 +130,7 @@
    */
   PerformanceMonitor.prototype.start = function() {
     this.isRunning = true;
-    this.lastFrameTime = performance.now();
-    this.frameCount = 0;
+    this._prevTime = performance.now();
   };
 
   /**
@@ -188,19 +171,12 @@
    */
   PerformanceMonitor.prototype.toggleOverlay = function(visible) {
     if (!this.performanceDiv) return;
-    
-    // Update visibility state
-    this.options.showOverlay = visible !== undefined ? visible : !this.options.showOverlay;
-    
-    // Explicitly set display style
-    this.performanceDiv.style.display = this.options.showOverlay ? 'block' : 'none';
-    
-    console.log('Performance overlay toggled:', this.options.showOverlay ? 'visible' : 'hidden');
-    
-    // Reset tracking if hiding to prevent unnecessary calculations when hidden
-    if (!this.options.showOverlay) {
-      this.frameCount = 0;
-      this.lastFrameTime = performance.now();
+    const target = typeof visible === 'boolean' ? !!visible : !this.options.showOverlay;
+    this.options.showOverlay = target;
+    if (target) {
+      this.performanceDiv.classList.add('visible');
+    } else {
+      this.performanceDiv.classList.remove('visible');
     }
   };
 

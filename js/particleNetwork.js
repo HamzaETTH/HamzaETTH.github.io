@@ -54,10 +54,11 @@
   }
 
   var c = function (a) {
-    (this.canvas = a.canvas),
+    (this.network = a),
+      (this.canvas = a.canvas),
       (this.g = a.g),
-      (this.x = Math.random() * this.canvas.width),
-      (this.y = Math.random() * this.canvas.height),
+      (this.x = Math.random() * a.i.size.width),
+      (this.y = Math.random() * a.i.size.height),
       (this.velocity = {
         x: (Math.random() - 0.5) * a.options.velocity,
         y: (Math.random() - 0.5) * a.options.velocity,
@@ -66,9 +67,8 @@
       (this.options = a.options);
 
     this.hue = generateRandomColor();
-    if (this.options.randomIndividualParticleColor) {
-      this.particleColor = `hsl(${this.hue}, 100%, 50%)`;
-    } else if (this.options.randomParticleColor) {
+    if (!Number.isFinite(this.hue)) this.hue = 0;
+    if (this.options.randomParticleColor) {
       if (!this.options.calculatedParticleColor) {
         this.options.calculatedParticleColor = `hsl(${this.hue}, 100%, 50%)`;
       }
@@ -141,13 +141,27 @@
     }
 
     if (this.options.particleColorCycling) {
-      if (this.options.randomIndividualParticleColor) {
-        this.hue = (this.hue + this.options.particleCyclingSpeed) % 360;
-        this.particleColor = `hsl(${this.hue}, 100%, 50%)`;
-      } else {
-        this.options.globalHue = (this.options.globalHue || 0) + this.options.particleCyclingSpeed;
+      {
+        var dtLocalG = (this.network && typeof this.network._dt === 'number') ? this.network._dt : (1/60);
+        if (this.network && this.network.forceHueSweep) {
+          this.options.globalHue = this.network._forceHue;
+        } else {
+          // Map UI 0..100 to deg per 60fps frame via 0.01 scale, then time-based by dt
+          // Remap UI 0..100 so that 100 ≈ old 3
+          // Old mapping: delta = (UI * 0.01) per frame @60fps => UI=3 -> 0.03
+          // New mapping: delta = (UI * 0.0003) per frame @60fps so UI=100 -> 0.03
+          var hueDeltaG = (this.options.particleCyclingSpeed * 0.0003) * (dtLocalG * 60);
+          this.options.globalHue = (this.options.globalHue || 0) + hueDeltaG;
+        }
         if (this.options.globalHue >= 360) this.options.globalHue -= 360;
         this.particleColor = `hsl(${this.options.globalHue}, 100%, 50%)`;
+      }
+    } else {
+      // Hard lock particle color when cycling is OFF, regardless of line cycling
+      if (this.options.randomParticleColor && this.options.calculatedParticleColor) {
+        this.particleColor = this.options.calculatedParticleColor;
+      } else {
+        this.particleColor = this.options.particleColor;
       }
     }
   };
@@ -202,14 +216,15 @@
         particleColor: cfg.particleColor || "#fff",
         particleSize: cfg.particleSize != null ? cfg.particleSize : 2,
         particleColorCycling: !!cfg.particleColorCycling,
-        particleCyclingSpeed: cfg.particleCyclingSpeed != null ? cfg.particleCyclingSpeed : 0.01,
+        // UI 0..100; remapped internally so 100 ≈ legacy 3
+        particleCyclingSpeed: cfg.particleCyclingSpeed != null ? cfg.particleCyclingSpeed : 10,
         randomParticleColor: !!cfg.randomParticleColor,
-        randomIndividualParticleColor: !!cfg.randomIndividualParticleColor,
         gradientEffect: cfg.gradientEffect != null ? cfg.gradientEffect : true,
         gradientColor1: cfg.gradientColor1 || "#00bfff",
         gradientColor2: cfg.gradientColor2 || "#ff4500",
         lineColorCycling: cfg.lineColorCycling != null ? cfg.lineColorCycling : true,
-        lineCyclingSpeed: cfg.lineCyclingSpeed != null ? cfg.lineCyclingSpeed : 1,
+        lineCyclingSpeed: cfg.lineCyclingSpeed != null ? cfg.lineCyclingSpeed : 50,
+        lineThickness: cfg.lineThickness != null ? cfg.lineThickness : 1.2,
         colorDifferentiationMethod: cfg.colorDifferentiationMethod || 'hueDistance',
         colorDifferentiationOptions: cfg.colorDifferentiationOptions || {},
         interactive: cfg.interactive != null ? cfg.interactive : true,
@@ -231,8 +246,35 @@
         particleRepulsionForce: cfg.particleRepulsionForce != null ? cfg.particleRepulsionForce : 5,
         lineConnectionDistance: cfg.lineConnectionDistance != null ? cfg.lineConnectionDistance : 120,
         performanceOverlay: cfg.performanceOverlay != null ? cfg.performanceOverlay : false,
-        // New: boundary handling
-        boundaryMode: cfg.boundaryMode || 'bounce'
+        // New feature flags
+        randomizeDistanceColors: cfg.randomizeDistanceColors != null ? cfg.randomizeDistanceColors : false,
+        // Dedicated speed for distance color randomization (UI 0..100 like lineCyclingSpeed)
+        distanceColorCyclingSpeed: cfg.distanceColorCyclingSpeed != null
+          ? cfg.distanceColorCyclingSpeed
+          : (cfg.lineCyclingSpeed != null ? cfg.lineCyclingSpeed : 50),
+
+        boundaryMode: cfg.boundaryMode || 'bounce',
+
+        // Trails effect
+        trails: cfg.trails != null ? cfg.trails : false,
+        // 0.01..0.3 typical; lower = longer trails
+        trailFade: (typeof cfg.trailFade === 'number') ? cfg.trailFade : 0.08,
+
+        // Line jitter effect (electric lines)
+        lineJitter: cfg.lineJitter != null ? cfg.lineJitter : false,
+        lineJitterSegments: (typeof cfg.lineJitterSegments === 'number') ? Math.max(2, Math.floor(cfg.lineJitterSegments)) : 6,
+        // amplitude as fraction of segment length (0..1); 0.12 is subtle
+        lineJitterAmplitude: (typeof cfg.lineJitterAmplitude === 'number') ? cfg.lineJitterAmplitude : 0.12,
+
+        // Worm-like particle motion (curving paths)
+        wormMotion: cfg.wormMotion != null ? cfg.wormMotion : false,
+        // curvature as fraction of current speed added perpendicular per frame
+        wormCurvature: (typeof cfg.wormCurvature === 'number') ? cfg.wormCurvature : 0.12,
+        // radians/sec phase advance (scaled internally)
+        wormNoiseSpeed: (typeof cfg.wormNoiseSpeed === 'number') ? cfg.wormNoiseSpeed : 1.5,
+
+        // Gather behavior radius to prevent overlap when holding 'A'
+        gatherRadius: (typeof cfg.gatherRadius === 'number') ? cfg.gatherRadius : 100
       };
 
       this.init();
@@ -289,6 +331,13 @@
       // Scale so drawing uses CSS pixels
       this.g.setTransform(this.dpr, 0, 0, this.dpr, 0, 0);
 
+      // Ensure this canvas sits above GL lines canvas (which uses zIndex 19)
+      // so particles (and trail effect) render on top
+      this.canvas.style.position = 'absolute';
+      this.canvas.style.top = '0';
+      this.canvas.style.left = '0';
+      this.canvas.style.zIndex = '20';
+
       // Color setups
       this.startColorRgb = hexToRgb(this.options.startColor);
       this.endColorRgb = hexToRgb(this.options.endColor);
@@ -311,6 +360,13 @@
           // Fallback to original implementation
           this.lineHue2 = generateDistinctColor(this.lineHue1, 50);
         }
+
+        // Guards: ensure valid numeric line hues
+        if (!Number.isFinite(this.lineHue1)) this.lineHue1 = 0;
+        if (!Number.isFinite(this.lineHue2)) this.lineHue2 = (this.lineHue1 + 180) % 360;
+
+        // Store initial offset between hues to keep a consistent separation while cycling
+        this._lineHue2Offset = ((this.lineHue2 - this.lineHue1) + 360) % 360;
       }
 
       // Initialize grid variables
@@ -322,7 +378,7 @@
           this.glRenderer = new window.ParticleNetworkRendererGL(this.i, { zIndex: 19 });
           // Ensure initial size
           if (this.glRenderer && this.glRenderer.resize) {
-            this.glRenderer.resize(this.canvas.style.width ? this.i.size.width : this.canvas.width, this.canvas.style.height ? this.i.size.height : this.canvas.height);
+            this.glRenderer.resize(this.i.size.width, this.i.size.height);
           }
         } catch (e) {
           this.glRenderer = null;
@@ -330,43 +386,85 @@
         }
       }
 
+      // Persist object-level interaction velocity changes back into SoA buffers
+      if (this.velX && this.velY && Array.isArray(this.o)) {
+        var nn = Math.min(this.numParticles|0, this.o.length);
+        for (var si = 0; si < nn; si++) {
+          var po = this.o[si];
+          if (po && po.velocity) {
+            this.velX[si] = po.velocity.x;
+            this.velY[si] = po.velocity.y;
+          }
+        }
+      }
+
+      // Persist object-level interaction velocity changes back into SoA buffers
+      // Pairwise interactions update object velocities; carry them into next frame's SoA update
+      if (this.velX && this.velY && Array.isArray(this.o)) {
+        var nn2 = Math.min(this.numParticles | 0, this.o.length);
+        for (var ssi = 0; ssi < nn2; ssi++) {
+          var pso = this.o[ssi];
+          if (pso && pso.velocity) {
+            this.velX[ssi] = pso.velocity.x;
+            this.velY[ssi] = pso.velocity.y;
+          }
+        }
+      }
+
       // Resize event listener
       // Unified resize helper
       this._rebuildOnResize = function() {
+        // Read CSS size
+        const w = this.i.offsetWidth || 0;
+        const h = this.i.offsetHeight || 0;
+        // If layout not settled, retry shortly
+        if (!w || !h) {
+          clearTimeout(this.m);
+          this.m = setTimeout(this._rebuildOnResize, 100);
+          return;
+        }
+
         // Update container size
-        this.i.size.width = this.i.offsetWidth;
-        this.i.size.height = this.i.offsetHeight;
+        this.i.size.width = w;
+        this.i.size.height = h;
+
         // Update DPR-aware canvas sizing
         this.dpr = window.devicePixelRatio || 1;
-        this.canvas.style.width = this.i.size.width + 'px';
-        this.canvas.style.height = this.i.size.height + 'px';
-        this.canvas.width = Math.max(1, Math.floor(this.i.size.width * this.dpr));
-        this.canvas.height = Math.max(1, Math.floor(this.i.size.height * this.dpr));
+        this.canvas.style.width = w + 'px';
+        this.canvas.style.height = h + 'px';
+        this.canvas.width = Math.max(1, Math.floor(w * this.dpr));
+        this.canvas.height = Math.max(1, Math.floor(h * this.dpr));
         this.g.setTransform(this.dpr, 0, 0, this.dpr, 0, 0);
-        // Rebuild particles to match new area
+
+        // Rebuild particles (use CSS logical dimensions)
         this.o = [];
-        for (var a = 0; a < (this.canvas.width * this.canvas.height) / this.options.density; a++) {
+        var logicalArea = w * h;
+        for (var a = 0; a < logicalArea / this.options.density; a++) {
           var particle = new c(this);
           particle.index = a;
           this.o.push(particle);
         }
-        // Re-init SoA buffers
         this._initSoAFromObjects(this.o.length);
         if (this.performanceMonitor && this.performanceMonitor.setParticleCount) {
           this.performanceMonitor.setParticleCount(this.numParticles);
         }
-        // Keep interactive pointer particle out of SoA; ensure it exists
         if (this.options.interactive && this.p) {
-          this.p.index = this.o.length; // keep index outside SoA range
+          this.p.index = this.o.length;
           this.o.push(this.p);
         }
-        // Re-initialize the grid
+
+        // Re-init grid
         this.initGrid();
-        // Resize GL renderer once
+
+        // Resize GL with CSS size (not DPR-scaled backing store)
         if (this.glRenderer && this.glRenderer.resize) {
-          this.glRenderer.resize(this.i.size.width, this.i.size.height);
+          this.glRenderer.resize(w, h);
         }
-        requestAnimationFrame(this.update);
+
+        if (!this._rafActive) {
+          this._rafActive = true;
+          this._rafId = requestAnimationFrame(this.update);
+        }
       }.bind(this);
 
       window.addEventListener(
@@ -380,9 +478,10 @@
         }.bind(this)
       );
 
-      // Particle array initialization
+      // Particle array initialization (use logical dimensions, not DPR-scaled)
       this.o = [];
-      for (var a = 0; a < (this.canvas.width * this.canvas.height) / this.options.density; a++) {
+      var initialLogicalArea = this.i.size.width * this.i.size.height;
+      for (var a = 0; a < initialLogicalArea / this.options.density; a++) {
         var particle = new c(this);
         particle.index = a;
         this.o.push(particle);
@@ -408,6 +507,11 @@
             if (this.attractionForce) { this.attractionForce.x = x; this.attractionForce.y = y; }
             if (this.repulsionForce) { this.repulsionForce.x = x; this.repulsionForce.y = y; }
             this.p.x = x; this.p.y = y;
+            // If hold-to-gather active, keep repulsion-based gather locked to pointer (repulsionForce is attractive here)
+            if (this._gatherActive) {
+              if (!this.repulsionForce) this.repulsionForce = { x: x, y: y };
+              this.repulsionForce.x = x; this.repulsionForce.y = y;
+            }
           }.bind(this)
         );
 
@@ -499,10 +603,14 @@
         this.canvas.addEventListener('pointerleave', clearPointer, { passive: false });
       }
 
-      // Performance overlay setup
-      if (this.options.performanceOverlay) {
-        this.setupPerformanceOverlay();
-      }
+      // Legacy performance overlay removed; external PerformanceMonitor handles overlay now
+
+      // RAF control flags
+      this._rafActive = false;
+      this._rafId = null;
+      // Force test flags
+      this.forceHueSweep = false;
+      this._forceHue = 0;
 
       // **Event listeners for particle count adjustment**
       this.canvas.addEventListener(
@@ -531,6 +639,58 @@
           } else if (event.key === "ArrowDown") {
             // Down arrow key - Decrease particles by /2
             this.adjustParticleCount(false);
+          } else if (event.key === 'f' || event.key === 'F') {
+            this.forceHueSweep = !this.forceHueSweep;
+            if (!this._forceHue) this._forceHue = 0;
+            console.warn('[PN] Force hue sweep:', this.forceHueSweep ? 'ON' : 'OFF');
+          } else if (event.key === 'a' || event.key === 'A') {
+            // Hold-to-gather: while A is held, attract particles to pointer (use repulsionForce, which is attractive in this codebase)
+            this._gatherActive = true;
+            if (this.p && Number.isFinite(this.p.x) && Number.isFinite(this.p.y)) {
+              if (!this.repulsionForce) this.repulsionForce = { x: this.p.x, y: this.p.y };
+              this.repulsionForce.x = this.p.x; this.repulsionForce.y = this.p.y;
+
+              // Teleport all particles to the cursor immediately, then let attraction keep them there
+              var tx = this.p.x, ty = this.p.y;
+              var nTP = this.numParticles|0;
+              if (nTP > 0) {
+                // Spread within a small disc to avoid overlap
+                var radius = Math.max(0, (this.options && this.options.gatherRadius) ? this.options.gatherRadius : 24);
+                // Golden angle for even-ish distribution
+                var golden = 2.399963229728653; // ~137.5 deg
+                for (var ii = 0; ii < nTP; ii++) {
+                  var ang = ii * golden;
+                  // Fibonacci-ish radial spread within [0, radius]
+                  var r = radius * Math.sqrt((ii + 1) / (nTP + 1));
+                  var gx = tx + Math.cos(ang) * r;
+                  var gy = ty + Math.sin(ang) * r;
+                  this.posX[ii] = gx; this.posY[ii] = gy;
+                  this.velX[ii] = 0; this.velY[ii] = 0;
+                }
+                // Sync objects immediately for visual effect this frame
+                for (var jj = 0; jj < this.o.length; jj++) {
+                  var op = this.o[jj];
+                  var ang2 = jj * golden;
+                  var r2 = radius * Math.sqrt((jj + 1) / (nTP + 1));
+                  op.x = tx + Math.cos(ang2) * r2;
+                  op.y = ty + Math.sin(ang2) * r2;
+                  if (op.velocity) { op.velocity.x = 0; op.velocity.y = 0; }
+                }
+                // No need to re-init SoA sizes; we only changed positions/velocities
+              }
+            }
+            // small toast on engage
+            try {
+              if (!this._gatherToastShown) {
+                this._gatherToastShown = true;
+                var toast = document.createElement('div');
+                toast.textContent = 'Gather: HOLD A';
+                toast.style.cssText = "position:fixed; top:10px; right:10px; background:rgba(0,0,0,0.7); color:#fff; padding:8px 12px; border-radius:4px; font-family:'Fira Code',monospace; z-index:4000;";
+                document.body.appendChild(toast);
+                setTimeout(function(){ if (toast.parentNode) document.body.removeChild(toast); }, 800);
+                setTimeout(function(){ this._gatherToastShown = false; }.bind(this), 1200);
+              }
+            } catch(e) {}
           }
           if (event.key === "ArrowUp" || event.key === "ArrowDown") {
             if (this.performanceMonitor && this.performanceMonitor.setParticleCount) {
@@ -540,9 +700,26 @@
         }.bind(this)
       );
 
-      // Bind update function once
+      // Keyup to end gather
+      document.addEventListener('keyup', function(event){
+        if (event.key === 'a' || event.key === 'A') {
+          this._gatherActive = false;
+          // Clear our repulsion-driven gather unless the user is still holding left mouse (handled by mousedown elsewhere)
+          if (!(this._activePointers && this._activePointers.size > 0)) {
+            this.repulsionForce = null;
+          }
+        }
+      }.bind(this));
+
+      // Bind update function once and start loop if not already active
       this.update = this.update.bind(this);
-      requestAnimationFrame(this.update);
+      // Initialize timebase for dt-based animations
+      this._lastUpdateTime = performance.now();
+      this._debugNextLogTime = this._lastUpdateTime + 1000; // 1s throttle for debug logs
+      if (!this._rafActive) {
+        this._rafActive = true;
+        this._rafId = requestAnimationFrame(this.update);
+      }
     }),
       // Initialize grid dimensions and variables
     (b.prototype.initGrid = function () {
@@ -553,46 +730,37 @@
         this.options.proximityEffectDistance
       );
 
-      this.gridWidth = Math.ceil(this.canvas.width / this.gridCellSize);
-      this.gridHeight = Math.ceil(this.canvas.height / this.gridCellSize);
+      this.gridWidth = Math.ceil(this.i.size.width / this.gridCellSize);
+      this.gridHeight = Math.ceil(this.i.size.height / this.gridCellSize);
       this.gridSize = this.gridWidth * this.gridHeight;
     }),
-    (b.prototype.setupPerformanceOverlay = function () {
-      this.performanceDiv = document.createElement("div");
-      this.performanceDiv.className = "performance-overlay";
-      this.performanceDiv.style.position = "absolute";
-      this.performanceDiv.style.top = "10px";
-      this.performanceDiv.style.left = "10px";
-      this.performanceDiv.style.color = "white";
-      this.performanceDiv.style.backgroundColor = "rgba(0, 0, 0, 0.5)";
-      this.performanceDiv.style.padding = "5px";
-      this.performanceDiv.style.fontFamily = "monospace";
-      this.performanceDiv.style.zIndex = "1000";
-      this.i.appendChild(this.performanceDiv);
-
-      this.lastFrameTime = performance.now();
-      this.frameCount = 0;
-      this.fpsHistory = [];
-    }),
-    (b.prototype.updatePerformanceOverlay = function () {
-      var now = performance.now();
-      this.frameCount++;
-      var delta = now - this.lastFrameTime;
-      if (delta >= 1000) {
-        var fps = (this.frameCount / delta) * 1000;
-        this.fpsHistory.push(fps);
-        if (this.fpsHistory.length > 10) this.fpsHistory.shift();
-        var avgFps =
-          this.fpsHistory.reduce(function (a, b) {
-            return a + b;
-          }, 0) / this.fpsHistory.length;
-        this.performanceDiv.innerHTML = "FPS: " + fps.toFixed(2) + "<br>Avg FPS (last 10s): " + avgFps.toFixed(2);
-        this.lastFrameTime = now;
-        this.frameCount = 0;
-      }
-    }),
+    // Removed legacy setupPerformanceOverlay/updatePerformanceOverlay (now no-ops)
+    (b.prototype.setupPerformanceOverlay = function () { /* no-op */ }),
+    (b.prototype.updatePerformanceOverlay = function () { /* no-op */ }),
     (b.prototype.update = function () {
       var options = this.options;
+      // Compute dt in seconds, clamp to avoid huge jumps on tab re-activation
+      var now = performance.now();
+      var dt = Math.min(Math.max((now - (this._lastUpdateTime || now)) / 1000, 0), 0.1);
+      this._lastUpdateTime = now;
+      this._dt = dt;
+      // Hard lock particle colors when cycling is OFF (belt-and-suspenders)
+      if (!options.particleColorCycling && this.o && this.o.length) {
+        var fixedCol;
+        if (options.randomParticleColor) {
+          if (!options.calculatedParticleColor) {
+            var hueRand = Math.floor(Math.random() * 360);
+            options.calculatedParticleColor = 'hsl(' + hueRand + ', 100%, 50%)';
+          }
+          fixedCol = options.calculatedParticleColor;
+        } else {
+          fixedCol = options.particleColor;
+        }
+        for (var fi = 0; fi < this.o.length; fi++) {
+          var fp = this.o[fi];
+          if (fp) fp.particleColor = fixedCol;
+        }
+      }
       // Update motion using SoA for performance, then sync back to objects for rendering/grid
       if (this.numParticles > 0) {
         this._updateSoA();
@@ -602,22 +770,48 @@
       var numParticles = particles.length;
       var g = this.g;
 
-      g.clearRect(0, 0, this.canvas.width, this.canvas.height);
-      g.globalAlpha = 1;
+      // Clear or fade the canvas for trails
+      if (this.options.trails) {
+        // Fill with a translucent background to gradually fade previous frame
+        var fade = (typeof this.options.trailFade === 'number') ? this.options.trailFade : 0.08;
+        // Choose fade color based on configured background if it's a color; otherwise use black
+        var bg = this.options.background || '#000000';
+        var fillStyle = 'rgba(0,0,0,' + fade + ')';
+        if (typeof bg === 'string') {
+          var mHex = /^#([0-9a-f]{6})$/i.exec(bg) || /^#([0-9a-f]{3})$/i.exec(bg);
+          var mRgb = /^rgb\(\s*(\d+)\s*,\s*(\d+)\s*,\s*(\d+)\s*\)$/i.exec(bg);
+          if (mRgb) {
+            fillStyle = 'rgba(' + mRgb[1] + ',' + mRgb[2] + ',' + mRgb[3] + ',' + fade + ')';
+          } else if (mHex) {
+            // Expand short hex
+            var hex = mHex[1];
+            if (hex.length === 3) hex = hex.split('').map(function(c){return c+c;}).join('');
+            var val = parseInt(hex, 16);
+            var r = (val >> 16) & 255, gg = (val >> 8) & 255, bb = val & 255;
+            fillStyle = 'rgba(' + r + ',' + gg + ',' + bb + ',' + fade + ')';
+          }
+        }
+        g.globalAlpha = 1;
+        g.fillStyle = fillStyle;
+        g.fillRect(0, 0, this.i.size.width, this.i.size.height);
+        g.globalAlpha = 1;
+      } else {
+        // Standard clear when trails disabled
+        g.clearRect(0, 0, this.i.size.width, this.i.size.height);
+        g.globalAlpha = 1;
+      }
 
       // Begin GL frame if available
       if (this.glRenderer && this.glRenderer.beginFrame) {
-        this.glRenderer.resize(this.canvas.width, this.canvas.height);
+        this.glRenderer.resize(this.i.size.width, this.i.size.height);
         this.glRenderer.beginFrame();
       }
 
-      if (options.performanceOverlay) {
-        this.updatePerformanceOverlay();
-      }
+      // Legacy overlay update removed
 
       // Update particles
       for (var i = 0; i < numParticles; i++) {
-        // NOTE: c.prototype.update signature expects (attractionForce, repulsionForce, repulsionRange, repulsionIntensity, attractionRange, attractionIntensity)
+    
         particles[i].update(
           this.attractionForce,
           this.repulsionForce,
@@ -676,19 +870,39 @@
       if (options.lineColorCycling) {
         var minDifference = 50;
         var cyclingSpeed = options.lineCyclingSpeed;
+        // Map UI range 0..100 to degrees per 60fps frame using 0.01 factor, then scale by dt
+        var hueDelta = (cyclingSpeed * 0.01) * (dt * 60);
+        // Very slow drift of the hue separation between ends (deg/sec)
+        if (!Number.isFinite(this._lineOffsetDriftRateDegPerSec)) this._lineOffsetDriftRateDegPerSec = 0.1; // ~6 deg/min
+        if (!Number.isFinite(this._lineHue2Offset)) this._lineHue2Offset = 180;
+        this._lineHue2Offset = (this._lineHue2Offset + this._lineOffsetDriftRateDegPerSec * dt) % 360;
+        // Keep offset within allowed bounds so ends are never too close
+        if (this._lineHue2Offset < minDifference) this._lineHue2Offset = minDifference;
+        if (this._lineHue2Offset > 360 - minDifference) this._lineHue2Offset = 360 - minDifference;
+        if (this.forceHueSweep) {
+          this._forceHue = (this._forceHue + 120 * dt) % 360; // 120 deg/sec sweep
+          this.lineHue1 = this._forceHue;
+          this.lineHue2 = (this._forceHue + 180) % 360;
+        } else {
 
-        this.lineHue1 = (this.lineHue1 + cyclingSpeed) % 360;
-        this.lineHue2 = (this.lineHue2 + cyclingSpeed) % 360;
+        // Guards: ensure valid numeric hues before math
+        if (!Number.isFinite(this.lineHue1)) this.lineHue1 = 0;
+        if (!Number.isFinite(this.lineHue2)) this.lineHue2 = (this.lineHue1 + 180) % 360;
 
-        var diff = Math.abs(this.lineHue1 - this.lineHue2);
-        diff = diff > 180 ? 360 - diff : diff;
-        if (diff < minDifference) {
-          var adjustment = (minDifference - diff) * 0.1;
-          this.lineHue2 = (this.lineHue2 + adjustment) % 360;
+          this.lineHue1 = (this.lineHue1 + hueDelta) % 360;
+          // Maintain (slowly drifting) offset so both ends advance at same rate
+          this.lineHue2 = (this.lineHue1 + this._lineHue2Offset) % 360;
         }
+
+        // Ensure minimum separation (should already be true due to clamped offset)
 
         this.currentLineColor1 = "hsl(" + this.lineHue1 + ", 100%, 50%)";
         this.currentLineColor2 = "hsl(" + this.lineHue2 + ", 100%, 50%)";
+        // Debug throttle (once per ~1s)
+        if (now >= (this._debugNextLogTime || 0)) {
+          // console.debug('[PN] GL?', !!(this.glRenderer && this.glRenderer.addLine), 'hues', this.lineHue1.toFixed(1), this.lineHue2.toFixed(1), 'speed', cyclingSpeed, 'dt', dt.toFixed(3));
+          this._debugNextLogTime = now + 1000;
+        }
         if (window.ColorUtils && window.ColorUtils.hslToRgb) {
           var c1 = window.ColorUtils.hslToRgb(this.lineHue1, 100, 50);
           var c2 = window.ColorUtils.hslToRgb(this.lineHue2, 100, 50);
@@ -712,6 +926,28 @@
         }
       }
 
+      // Update distance-effect randomized colors once per frame (not per connection)
+      if (options.useDistanceEffect && options.randomizeDistanceColors) {
+        var uiSpeedDist = (options.distanceColorCyclingSpeed != null
+          ? options.distanceColorCyclingSpeed
+          : (options.lineCyclingSpeed || 50)); // Default to lineCyclingSpeed
+        var distHueDelta = (uiSpeedDist * 0.01) * (dt * 60);
+        if (!Number.isFinite(this._distanceHue)) this._distanceHue = 0;
+        this._distanceHue = (this._distanceHue + distHueDelta) % 360;
+        var hueAFrame = this._distanceHue;
+        var hueBFrame = (this._distanceHue + 180) % 360;
+        if (window.ColorUtils && window.ColorUtils.hslToRgb) {
+          var scf = window.ColorUtils.hslToRgb(hueAFrame, 100, 50);
+          var ecf = window.ColorUtils.hslToRgb(hueBFrame, 100, 50);
+          this.startColorRgb = [scf.r, scf.g, scf.b];
+          this.endColorRgb = [ecf.r, ecf.g, ecf.b];
+        } else {
+          // Fallback to red/blue if ColorUtils is not available
+          this.startColorRgb = [255, 0, 0];
+          this.endColorRgb = [0, 0, 255];
+        }
+      }
+
       // Process interactions
       for (var x = 0; x < gridWidth; x++) {
         for (var y = 0; y < gridHeight; y++) {
@@ -722,25 +958,52 @@
           for (var m = 0; m < numCellParticles; m++) {
             var particleA = cellParticles[m];
 
-            // Draw particle (prefer GL point rendering if available)
-            if (this.glRenderer && this.glRenderer.addPoint) {
-              // Use precomputed RGB if available; alpha from options.opacity
-              var rgb;
-              if (particleA.particleColor && particleA.particleColor[0] === '#') {
+            // Draw particle
+            // When trails are enabled, render particles on 2D canvas to accumulate trails
+            if (!this.options.trails && this.glRenderer && this.glRenderer.addPoint) {
+            // Derive particle color with support for hex, hsl(), and rgb() strings
+            var rgbaArray01;
+            // Hard override when particle color cycling is OFF
+            var pc = (!this.options.particleColorCycling)
+              ? ((this.options.randomParticleColor && this.options.calculatedParticleColor)
+                  ? this.options.calculatedParticleColor
+                  : this.options.particleColor)
+              : particleA.particleColor;
+              if (typeof pc === 'string' && pc[0] === '#') {
                 if (window.ColorUtils && window.ColorUtils.hexToRgb) {
-                  var rr = window.ColorUtils.hexToRgb(particleA.particleColor);
-                  if (rr) rgb = [rr.r/255, rr.g/255, rr.b/255, this.options.opacity];
+                  var rr = window.ColorUtils.hexToRgb(pc);
+                  if (rr) rgbaArray01 = [rr.r/255, rr.g/255, rr.b/255, this.options.opacity];
                 }
-                if (!rgb) {
-                  var val = parseInt((particleA.particleColor || '#ffffff').slice(1), 16);
-                  rgb = [((val>>16)&255)/255, ((val>>8)&255)/255, (val&255)/255, this.options.opacity];
+                if (!rgbaArray01) {
+                  var val = parseInt((pc || '#ffffff').slice(1), 16);
+                  rgbaArray01 = [((val>>16)&255)/255, ((val>>8)&255)/255, (val&255)/255, this.options.opacity];
                 }
-              } else if (this.currentLineColor1Rgb) {
-                rgb = [this.currentLineColor1Rgb[0]/255, this.currentLineColor1Rgb[1]/255, this.currentLineColor1Rgb[2]/255, this.options.opacity];
-              } else {
-                rgb = [1,1,1,this.options.opacity];
+              } else if (typeof pc === 'string' && /^hsl\(/i.test(pc)) {
+                // Extract hue and convert to RGB
+                var mh = /hsl\(([-\d\.]+)\s*,\s*([\d\.]+)%\s*,\s*([\d\.]+)%\s*\)/i.exec(pc);
+                var hueDeg = mh ? parseFloat(mh[1]) : 0;
+                var sat = mh ? parseFloat(mh[2]) : 100;
+                var lig = mh ? parseFloat(mh[3]) : 50;
+                if (window.ColorUtils && window.ColorUtils.hslToRgb) {
+                  var rgbObj = window.ColorUtils.hslToRgb(hueDeg, sat, lig);
+                  rgbaArray01 = [rgbObj.r/255, rgbObj.g/255, rgbObj.b/255, this.options.opacity];
+                } else {
+                  // Fallback simple HSL to RGB approximation using existing helper
+                  var csol = hslToRgb01(hueDeg);
+                  csol[3] = this.options.opacity;
+                  rgbaArray01 = csol;
+                }
+              } else if (typeof pc === 'string' && /^rgb\(/i.test(pc)) {
+                var mr = /rgb\(\s*(\d+)\s*,\s*(\d+)\s*,\s*(\d+)\s*\)/i.exec(pc);
+                if (mr) {
+                  rgbaArray01 = [parseInt(mr[1],10)/255, parseInt(mr[2],10)/255, parseInt(mr[3],10)/255, this.options.opacity];
+                }
               }
-              this.glRenderer.addPoint(particleA.x, particleA.y, rgb, particleA.size || this.options.particleSize);
+              if (!rgbaArray01) {
+                // Fallback to static white
+                rgbaArray01 = [1,1,1,this.options.opacity];
+              }
+              this.glRenderer.addPoint(particleA.x, particleA.y, rgbaArray01, particleA.size || this.options.particleSize);
             } else {
               particleA.h(); // 2D fallback draw
             }
@@ -777,13 +1040,31 @@
         }
       }
 
+      // After interactions, persist object velocities back into SoA for next frame
+      if (this.numParticles > 0 && this.velX && this.velY) {
+        var nnSync = this.numParticles | 0;
+        for (var vi = 0; vi < nnSync; vi++) {
+          var vpo = particles[vi];
+          if (vpo && vpo.velocity) {
+            this.velX[vi] = vpo.velocity.x;
+            this.velY[vi] = vpo.velocity.y;
+          }
+        }
+      }
+
       // Flush GL frame if available
       if (this.glRenderer && this.glRenderer.endFrame) {
         this.glRenderer.endFrame();
       }
 
       if (options.velocity !== 0) {
-        requestAnimationFrame(this.update);
+        // Keep RAF ID and active flag consistent
+        this._rafActive = true;
+        this._rafId = requestAnimationFrame(this.update);
+      } else {
+        // Stop loop when velocity is zero; allow manual restart later
+        this._rafActive = false;
+        this._rafId = null;
       }
 
       // Update performance monitor if available
@@ -854,8 +1135,8 @@
       var attI = this.options.attractionIntensity;
       var speed = this.options.velocity;
       var speedRecoveryRate = 0.01;
-      var width = this.canvas.width;
-      var height = this.canvas.height;
+      var width = this.i.size.width;
+      var height = this.i.size.height;
       for (var i = 0; i < n; i++) {
         var x = this.posX[i];
         var y = this.posY[i];
@@ -875,6 +1156,22 @@
           var fR = (100 / (dR*dR)) * repR * repI;
           vx += fR * fxR; vy += fR * fyR;
         }
+        // Worm-like curving motion: apply perpendicular bias to velocity
+        if (this.options.wormMotion) {
+          // Pseudo-random but temporal: use particle index + time
+          var t = (this._lastUpdateTime || 0) * 0.001 * this.options.wormNoiseSpeed; // seconds
+          var phase = i * 12.9898 + t * 6.283185307179586; // 2π per second scaled
+          var s = Math.sin(phase);
+          // Perpendicular normalized direction to current velocity (fallback when near zero)
+          var m = Math.sqrt(vx*vx + vy*vy) || 1e-6;
+          var pxn = -vy / m;
+          var pyn =  vx / m;
+          // ORIGINAL behavior: curvature as fraction of speed without clamping/renorm
+          var k = this.options.wormCurvature; // fraction of speed
+          vx += pxn * (k * m * s);
+          vy += pyn * (k * m * s);
+        }
+
         var currS = Math.sqrt(vx*vx + vy*vy);
         if (currS < speed) { vx *= 1 + speedRecoveryRate; vy *= 1 + speedRecoveryRate; }
         else if (currS > speed) { vx *= 1 - speedRecoveryRate; vy *= 1 - speedRecoveryRate; }
@@ -962,6 +1259,7 @@
 
       if (options.useDistanceEffect) {
         var colorFactor = Math.min(distance / options.maxColorChangeDistance, 1);
+
         var interpolatedColor = interpolateColor(network.startColorRgb, network.endColorRgb, colorFactor);
         var colorString = rgbToString(interpolatedColor);
         if (network.glRenderer && network.glRenderer.addLine) {
@@ -975,8 +1273,8 @@
         }
       } else if (options.lineColorCycling && options.gradientEffect) {
         if (network.glRenderer && network.glRenderer.addLine) {
-          var h1 = extractHue(network.currentLineColor1);
-          var h2 = extractHue(network.currentLineColor2);
+          var h1 = Number.isFinite(network.lineHue1) ? network.lineHue1 : extractHue(network.currentLineColor1);
+          var h2 = Number.isFinite(network.lineHue2) ? network.lineHue2 : extractHue(network.currentLineColor2);
           glColor1 = hslToRgb01(h1);
           glColor2 = hslToRgb01(h2);
         } else {
@@ -986,17 +1284,14 @@
         }
       } else if (options.lineColorCycling) {
         if (network.glRenderer && network.glRenderer.addLine) {
-          var h = extractHue(network.currentLineColor1);
+          var h = Number.isFinite(network.lineHue1) ? network.lineHue1 : extractHue(network.currentLineColor1);
           var csol = hslToRgb01(h);
           glColor1 = csol; glColor2 = csol;
         } else {
-          gradient = network.cachedGradient1;
-          if (!gradient) {
-            gradient = g.createLinearGradient(0, 0, 0, 0);
-            gradient.addColorStop(0, network.currentLineColor1);
-            gradient.addColorStop(1, network.currentLineColor1);
-            network.cachedGradient1 = gradient;
-          }
+          // Use current cycling color per draw; do not reuse cached gradient
+          gradient = g.createLinearGradient(particleA.x, particleA.y, particleB.x, particleB.y);
+          gradient.addColorStop(0, network.currentLineColor1);
+          gradient.addColorStop(1, network.currentLineColor1);
         }
       } else if (options.gradientEffect) {
         if (network.glRenderer && network.glRenderer.addLine) {
@@ -1051,18 +1346,86 @@
       }
 
       if (network.glRenderer && network.glRenderer.addLine && glColor1 && glColor2) {
-        network.glRenderer.addLine(
-          particleA.x, particleA.y, glColor1,
-          particleB.x, particleB.y, glColor2
-        );
+        // if ((network._lastUpdateTime || 0) >= (network._debugNextLogTime || 0)) {
+        //   console.debug('[PN] addLine colors', glColor1, glColor2);
+        // }
+        if (network.options.lineJitter) {
+          // Jittered polyline approximation in GL: split into segments
+          var segs = Math.max(2, network.options.lineJitterSegments|0);
+          var dxj = particleB.x - particleA.x; var dyj = particleB.y - particleA.y;
+          var lenj = Math.max(1e-6, Math.hypot(dxj, dyj));
+          var nxj = -dyj / lenj, nyj = dxj / lenj; // perpendicular unit
+          var ampFrac = network.options.lineJitterAmplitude != null ? network.options.lineJitterAmplitude : 0.12;
+          var amp = Math.min(6, ampFrac * lenj);
+          var tphase = (network._pulsePhase || 0);
+          var prev = [particleA.x, particleA.y];
+          for (var si = 1; si <= segs; si++) {
+            var t = si / segs;
+            var bx = particleA.x + dxj * t;
+            var by = particleA.y + dyj * t;
+            var jitter = Math.sin(t * 12.9898 + tphase) * 0.5 + Math.cos(t * 78.233 + tphase * 0.5) * 0.5;
+            var taper = 1 - Math.abs(0.5 - t) * 1.6;
+            var off = jitter * amp * taper;
+            var cx = bx + nxj * off;
+            var cy = by + nyj * off;
+            // interpolate colors per segment end
+            var cL = [
+              glColor1[0] + (glColor2[0] - glColor1[0]) * (t - 1/segs),
+              glColor1[1] + (glColor2[1] - glColor1[1]) * (t - 1/segs),
+              glColor1[2] + (glColor2[2] - glColor1[2]) * (t - 1/segs),
+              glColor1[3] + (glColor2[3] - glColor1[3]) * (t - 1/segs)
+            ];
+            var cR = [
+              glColor1[0] + (glColor2[0] - glColor1[0]) * t,
+              glColor1[1] + (glColor2[1] - glColor1[1]) * t,
+              glColor1[2] + (glColor2[2] - glColor1[2]) * t,
+              glColor1[3] + (glColor2[3] - glColor1[3]) * t
+            ];
+            network.glRenderer.addLine(prev[0], prev[1], cL, cx, cy, cR);
+            prev[0] = cx; prev[1] = cy;
+          }
+        } else {
+          network.glRenderer.addLine(
+            particleA.x, particleA.y, glColor1,
+            particleB.x, particleB.y, glColor2
+          );
+        }
       } else {
-        g.beginPath();
-        g.strokeStyle = gradient;
+        // 2D Canvas path
         g.globalAlpha = alphaFactor;
-        g.lineWidth = 1.2;
-        g.moveTo(particleA.x, particleA.y);
-        g.lineTo(particleB.x, particleB.y);
-        g.stroke();
+        g.lineWidth = this.options.lineThickness != null ? this.options.lineThickness : 1.2;
+        if (network.options.lineJitter) {
+          var segs2 = Math.max(2, network.options.lineJitterSegments|0);
+          var dx2 = particleB.x - particleA.x; var dy2 = particleB.y - particleA.y;
+          var len2 = Math.max(1e-6, Math.hypot(dx2, dy2));
+          var nx2 = -dy2 / len2, ny2 = dx2 / len2;
+          var ampFrac2 = network.options.lineJitterAmplitude != null ? network.options.lineJitterAmplitude : 0.12;
+          var amp2 = Math.min(6, ampFrac2 * len2);
+          var tphase2 = (network._pulsePhase || 0);
+          // build jittered polyline
+          g.beginPath();
+          var sx = particleA.x, sy = particleA.y;
+          g.moveTo(sx, sy);
+          for (var si2 = 1; si2 <= segs2; si2++) {
+            var t2 = si2 / segs2;
+            var bx2 = particleA.x + dx2 * t2;
+            var by2 = particleA.y + dy2 * t2;
+            var jitter2 = Math.sin(t2 * 12.9898 + tphase2) * 0.5 + Math.cos(t2 * 78.233 + tphase2 * 0.5) * 0.5;
+            var taper2 = 1 - Math.abs(0.5 - t2) * 1.6;
+            var off2 = jitter2 * amp2 * taper2;
+            var cx2 = bx2 + nx2 * off2;
+            var cy2 = by2 + ny2 * off2;
+            g.lineTo(cx2, cy2);
+          }
+          g.strokeStyle = gradient;
+          g.stroke();
+        } else {
+          g.beginPath();
+          g.strokeStyle = gradient;
+          g.moveTo(particleA.x, particleA.y);
+          g.lineTo(particleB.x, particleB.y);
+          g.stroke();
+        }
       }
     }
     if (isNaN(particleA.velocity.x) || isNaN(particleA.velocity.y)) {
@@ -1092,16 +1455,15 @@ var options = {
   particleColor: "#888",
   particleSize: 2,
   particleColorCycling: false,
-  particleCyclingSpeed: 0.001,
+  particleCyclingSpeed: 10,
   randomParticleColor: false,
-  randomIndividualParticleColor: false,
 
   // Line options
   gradientEffect: true,
   gradientColor1: "#ecf00c",
   gradientColor2: "#e00000",
   lineColorCycling: true,
-  lineCyclingSpeed: 0.5,
+  lineCyclingSpeed: 40,
 
   // Interaction options
   interactive: true,
@@ -1136,3 +1498,4 @@ var particleCanvas = new ParticleNetwork(canvasDiv, options);
 
 // Export the instance for external access
 window.particleInstance = particleCanvas;
+

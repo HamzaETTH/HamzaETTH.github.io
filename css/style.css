@@ -1,5 +1,9 @@
 @import url(https://fonts.googleapis.com/css?family=Inter:400,500,600,700,800&display=swap);
 
+html, body, main.site-content { 
+  height: 100%; 
+}
+
 body {
   display: flex;
   justify-content: center;
@@ -40,11 +44,8 @@ section, main {
 }
 
 #particle-canvas {
-  width: 100%;
-  height: 100%;
-  position: absolute;
-  top: 0;
-  left: 0;
+  position: fixed;
+  inset: 0;
   z-index: 0;
 }
 
@@ -53,7 +54,25 @@ section, main {
 }
 
 .performance-overlay {
-  z-index: 1000;
+  position: fixed;
+  top: 10px;
+  left: 10px;
+  z-index: 3000;
+  color: #fff;
+  background: rgba(0,0,0,0.75);
+  padding: 6px 8px;
+  font-family: "Fira Code", monospace;
+  border-radius: 4px;
+  pointer-events: none;
+  display: none;
+  line-height: 1.15;
+}
+.performance-overlay.visible {
+  display: block;
+}
+.performance-overlay pre {
+  margin: 0;
+  font: inherit;
 }
 
 .center {
@@ -61,6 +80,8 @@ section, main {
   top: 50%;
   left: 50%;
   transform: translate(-50%, -50%);
+  /* Allow canvas interactions through overlay text */
+  pointer-events: none;
 }
 
 .typewriter h1 {
@@ -72,6 +93,13 @@ section, main {
   letter-spacing: 0;
   animation: typing 2.5s steps(10), blink-caret 0.75s step-end infinite;
   user-select: none;
+  pointer-events: none;
+}
+
+/* Ensure whole overlay stack (title + blobs) doesn't block pointer events */
+.typewriter,
+.blobs-container,
+.blob {
   pointer-events: none;
 }
 

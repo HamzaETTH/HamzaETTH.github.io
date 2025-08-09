@@ -71,7 +71,7 @@
       gradientColor1: "#00bfff",
       gradientColor2: "#ff4500",
       lineColorCycling: true,
-      lineCyclingSpeed: 1,
+      lineCyclingSpeed: 40,
       
       // Color differentiation options
       colorDifferentiationMethod: 'hueDistance',

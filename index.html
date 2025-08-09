@@ -49,8 +49,6 @@
     <script src="./js/ColorUtils.js"></script>
     <script src="./js/PerformanceMonitor.js"></script>
     <script src="./js/ParticleRenderer.js"></script>
-    <script src="./js/ParticlePhysics.js"></script>
-    <script src="./js/ParticleCore.js"></script>
     <script src="./js/ParticleRendererGL.js"></script>
     <script src="./js/ParticleNetwork.js"></script>
     <script>
@@ -128,24 +126,13 @@
         
         // Check if 'p' or 'P' was pressed to toggle performance overlay
         if (event.key.toLowerCase() === 'p') {
-          console.log('P key pressed - toggling performance overlay');
-          
-          // DEBUG: Check if we can access particleInstance
-          console.log('particleInstance exists:', !!window.particleInstance);
-          if (window.particleInstance) {
-            console.log('performanceMonitor exists:', !!window.particleInstance.performanceMonitor);
-            if (window.particleInstance.performanceMonitor) {
-              console.log('toggleOverlay method exists:', !!window.particleInstance.performanceMonitor.toggleOverlay);
-            }
-          }
-          
-          // Access the performance monitor instance
-          if (window.particleInstance && window.particleInstance.performanceMonitor) {
-            // Toggle the overlay visibility
-            window.particleInstance.performanceMonitor.toggleOverlay();
-            
-            // Show a temporary indicator
-            const overlayEnabled = window.particleInstance.performanceMonitor.options.showOverlay;
+          if (window.particleInstance && window.particleInstance.performanceMonitor && window.particleInstance.options) {
+            const monitor = window.particleInstance.performanceMonitor;
+            monitor.toggleOverlay();
+            const overlayEnabled = monitor.options.showOverlay;
+            // Sync back to main options so other code (e.g., UI) doesn't fight it
+            window.particleInstance.options.performanceOverlay = overlayEnabled;
+
             const statusIndicator = document.createElement('div');
             statusIndicator.textContent = `Performance Overlay: ${overlayEnabled ? 'Enabled' : 'Disabled'}`;
             statusIndicator.style.position = 'fixed';
@@ -156,30 +143,11 @@
             statusIndicator.style.padding = '8px 12px';
             statusIndicator.style.borderRadius = '4px';
             statusIndicator.style.fontFamily = 'Fira Code, monospace';
-            statusIndicator.style.zIndex = '1000';
+            statusIndicator.style.zIndex = '4000';
             document.body.appendChild(statusIndicator);
-            
-            // Remove the indicator after 2 seconds
-            setTimeout(() => {
-              document.body.removeChild(statusIndicator);
-            }, 2000);
-            
-            // Special fix: Force-hide all performance overlays in the DOM to ensure clean state
-            const allOverlays = document.querySelectorAll('.performance-overlay');
-            allOverlays.forEach(overlay => {
-              if (!overlayEnabled) {
-                overlay.style.display = 'none';
-              } else {
-                // Only show the main one
-                if (overlay === window.particleInstance.performanceMonitor.performanceDiv) {
-                  overlay.style.display = 'block';
-                } else {
-                  overlay.style.display = 'none';
-                }
-              }
-            });
+            setTimeout(() => { if (statusIndicator.parentNode) document.body.removeChild(statusIndicator); }, 2000);
           } else {
-            console.error('Could not access performanceMonitor. Make sure particleInstance is properly exported and includes a performanceMonitor property.');
+            console.error('Could not access performanceMonitor.');
           }
         }
       });
@@ -216,17 +184,19 @@
           particleColor: o.particleColor || '#ffffff',
           particleSize: o.particleSize != null ? o.particleSize : 2,
           particleColorCycling: !!o.particleColorCycling,
-          particleCyclingSpeed: o.particleCyclingSpeed != null ? o.particleCyclingSpeed : 0.01,
+          particleCyclingSpeed: o.particleCyclingSpeed != null ? o.particleCyclingSpeed : 10,
           randomParticleColor: !!o.randomParticleColor,
-          randomIndividualParticleColor: !!o.randomIndividualParticleColor,
 
           // Lines
           gradientEffect: o.gradientEffect !== false,
           gradientColor1: o.gradientColor1 || '#00bfff',
           gradientColor2: o.gradientColor2 || '#ff4500',
           lineColorCycling: o.lineColorCycling !== false,
-          lineCyclingSpeed: o.lineCyclingSpeed != null ? o.lineCyclingSpeed : 1,
+          lineCyclingSpeed: o.lineCyclingSpeed != null ? o.lineCyclingSpeed : 50,
+          randomizeDistanceColors: !!o.randomizeDistanceColors,
+          lineThickness: o.lineThickness != null ? o.lineThickness : 1.2,
           colorDifferentiationMethod: (o.colorDifferentiationMethod || 'hueDistance'),
+          distanceColorCyclingSpeed: o.distanceColorCyclingSpeed != null ? o.distanceColorCyclingSpeed : (o.lineCyclingSpeed != null ? o.lineCyclingSpeed : 50),
 
           // Interaction
           interactive: o.interactive !== false,
@@ -254,6 +224,24 @@
 
           // Perf
           performanceOverlay: !!o.performanceOverlay,
+
+          // Trails
+          trails: !!o.trails,
+          trailFade: o.trailFade != null ? o.trailFade : 0.08,
+
+          // Electric lines
+          lineJitter: !!o.lineJitter,
+          lineJitterSegments: o.lineJitterSegments != null ? o.lineJitterSegments : 6,
+          lineJitterAmplitude: o.lineJitterAmplitude != null ? o.lineJitterAmplitude : 0.12,
+
+          // Worm motion
+          wormMotion: !!o.wormMotion,
+          // Expose UI 1..100 (100 => internal 0.20)
+          wormCurvature: o.wormCurvature != null ? Math.round(o.wormCurvature * 500) : 60,
+          wormNoiseSpeed: o.wormNoiseSpeed != null ? o.wormNoiseSpeed : 1.5,
+
+          // Gather
+          gatherRadius: o.gatherRadius != null ? o.gatherRadius : 100,
         };
       }
 
@@ -267,17 +255,19 @@
           particleColor: D.particleColor || '#fff',
           particleSize: D.particleSize != null ? D.particleSize : 2,
           particleColorCycling: !!D.particleColorCycling,
-          particleCyclingSpeed: D.particleCyclingSpeed != null ? D.particleCyclingSpeed : 0.01,
+          particleCyclingSpeed: D.particleCyclingSpeed != null ? D.particleCyclingSpeed : 10,
           randomParticleColor: !!D.randomParticleColor,
-          randomIndividualParticleColor: !!D.randomIndividualParticleColor,
 
           // Lines
           gradientEffect: D.gradientEffect !== false,
           gradientColor1: D.gradientColor1 || '#00bfff',
           gradientColor2: D.gradientColor2 || '#ff4500',
           lineColorCycling: D.lineColorCycling !== false,
-          lineCyclingSpeed: D.lineCyclingSpeed != null ? D.lineCyclingSpeed : 1,
+          lineCyclingSpeed: D.lineCyclingSpeed != null ? D.lineCyclingSpeed : 50,
+          randomizeDistanceColors: !!D.randomizeDistanceColors,
+          lineThickness: D.lineThickness != null ? D.lineThickness : 1.2,
           colorDifferentiationMethod: (D.colorDifferentiationMethod || 'hueDistance'),
+          distanceColorCyclingSpeed: D.distanceColorCyclingSpeed != null ? D.distanceColorCyclingSpeed : (D.lineCyclingSpeed != null ? D.lineCyclingSpeed : 50),
 
           // Interaction
           interactive: D.interactive !== false,
@@ -305,6 +295,23 @@
 
           // Perf
           performanceOverlay: !!D.performanceOverlay,
+
+          // Trails
+          trails: !!D.trails,
+          trailFade: D.trailFade != null ? D.trailFade : 0.08,
+
+          // Electric lines
+          lineJitter: !!D.lineJitter,
+          lineJitterSegments: D.lineJitterSegments != null ? D.lineJitterSegments : 6,
+          lineJitterAmplitude: D.lineJitterAmplitude != null ? D.lineJitterAmplitude : 0.12,
+
+          // Worm motion
+          wormMotion: !!D.wormMotion,
+          wormCurvature: D.wormCurvature != null ? Math.round(D.wormCurvature * 500) : 60,
+          wormNoiseSpeed: D.wormNoiseSpeed != null ? D.wormNoiseSpeed : 1.5,
+
+          // Gather
+          gatherRadius: D.gatherRadius != null ? D.gatherRadius : 100,
         };
       }
 
@@ -337,13 +344,26 @@
 
         // Simple assigns
         const keys = [
-          'particleColor','particleColorCycling','particleCyclingSpeed','randomParticleColor','randomIndividualParticleColor',
+          'particleColor','particleColorCycling','particleCyclingSpeed','randomParticleColor',
           'gradientEffect','gradientColor1','gradientColor2','lineColorCycling','lineCyclingSpeed',
           'interactive','proximityEffectColor','proximityEffectDistance','attractionRange','attractionIntensity','repulsionRange','repulsionIntensity',
-          'opacity','useDistanceEffect','maxColorChangeDistance','startColor','endColor','lineConnectionDistance',
-          'particleInteractionDistance','particleRepulsionForce','performanceOverlay','boundaryMode','colorDifferentiationMethod'
+          'opacity','useDistanceEffect','randomizeDistanceColors','maxColorChangeDistance','startColor','endColor','lineConnectionDistance','distanceColorCyclingSpeed',
+          'particleInteractionDistance','particleRepulsionForce','performanceOverlay','boundaryMode','colorDifferentiationMethod',
+          // Trails
+          'trails','trailFade',
+          // Electric lines
+          'lineJitter','lineJitterSegments','lineJitterAmplitude',
+          // Worm motion (wormCurvature mapped separately)
+          'wormMotion','wormNoiseSpeed',
+          // Gather
+          'gatherRadius'
         ];
         keys.forEach(k => { o[k] = p[k]; });
+
+        // Map UI wormCurvature 1..100 to internal 0..0.2
+        if (typeof p.wormCurvature === 'number') {
+          o.wormCurvature = Math.max(1, Math.min(100, Math.round(p.wormCurvature))) / 500;
+        }
 
         // Normalize key color strings
         o.particleColor = toCssColor(o.particleColor);
@@ -382,8 +402,17 @@
           }
         }
 
-        // Speed: numeric velocity
-        o.velocity = typeof p.speed === 'number' ? p.speed : pn.setVelocity(p.speed);
+        // Speed/Velocity: support both PARAMS.speed and direct PARAMS.velocity
+        const prevVelocity = o.velocity;
+        if (typeof p.velocity === 'number') {
+          o.velocity = p.velocity;
+        } else {
+          o.velocity = typeof p.speed === 'number' ? p.speed : pn.setVelocity(p.speed);
+        }
+        // If the loop was stopped (velocity 0) and we now have non-zero velocity, restart it
+        if ((!pn._rafActive || pn._rafId == null) && o.velocity !== 0 && typeof pn.update === 'function') {
+          pn.update();
+        }
 
         // Density: rebuild particle arrays based on new density
         if (typeof p.density === 'number' && p.density > 0) {
@@ -400,7 +429,7 @@
             const part = pn.o[i];
             if (part) {
               part.size = p.particleSize;
-              if (!p.randomIndividualParticleColor && !p.randomParticleColor) {
+              if (!p.randomParticleColor) {
                 part.particleColor = p.particleColor;
               }
             }
@@ -413,12 +442,7 @@
         o.particleSize = p.particleSize;
 
         // Random color modes immediate application
-        if (p.randomIndividualParticleColor && Array.isArray(pn.o)) {
-          for (let i = 0; i < pn.o.length; i++) {
-            const hue = Math.floor(Math.random() * 360);
-            pn.o[i].particleColor = `hsl(${hue}, 100%, 50%)`;
-          }
-        } else if (p.randomParticleColor && Array.isArray(pn.o)) {
+        if (p.randomParticleColor && Array.isArray(pn.o)) {
           const hue = Math.floor(Math.random() * 360);
           const col = `hsl(${hue}, 100%, 50%)`;
           o.calculatedParticleColor = col;
@@ -437,6 +461,9 @@
         }
       }
 
+      // Ensure global access for scripted tweaks
+      window.applyParamsToNetwork = applyParamsToNetwork;
+
       window.addEventListener('DOMContentLoaded', () => {
         const pn = window.particleInstance;
         if (!pn) return;
@@ -448,79 +475,344 @@
         // Snapshot current as reset baseline rather than global defaults
         const DEFAULTS = { ...PARAMS };
 
-        const bg = pane.addFolder({ title: 'Background' });
-        bg.addBinding(PARAMS, 'background', { view: 'color' }).on('change', () => applyParamsToNetwork(pn, PARAMS));
-
-        const part = pane.addFolder({ title: 'Particles' });
-        part.addBinding(PARAMS, 'particleColor', { view: 'color' }).on('change', () => applyParamsToNetwork(pn, PARAMS));
-        part.addBinding(PARAMS, 'particleSize', { min: 1, max: 8, step: 1 }).on('change', () => applyParamsToNetwork(pn, PARAMS));
-        part.addBinding(PARAMS, 'opacity', { min: 0.1, max: 1, step: 0.05 }).on('change', () => applyParamsToNetwork(pn, PARAMS));
-        part.addBinding(PARAMS, 'randomParticleColor').on('change', () => applyParamsToNetwork(pn, PARAMS));
-        part.addBinding(PARAMS, 'randomIndividualParticleColor').on('change', () => applyParamsToNetwork(pn, PARAMS));
-        part.addBinding(PARAMS, 'particleColorCycling').on('change', () => applyParamsToNetwork(pn, PARAMS));
-        part.addBinding(PARAMS, 'particleCyclingSpeed', { min: 0.001, max: 0.1, step: 0.001 }).on('change', () => applyParamsToNetwork(pn, PARAMS));
-
-        const lines = pane.addFolder({ title: 'Lines' });
-        lines.addBinding(PARAMS, 'gradientEffect').on('change', () => applyParamsToNetwork(pn, PARAMS));
-        lines.addBinding(PARAMS, 'gradientColor1', { view: 'color' }).on('change', () => applyParamsToNetwork(pn, PARAMS));
-        lines.addBinding(PARAMS, 'gradientColor2', { view: 'color' }).on('change', () => applyParamsToNetwork(pn, PARAMS));
-        lines.addBinding(PARAMS, 'lineColorCycling').on('change', () => applyParamsToNetwork(pn, PARAMS));
-        lines.addBinding(PARAMS, 'lineCyclingSpeed', { min: 0, max: 5, step: 0.1 }).on('change', () => applyParamsToNetwork(pn, PARAMS));
-        lines.addBinding(PARAMS, 'lineConnectionDistance', { min: 20, max: 300, step: 5 }).on('change', () => applyParamsToNetwork(pn, PARAMS));
-        lines.addBinding(PARAMS, 'colorDifferentiationMethod', { options: {
-          HueDistance: 'hueDistance',
-          Complementary: 'complementary',
-          Triadic: 'triadic',
-          Analogous: 'analogous',
-          LabPerceptual: 'labPerceptual',
-          WCAGContrast: 'wcagContrast'
-        }}).on('change', () => applyParamsToNetwork(pn, PARAMS));
-
-        const inter = pane.addFolder({ title: 'Interaction' });
-        inter.addBinding(PARAMS, 'interactive').on('change', () => applyParamsToNetwork(pn, PARAMS));
-        inter.addBinding(PARAMS, 'proximityEffectColor', { view: 'color' }).on('change', () => applyParamsToNetwork(pn, PARAMS));
-        inter.addBinding(PARAMS, 'proximityEffectDistance', { min: 20, max: 250, step: 5 }).on('change', () => applyParamsToNetwork(pn, PARAMS));
-        inter.addBinding(PARAMS, 'attractionRange', { min: 0, max: 10, step: 0.5 }).on('change', () => applyParamsToNetwork(pn, PARAMS));
-        inter.addBinding(PARAMS, 'attractionIntensity', { min: 0, max: 10, step: 0.5 }).on('change', () => applyParamsToNetwork(pn, PARAMS));
-        inter.addBinding(PARAMS, 'repulsionRange', { min: 0, max: 10, step: 0.5 }).on('change', () => applyParamsToNetwork(pn, PARAMS));
-        inter.addBinding(PARAMS, 'repulsionIntensity', { min: 0, max: 10, step: 0.5 }).on('change', () => applyParamsToNetwork(pn, PARAMS));
-        inter.addBinding(PARAMS, 'particleInteractionDistance', { min: 0, max: 200, step: 1 }).on('change', () => applyParamsToNetwork(pn, PARAMS));
-        inter.addBinding(PARAMS, 'particleRepulsionForce', { min: 0, max: 20, step: 0.5 }).on('change', () => applyParamsToNetwork(pn, PARAMS));
-
-        const phys = pane.addFolder({ title: 'Physics' });
-        phys.addBinding(PARAMS, 'speed', { min: 0, max: 2, step: 0.01 }).on('change', () => applyParamsToNetwork(pn, PARAMS));
-        phys.addBinding(PARAMS, 'density', { min: 1000, max: 20000, step: 500 }).on('change', () => applyParamsToNetwork(pn, PARAMS));
-        phys.addBinding(PARAMS, 'boundaryMode', { options: { bounce: 'bounce', wrap: 'wrap', none: 'none' }}).on('change', () => applyParamsToNetwork(pn, PARAMS));
-
-        const effects = pane.addFolder({ title: 'Color Distance Effect' });
-        effects.addBinding(PARAMS, 'useDistanceEffect').on('change', () => applyParamsToNetwork(pn, PARAMS));
-        effects.addBinding(PARAMS, 'maxColorChangeDistance', { min: 20, max: 400, step: 5 }).on('change', () => applyParamsToNetwork(pn, PARAMS));
-        effects.addBinding(PARAMS, 'startColor', { view: 'color' }).on('change', () => applyParamsToNetwork(pn, PARAMS));
-        effects.addBinding(PARAMS, 'endColor', { view: 'color' }).on('change', () => applyParamsToNetwork(pn, PARAMS));
-
-        const perf = pane.addFolder({ title: 'Performance' });
-        perf.addBinding(PARAMS, 'performanceOverlay').on('change', () => applyParamsToNetwork(pn, PARAMS));
-
-        // Reset to default button
-        const resetBtn = pane.addButton({ title: 'Reset to Default' });
-        const doReset = () => {
+        // Shared reset that truly restores defaults and clears transient state
+        function doReset() {
           Object.keys(DEFAULTS).forEach(k => { PARAMS[k] = DEFAULTS[k]; });
           applyParamsToNetwork(pn, PARAMS);
+          // Clear transient forces and effects
+          try {
+            if (pn) {
+              pn.attractionForce = null;
+              pn.repulsionForce = null;
+              pn._gatherActive = false;
+              pn.forceHueSweep = false;
+              // Wipe 2D canvas (clear trails immediately)
+              if (pn.g && pn.i && pn.i.size) {
+                pn.g.clearRect(0, 0, pn.i.size.width, pn.i.size.height);
+              }
+              // Wipe GL buffers
+              if (pn.glRenderer && pn.glRenderer.gl) {
+                const gl = pn.glRenderer.gl;
+                gl.clear(gl.COLOR_BUFFER_BIT);
+              }
+              // Rebuild particles for a pristine state
+              if (typeof pn._rebuildOnResize === 'function') pn._rebuildOnResize();
+            }
+          } catch (_) {}
           if (typeof pane.refresh === 'function') pane.refresh();
-        };
-        resetBtn.on('click', doReset);
+        }
 
-        // Toggle pane with 'c'
+        // Top-level Performance Overlay checkbox (pinned at top)
+        pane.addBinding(PARAMS, 'performanceOverlay', { label: 'Performance Overlay' })
+          .on('change', () => applyParamsToNetwork(pn, PARAMS));
+
+        // Tabs to compact the UI
+        const tabs = pane.addTab({ pages: [
+          { title: 'Main' },
+          { title: 'Advanced' },
+        ]});
+
+        // Quick
+        const main = tabs.pages[0];
+        const mainBg = main.addFolder({ title: 'Background', expanded: true });
+        mainBg.addBinding(PARAMS, 'background', { view: 'color', label: 'Background' }).on('change', () => applyParamsToNetwork(pn, PARAMS));
+        // Lines (core)
+        const mainLines = main.addFolder({ title: 'Lines', expanded: true });
+        const bindGradientEffect = mainLines.addBinding(PARAMS, 'gradientEffect', { label: 'Gradient Effect' }).on('change', () => { applyParamsToNetwork(pn, PARAMS); updateVisibility(); });
+        const bindGradient1 = mainLines.addBinding(PARAMS, 'gradientColor1', { view: 'color', label: 'Gradient Color 1' }).on('change', () => applyParamsToNetwork(pn, PARAMS));
+        const bindGradient2 = mainLines.addBinding(PARAMS, 'gradientColor2', { view: 'color', label: 'Gradient Color 2' }).on('change', () => applyParamsToNetwork(pn, PARAMS));
+        const bindLineColorCycling = mainLines.addBinding(PARAMS, 'lineColorCycling', { label: 'Line Color Cycling' }).on('change', () => { applyParamsToNetwork(pn, PARAMS); updateVisibility(); });
+        const bindLineCyclingSpeed = mainLines.addBinding(PARAMS, 'lineCyclingSpeed', { min: 0, max: 100, step: 1, label: 'Line Cycling Speed' }).on('change', () => applyParamsToNetwork(pn, PARAMS));
+        mainLines.addBinding(PARAMS, 'lineThickness', { min: 0.5, max: 4, step: 0.1, label: 'Line Thickness' }).on('change', () => applyParamsToNetwork(pn, PARAMS));
+        mainLines.addBinding(PARAMS, 'lineConnectionDistance', { min: 20, max: 300, step: 5, label: 'Line Connection Distance' }).on('change', () => applyParamsToNetwork(pn, PARAMS));
+        mainLines.addBinding(PARAMS, 'colorDifferentiationMethod', { options: {
+          HueDistance: 'hueDistance', Complementary: 'complementary', Triadic: 'triadic', Analogous: 'analogous', LabPerceptual: 'labPerceptual', WCAGContrast: 'wcagContrast'
+        }}).on('change', () => applyParamsToNetwork(pn, PARAMS));
+        // Effects (combined)
+        const mainEffects = main.addFolder({ title: 'Effects', expanded: true });
+        mainEffects.addBinding(PARAMS, 'trails', { label: 'Trails' }).on('change', () => applyParamsToNetwork(pn, PARAMS));
+        mainEffects.addBinding(PARAMS, 'trailFade', { min: 0.01, max: 0.3, step: 0.01, label: 'Trail Fade' }).on('change', () => applyParamsToNetwork(pn, PARAMS));
+        const bindLineJitter = mainEffects.addBinding(PARAMS, 'lineJitter', { label: 'Electric Lines' }).on('change', () => { applyParamsToNetwork(pn, PARAMS); updateVisibility(); });
+        const bindJitterSegments = mainEffects.addBinding(PARAMS, 'lineJitterSegments', { min: 2, max: 24, step: 1, label: 'Jitter Segments' }).on('change', () => applyParamsToNetwork(pn, PARAMS));
+        const bindJitterAmplitude = mainEffects.addBinding(PARAMS, 'lineJitterAmplitude', { min: 0.0, max: 0.5, step: 0.01, label: 'Jitter Amplitude' }).on('change', () => applyParamsToNetwork(pn, PARAMS));
+
+        // Particles
+        const mainParticles = main.addFolder({ title: 'Particles', expanded: true });
+        mainParticles.addBinding(PARAMS, 'particleSize', { min: 1, max: 8, step: 1, label: 'Size' }).on('change', () => applyParamsToNetwork(pn, PARAMS));
+        mainParticles.addBinding(PARAMS, 'particleColor', { view: 'color', label: 'Particle Color' }).on('change', () => applyParamsToNetwork(pn, PARAMS));
+        mainParticles.addBinding(PARAMS, 'randomParticleColor', { label: 'Random Color' }).on('change', () => applyParamsToNetwork(pn, PARAMS));
+        const bindParticleColorCycling = mainParticles.addBinding(PARAMS, 'particleColorCycling', { label: 'Particle Color Cycling' }).on('change', () => { applyParamsToNetwork(pn, PARAMS); updateVisibility(); });
+        const bindParticleCyclingSpeed = mainParticles.addBinding(PARAMS, 'particleCyclingSpeed', { min: 0, max: 100, step: 1, label: 'Particle Cycling Speed' }).on('change', () => applyParamsToNetwork(pn, PARAMS));
+        // Actions
+        const mainActions = main.addFolder({ title: 'Actions', expanded: true });
+        const actionsRandBtnMain = mainActions.addButton({ title: 'Randomize Visuals' });
+        actionsRandBtnMain.on('click', randomizeVisualParams);
+        const actionsResetBtnMain = mainActions.addButton({ title: 'Reset to Default' });
+        actionsResetBtnMain.on('click', doReset);
+        const actionsResetEffectsBtnMain = mainActions.addButton({ title: 'Reset Effects Only' });
+        actionsResetEffectsBtnMain.on('click', () => {
+          PARAMS.trails = DEFAULTS.trails;
+          PARAMS.trailFade = DEFAULTS.trailFade;
+          PARAMS.lineJitter = DEFAULTS.lineJitter;
+          PARAMS.lineJitterSegments = DEFAULTS.lineJitterSegments;
+          PARAMS.lineJitterAmplitude = DEFAULTS.lineJitterAmplitude;
+          PARAMS.wormMotion = DEFAULTS.wormMotion;
+          PARAMS.wormCurvature = DEFAULTS.wormCurvature;
+          PARAMS.wormNoiseSpeed = DEFAULTS.wormNoiseSpeed;
+          applyParamsToNetwork(pn, PARAMS);
+          if (typeof pane.refresh === 'function') pane.refresh();
+        });
+
+        // Lines
+        const adv = tabs.pages[1];
+        // Distance Effect (advanced)
+        const linesDistance = adv.addFolder({ title: 'Distance Effect', expanded: true });
+        const bindUseDistance = linesDistance.addBinding(PARAMS, 'useDistanceEffect', { label: 'Use Distance Effect' }).on('change', () => {
+          if (PARAMS.useDistanceEffect && PARAMS.randomizeDistanceColors) {
+            PARAMS.lineColorCycling = false;
+            // no-op: line cycling controls live in Main/Basics
+          }
+          // When enabled, keep gradient off to avoid conflict
+          if (PARAMS.useDistanceEffect) PARAMS.gradientEffect = false;
+          applyParamsToNetwork(pn, PARAMS);
+          updateVisibility();
+        });
+        const bindMaxColorDist = linesDistance.addBinding(PARAMS, 'maxColorChangeDistance', { min: 20, max: 400, step: 5, label: 'Max Color Change Distance' }).on('change', () => applyParamsToNetwork(pn, PARAMS));
+        const bindStartColor = linesDistance.addBinding(PARAMS, 'startColor', { view: 'color', label: 'Start Color' }).on('change', () => applyParamsToNetwork(pn, PARAMS));
+        const bindEndColor = linesDistance.addBinding(PARAMS, 'endColor', { view: 'color', label: 'End Color' }).on('change', () => applyParamsToNetwork(pn, PARAMS));
+        const bindRandDistColors = linesDistance.addBinding(PARAMS, 'randomizeDistanceColors', { label: 'Randomize Distance Colors' }).on('change', () => {
+          if (PARAMS.randomizeDistanceColors && PARAMS.useDistanceEffect) {
+            PARAMS.lineColorCycling = false;
+            // no-op
+          }
+          applyParamsToNetwork(pn, PARAMS);
+        });
+        const bindDistCycleSpeed = linesDistance.addBinding(PARAMS, 'distanceColorCyclingSpeed', { min: 0, max: 100, step: 1, label: 'Distance Cycling Speed' }).on('change', () => applyParamsToNetwork(pn, PARAMS));
+
+        // Effects
+        // Physics
+        const phys = adv.addFolder({ title: 'Physics', expanded: true });
+        phys.addBinding(PARAMS, 'speed', { min: 0, max: 2, step: 0.01, label: 'Speed' }).on('change', () => applyParamsToNetwork(pn, PARAMS));
+        phys.addBinding(PARAMS, 'boundaryMode', { label: 'Boundary Mode', options: { bounce: 'bounce', wrap: 'wrap', none: 'none' }}).on('change', () => applyParamsToNetwork(pn, PARAMS));
+
+        // Motion
+        const motionMain = adv.addFolder({ title: 'Worm Motion', expanded: true });
+        const bindWormMotion = motionMain.addBinding(PARAMS, 'wormMotion', { label: 'Enabled' }).on('change', () => { applyParamsToNetwork(pn, PARAMS); updateVisibility(); });
+        const bindWormCurv = motionMain.addBinding(PARAMS, 'wormCurvature', { min: 1, max: 100, step: 1, label: 'Curvature' }).on('change', () => applyParamsToNetwork(pn, PARAMS));
+        const bindWormNoise = motionMain.addBinding(PARAMS, 'wormNoiseSpeed', { min: 0.1, max: 4.0, step: 0.1, label: 'Noise Speed' }).on('change', () => applyParamsToNetwork(pn, PARAMS));
+
+        const gatherFolder = adv.addFolder({ title: 'Gather', expanded: true });
+        const bindGatherRadius = gatherFolder.addBinding(PARAMS, 'gatherRadius', { min: 0, max: 500, step: 1, label: 'Radius' }).on('change', () => applyParamsToNetwork(pn, PARAMS));
+
+        // Interaction
+        const inter = adv.addFolder({ title: 'Interaction', expanded: true });
+        const bindInteractive = inter.addBinding(PARAMS, 'interactive', { label: 'Interactive' }).on('change', () => applyParamsToNetwork(pn, PARAMS));
+        inter.addBinding(PARAMS, 'proximityEffectColor', { view: 'color', label: 'Proximity Effect Color' }).on('change', () => applyParamsToNetwork(pn, PARAMS));
+        inter.addBinding(PARAMS, 'proximityEffectDistance', { min: 20, max: 250, step: 5, label: 'Proximity Effect Distance' }).on('change', () => applyParamsToNetwork(pn, PARAMS));
+        inter.addBinding(PARAMS, 'attractionRange', { min: 0, max: 10, step: 0.5, label: 'Attraction Range' }).on('change', () => applyParamsToNetwork(pn, PARAMS));
+        inter.addBinding(PARAMS, 'attractionIntensity', { min: 0, max: 10, step: 0.5, label: 'Attraction Intensity' }).on('change', () => applyParamsToNetwork(pn, PARAMS));
+        inter.addBinding(PARAMS, 'repulsionRange', { min: 0, max: 10, step: 0.5, label: 'Repulsion Range' }).on('change', () => applyParamsToNetwork(pn, PARAMS));
+        inter.addBinding(PARAMS, 'repulsionIntensity', { min: 0, max: 10, step: 0.5, label: 'Repulsion Intensity' }).on('change', () => applyParamsToNetwork(pn, PARAMS));
+        inter.addBinding(PARAMS, 'particleInteractionDistance', { min: 0, max: 200, step: 1, label: 'Particle Interaction Distance' }).on('change', () => applyParamsToNetwork(pn, PARAMS));
+        inter.addBinding(PARAMS, 'particleRepulsionForce', { min: 0, max: 20, step: 0.5, label: 'Particle Repulsion Force' }).on('change', () => applyParamsToNetwork(pn, PARAMS));
+
+        // Dependent visibility logic
+        function updateVisibility() {
+          // Gradient colors visible only when gradient effect is on
+          bindGradient1.hidden = !PARAMS.gradientEffect;
+          bindGradient2.hidden = !PARAMS.gradientEffect;
+          // Show line cycling speed only when cycling is enabled
+          const lineCycleOn = !!PARAMS.lineColorCycling;
+          bindLineCyclingSpeed.hidden = !lineCycleOn;
+          // Show particle cycling speed only when particle cycling is enabled
+          const particleCycleOn = !!PARAMS.particleColorCycling;
+          bindParticleCyclingSpeed.hidden = !particleCycleOn;
+          // Distance Effect children
+          const distOn = !!PARAMS.useDistanceEffect;
+          bindMaxColorDist.hidden = !distOn;
+          bindStartColor.hidden = !distOn;
+          bindEndColor.hidden = !distOn;
+          bindRandDistColors.hidden = !distOn;
+          bindDistCycleSpeed.hidden = !distOn;
+          // Electric lines advanced controls
+          const jitterOn = !!PARAMS.lineJitter;
+          bindJitterSegments.hidden = !jitterOn;
+          bindJitterAmplitude.hidden = !jitterOn;
+          // Worm controls hidden when worm off (keep Gather Radius visible)
+          const wormOn = !!PARAMS.wormMotion;
+          bindWormCurv.hidden = !wormOn;
+          bindWormNoise.hidden = !wormOn;
+        }
+        updateVisibility();
+
+        const actions = adv.addFolder({ title: 'Actions', expanded: true });
+        const actionsRandBtn = actions.addButton({ title: 'Randomize Visuals' });
+        actionsRandBtn.on('click', randomizeVisualParams);
+        const actionsResetBtn = actions.addButton({ title: 'Reset to Default' });
+        actionsResetBtn.on('click', doReset);
+        const actionsResetEffectsBtn = actions.addButton({ title: 'Reset Effects Only' });
+        actionsResetEffectsBtn.on('click', () => {
+          PARAMS.trails = DEFAULTS.trails;
+          PARAMS.trailFade = DEFAULTS.trailFade;
+          PARAMS.lineJitter = DEFAULTS.lineJitter;
+          PARAMS.lineJitterSegments = DEFAULTS.lineJitterSegments;
+          PARAMS.lineJitterAmplitude = DEFAULTS.lineJitterAmplitude;
+          PARAMS.wormMotion = DEFAULTS.wormMotion;
+          PARAMS.wormCurvature = DEFAULTS.wormCurvature;
+          PARAMS.wormNoiseSpeed = DEFAULTS.wormNoiseSpeed;
+          applyParamsToNetwork(pn, PARAMS);
+          if (typeof pane.refresh === 'function') pane.refresh();
+        });
+
+        // Runtime → UI sync without feedback loops
+        const rgbArrayToHex = (arr) => {
+          if (!arr || arr.length < 3) return '#000000';
+          const r = Math.max(0, Math.min(255, Math.round(arr[0])));
+          const g = Math.max(0, Math.min(255, Math.round(arr[1])));
+          const b = Math.max(0, Math.min(255, Math.round(arr[2])));
+          const to2 = (n) => n.toString(16).padStart(2, '0');
+          return `#${to2(r)}${to2(g)}${to2(b)}`;
+        };
+
+        let syncing = false;
+        function syncRuntimeToControls() {
+          if (!pn || syncing) { requestAnimationFrame(syncRuntimeToControls); return; }
+          syncing = true;
+          try {
+          if (PARAMS.useDistanceEffect && PARAMS.randomizeDistanceColors && pn.startColorRgb && pn.endColorRgb) {
+              PARAMS.startColor = rgbArrayToHex(pn.startColorRgb);
+              PARAMS.endColor = rgbArrayToHex(pn.endColorRgb);
+              bindStartColor && bindStartColor.refresh();
+              bindEndColor && bindEndColor.refresh();
+            }
+            if (PARAMS.lineColorCycling && pn.currentLineColor1Rgb) {
+              const color1Hex = rgbArrayToHex(pn.currentLineColor1Rgb);
+              PARAMS.gradientColor1 = color1Hex;
+              if (PARAMS.gradientEffect && pn.currentLineColor2Rgb) {
+                PARAMS.gradientColor2 = rgbArrayToHex(pn.currentLineColor2Rgb);
+              } else {
+                // When gradient effect is off, mirror color1
+                PARAMS.gradientColor2 = color1Hex;
+              }
+              bindGradient1 && bindGradient1.refresh();
+              bindGradient2 && bindGradient2.refresh();
+            }
+          } finally {
+            syncing = false;
+            requestAnimationFrame(syncRuntimeToControls);
+          }
+        }
+        requestAnimationFrame(syncRuntimeToControls);
+
+        // Legacy bindings removed in favor of tabs above
+
+        // Legacy motion bindings removed in favor of tabs above
+
+        // Randomize visuals (no interaction, no background, no speed, no particle amount)
+        function randInt(min, max) { return Math.floor(Math.random() * (max - min + 1)) + min; }
+        function rand01() { return Math.random(); }
+        function randBool(p=0.5) { return Math.random() < p; }
+        function randHex() {
+          const to2 = (n) => n.toString(16).padStart(2, '0');
+          const r = randInt(0,255), g = randInt(0,255), b = randInt(0,255);
+          return `#${to2(r)}${to2(g)}${to2(b)}`;
+        }
+        const colorMethods = ['hueDistance','complementary','triadic','analogous','labPerceptual','wcagContrast'];
+
+        function randomizeVisualParams() {
+          // Particles
+          PARAMS.particleSize = randInt(1, 6);
+          const useRandomParticleColor = randBool();
+          PARAMS.randomParticleColor = useRandomParticleColor;
+          if (!useRandomParticleColor) {
+            PARAMS.particleColor = randHex();
+          }
+          PARAMS.opacity = Math.round((0.4 + rand01()*0.6) * 100) / 100; // 0.4..1.0
+          // Keep cycling flags as-is; only vary speeds to avoid contradicting toggles
+          PARAMS.particleCyclingSpeed = randInt(0, 100);
+
+          // Lines
+          // If distance effect is ON, keep gradientEffect OFF to avoid conflict; otherwise randomize gradientEffect
+          if (!PARAMS.useDistanceEffect) {
+            PARAMS.gradientEffect = randBool();
+          } else {
+            PARAMS.gradientEffect = false;
+          }
+          PARAMS.gradientColor1 = randHex();
+          PARAMS.gradientColor2 = randHex();
+          // Do not toggle lineColorCycling; only tweak speed
+          PARAMS.lineCyclingSpeed = randInt(0, 100);
+          PARAMS.lineThickness = Math.round((0.6 + rand01()*2.4) * 10) / 10; // 0.6..3.0
+          PARAMS.lineConnectionDistance = randInt(60, 220);
+          PARAMS.colorDifferentiationMethod = colorMethods[randInt(0, colorMethods.length-1)];
+
+          // Distance effect (visual only)
+          // Keep flags as-is (user choice). Only tweak colors/speeds.
+          // Ensure randomizeDistanceColors defaults to true when distance effect is enabled
+          if (PARAMS.useDistanceEffect) {
+            PARAMS.randomizeDistanceColors = true;
+          }
+          PARAMS.startColor = randHex();
+          PARAMS.endColor = randHex();
+          PARAMS.maxColorChangeDistance = randInt(60, 240);
+          PARAMS.distanceColorCyclingSpeed = randInt(0, 100);
+
+          // Effects
+          PARAMS.trails = randBool();
+          PARAMS.trailFade = Math.round((0.03 + rand01()*0.18) * 100) / 100; // 0.03..0.21
+          PARAMS.lineJitter = randBool();
+          PARAMS.lineJitterSegments = randInt(4, 14);
+          PARAMS.lineJitterAmplitude = Math.round((0.06 + rand01()*0.18) * 100) / 100; // 0.06..0.24
+          PARAMS.wormMotion = randBool();
+          PARAMS.wormCurvature = Math.round((0.05 + rand01()*0.25) * 100) / 100; // 0.05..0.3
+          PARAMS.wormNoiseSpeed = Math.round((0.5 + rand01()*2.5) * 10) / 10; // 0.5..3.0
+
+          // Respect constraints from distance effect: if distanceEffect ON, keep gradientEffect OFF
+          if (PARAMS.useDistanceEffect) {
+            PARAMS.gradientEffect = false;
+          }
+          applyParamsToNetwork(pn, PARAMS);
+          if (typeof pane.refresh === 'function') pane.refresh();
+        }
+
+        // Legacy action buttons removed in favor of tabs above
+
+        // --- Unified Key Controls ---
         function togglePane() {
           const isHidden = container.style.display === 'none';
           container.style.display = isHidden ? 'block' : 'none';
         }
         window.addEventListener('keydown', (e) => {
-          if (e.key.toLowerCase() === 'c') {
-            togglePane();
-          }
-          if (e.key.toLowerCase() === 'r') {
-            doReset();
+          const key = e.key.toLowerCase();
+          // avoid conflicts when typing in text inputs
+          if (e.target && e.target.tagName === 'INPUT' && e.target.type === 'text') return;
+
+          switch (key) {
+            case 'c':
+              togglePane();
+              break;
+            case 'p':
+              e.preventDefault();
+              PARAMS.performanceOverlay = !PARAMS.performanceOverlay;
+              applyParamsToNetwork(pn, PARAMS);
+              if (typeof pane.refresh === 'function') pane.refresh();
+              // Status toast top-right
+              const statusIndicator = document.createElement('div');
+              statusIndicator.textContent = `Performance Overlay: ${PARAMS.performanceOverlay ? 'Enabled' : 'Disabled'}`;
+              statusIndicator.style.cssText = "position:fixed; top:10px; right:10px; background:rgba(0,0,0,0.7); color:white; padding:8px 12px; border-radius:4px; font-family:'Fira Code',monospace; z-index:4000;";
+              document.body.appendChild(statusIndicator);
+              setTimeout(() => { if (statusIndicator.parentNode) document.body.removeChild(statusIndicator); }, 1500);
+              break;
+            case 'r':
+              // Randomize visuals via hotkey R
+              randomizeVisualParams();
+              break;
+            case 'd':
+              // Reset to default via hotkey D
+              doReset();
+              break;
+            default:
+              break;
           }
         });
       });

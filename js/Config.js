@@ -15,16 +15,19 @@
     particleColor: "#fff",
     particleSize: 2,
     particleColorCycling: false,
-    particleCyclingSpeed: 0.01,
+    // Particle hue cycling speed (0..100 UI range; mapped internally to time-based degrees/frame)
+    particleCyclingSpeed: 10,
     randomParticleColor: false,
-    randomIndividualParticleColor: false,
+
 
     // Line options
     gradientEffect: true,
     gradientColor1: "#00bfff",
     gradientColor2: "#ff4500",
     lineColorCycling: true, 
-    lineCyclingSpeed: 1,
+    // Line hue cycling speed (0..100 UI range; mapped internally to time-based degrees/frame)
+    lineCyclingSpeed: 50,
+    lineThickness: 1.2,
     
     // Color differentiation options
     colorDifferentiationMethod: 'hueDistance',
@@ -45,6 +48,10 @@
     maxColorChangeDistance: 120,
     startColor: "#0BDA51",
     endColor: "#BF00FF",
+
+    randomizeDistanceColors: false,
+    // Match UI semantics with lineCyclingSpeed (0..100)
+    distanceColorCyclingSpeed: 50,
 
     // Explosion options
     particleInteractionDistance: 50,
