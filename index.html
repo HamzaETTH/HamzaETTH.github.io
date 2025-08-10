@@ -186,6 +186,7 @@
           particleColorCycling: !!o.particleColorCycling,
           particleCyclingSpeed: o.particleCyclingSpeed != null ? o.particleCyclingSpeed : 10,
           randomParticleColor: !!o.randomParticleColor,
+          particleRepulsion: !!o.particleRepulsion,
 
           // Lines
           gradientEffect: o.gradientEffect !== false,
@@ -202,9 +203,10 @@
           interactive: o.interactive !== false,
           proximityEffectColor: o.proximityEffectColor || '#ff0000',
           proximityEffectDistance: o.proximityEffectDistance != null ? o.proximityEffectDistance : 100,
-          attractionRange: o.attractionRange != null ? o.attractionRange : 1,
+          // UI shows radius in px; internal stores units (px/10)
+          attractionRange: o.attractionRange != null ? (o.attractionRange * 10) : 10,
           attractionIntensity: o.attractionIntensity != null ? o.attractionIntensity : 1,
-          repulsionRange: o.repulsionRange != null ? o.repulsionRange : 1,
+          repulsionRange: o.repulsionRange != null ? (o.repulsionRange * 10) : 10,
           repulsionIntensity: o.repulsionIntensity != null ? o.repulsionIntensity : 1,
 
           // Physics
@@ -234,11 +236,11 @@
           lineJitterSegments: o.lineJitterSegments != null ? o.lineJitterSegments : 6,
           lineJitterAmplitude: o.lineJitterAmplitude != null ? o.lineJitterAmplitude : 0.12,
 
-          // Worm motion
-          wormMotion: !!o.wormMotion,
+          // Curved drift motion
+          curvedDrift: !!o.curvedDrift,
           // Expose UI 1..100 (100 => internal 0.20)
-          wormCurvature: o.wormCurvature != null ? Math.round(o.wormCurvature * 500) : 60,
-          wormNoiseSpeed: o.wormNoiseSpeed != null ? o.wormNoiseSpeed : 1.5,
+          curvedDriftCurvature: o.curvedDriftCurvature != null ? Math.round(o.curvedDriftCurvature * 500) : 60,
+          curvedDriftNoiseSpeed: o.curvedDriftNoiseSpeed != null ? o.curvedDriftNoiseSpeed : 1.5,
 
           // Gather
           gatherRadius: o.gatherRadius != null ? o.gatherRadius : 100,
@@ -257,6 +259,7 @@
           particleColorCycling: !!D.particleColorCycling,
           particleCyclingSpeed: D.particleCyclingSpeed != null ? D.particleCyclingSpeed : 10,
           randomParticleColor: !!D.randomParticleColor,
+          particleRepulsion: !!D.particleRepulsion,
 
           // Lines
           gradientEffect: D.gradientEffect !== false,
@@ -266,16 +269,20 @@
           lineCyclingSpeed: D.lineCyclingSpeed != null ? D.lineCyclingSpeed : 50,
           randomizeDistanceColors: !!D.randomizeDistanceColors,
           lineThickness: D.lineThickness != null ? D.lineThickness : 1.2,
-          colorDifferentiationMethod: (D.colorDifferentiationMethod || 'hueDistance'),
+          colorDifferentiationMethod: (D.colorDifferentiationMethod || (() => {
+            const methods = ['hueDistance', 'complementary', 'triadic', 'analogous', 'labPerceptual', 'wcagContrast'];
+            return methods[Math.floor(Math.random() * methods.length)];
+          })()),
           distanceColorCyclingSpeed: D.distanceColorCyclingSpeed != null ? D.distanceColorCyclingSpeed : (D.lineCyclingSpeed != null ? D.lineCyclingSpeed : 50),
 
           // Interaction
           interactive: D.interactive !== false,
           proximityEffectColor: D.proximityEffectColor || '#ff0000',
           proximityEffectDistance: D.proximityEffectDistance != null ? D.proximityEffectDistance : 100,
-          attractionRange: D.attractionRange != null ? D.attractionRange : 1,
+          // UI shows radius in px; internal stores units (px/10)
+          attractionRange: D.attractionRange != null ? (D.attractionRange * 10) : 10,
           attractionIntensity: D.attractionIntensity != null ? D.attractionIntensity : 1,
-          repulsionRange: D.repulsionRange != null ? D.repulsionRange : 1,
+          repulsionRange: D.repulsionRange != null ? (D.repulsionRange * 10) : 10,
           repulsionIntensity: D.repulsionIntensity != null ? D.repulsionIntensity : 1,
 
           // Physics (Config has no explicit defaults for these)
@@ -305,10 +312,10 @@
           lineJitterSegments: D.lineJitterSegments != null ? D.lineJitterSegments : 6,
           lineJitterAmplitude: D.lineJitterAmplitude != null ? D.lineJitterAmplitude : 0.12,
 
-          // Worm motion
-          wormMotion: !!D.wormMotion,
-          wormCurvature: D.wormCurvature != null ? Math.round(D.wormCurvature * 500) : 60,
-          wormNoiseSpeed: D.wormNoiseSpeed != null ? D.wormNoiseSpeed : 1.5,
+          // Curved drift motion
+          curvedDrift: !!D.curvedDrift,
+          curvedDriftCurvature: D.curvedDriftCurvature != null ? Math.round(D.curvedDriftCurvature * 500) : 60,
+          curvedDriftNoiseSpeed: D.curvedDriftNoiseSpeed != null ? D.curvedDriftNoiseSpeed : 1.5,
 
           // Gather
           gatherRadius: D.gatherRadius != null ? D.gatherRadius : 100,
@@ -343,26 +350,34 @@
         };
 
         // Simple assigns
-        const keys = [
-          'particleColor','particleColorCycling','particleCyclingSpeed','randomParticleColor',
+         const keys = [
+          'particleColor','particleColorCycling','particleCyclingSpeed','randomParticleColor','particleRepulsion',
           'gradientEffect','gradientColor1','gradientColor2','lineColorCycling','lineCyclingSpeed',
-          'interactive','proximityEffectColor','proximityEffectDistance','attractionRange','attractionIntensity','repulsionRange','repulsionIntensity',
+           'interactive','proximityEffectColor','proximityEffectDistance','attractionIntensity','repulsionIntensity',
           'opacity','useDistanceEffect','randomizeDistanceColors','maxColorChangeDistance','startColor','endColor','lineConnectionDistance','distanceColorCyclingSpeed',
           'particleInteractionDistance','particleRepulsionForce','performanceOverlay','boundaryMode','colorDifferentiationMethod',
           // Trails
           'trails','trailFade',
           // Electric lines
           'lineJitter','lineJitterSegments','lineJitterAmplitude',
-          // Worm motion (wormCurvature mapped separately)
-          'wormMotion','wormNoiseSpeed',
+          // Curved drift motion (curvature mapped separately)
+          'curvedDrift','curvedDriftNoiseSpeed',
           // Gather
           'gatherRadius'
         ];
-        keys.forEach(k => { o[k] = p[k]; });
+         keys.forEach(k => { o[k] = p[k]; });
 
-        // Map UI wormCurvature 1..100 to internal 0..0.2
-        if (typeof p.wormCurvature === 'number') {
-          o.wormCurvature = Math.max(1, Math.min(100, Math.round(p.wormCurvature))) / 500;
+         // Map UI px radius (0..300) to internal engine units (0..30) by /10
+         if (typeof p.attractionRange === 'number') {
+           o.attractionRange = Math.max(0, Math.min(300, p.attractionRange)) / 10;
+         }
+         if (typeof p.repulsionRange === 'number') {
+           o.repulsionRange = Math.max(0, Math.min(300, p.repulsionRange)) / 10;
+         }
+
+        // Map UI curvedDriftCurvature 1..100 to internal 0..0.2
+        if (typeof p.curvedDriftCurvature === 'number') {
+          o.curvedDriftCurvature = Math.max(1, Math.min(100, Math.round(p.curvedDriftCurvature))) / 500;
         }
 
         // Normalize key color strings
@@ -525,9 +540,23 @@
         const bindLineCyclingSpeed = mainLines.addBinding(PARAMS, 'lineCyclingSpeed', { min: 0, max: 100, step: 1, label: 'Line Cycling Speed' }).on('change', () => applyParamsToNetwork(pn, PARAMS));
         mainLines.addBinding(PARAMS, 'lineThickness', { min: 0.5, max: 4, step: 0.1, label: 'Line Thickness' }).on('change', () => applyParamsToNetwork(pn, PARAMS));
         mainLines.addBinding(PARAMS, 'lineConnectionDistance', { min: 20, max: 300, step: 5, label: 'Line Connection Distance' }).on('change', () => applyParamsToNetwork(pn, PARAMS));
-        mainLines.addBinding(PARAMS, 'colorDifferentiationMethod', { options: {
-          HueDistance: 'hueDistance', Complementary: 'complementary', Triadic: 'triadic', Analogous: 'analogous', LabPerceptual: 'labPerceptual', WCAGContrast: 'wcagContrast'
-        }}).on('change', () => applyParamsToNetwork(pn, PARAMS));
+        mainLines.addBinding(PARAMS, 'colorDifferentiationMethod', { 
+          label: 'Color Differentiation Method',
+          options: {
+            "Hue Distance": 'hueDistance', 
+            Complementary: 'complementary', 
+            Triadic: 'triadic', 
+            Analogous: 'analogous', 
+            "Lab Perceptual": 'labPerceptual', 
+            "WCAG Contrast": 'wcagContrast'
+          }
+        }).on('change', () => {
+          // Regenerate colors when method changes
+          if (pn && pn.regenerateLineColors) {
+            pn.regenerateLineColors();
+          }
+          applyParamsToNetwork(pn, PARAMS);
+        });
         // Effects (combined)
         const mainEffects = main.addFolder({ title: 'Effects', expanded: true });
         mainEffects.addBinding(PARAMS, 'trails', { label: 'Trails' }).on('change', () => applyParamsToNetwork(pn, PARAMS));
@@ -543,25 +572,11 @@
         mainParticles.addBinding(PARAMS, 'randomParticleColor', { label: 'Random Color' }).on('change', () => applyParamsToNetwork(pn, PARAMS));
         const bindParticleColorCycling = mainParticles.addBinding(PARAMS, 'particleColorCycling', { label: 'Particle Color Cycling' }).on('change', () => { applyParamsToNetwork(pn, PARAMS); updateVisibility(); });
         const bindParticleCyclingSpeed = mainParticles.addBinding(PARAMS, 'particleCyclingSpeed', { min: 0, max: 100, step: 1, label: 'Particle Cycling Speed' }).on('change', () => applyParamsToNetwork(pn, PARAMS));
-        // Actions
-        const mainActions = main.addFolder({ title: 'Actions', expanded: true });
-        const actionsRandBtnMain = mainActions.addButton({ title: 'Randomize Visuals' });
-        actionsRandBtnMain.on('click', randomizeVisualParams);
-        const actionsResetBtnMain = mainActions.addButton({ title: 'Reset to Default' });
-        actionsResetBtnMain.on('click', doReset);
-        const actionsResetEffectsBtnMain = mainActions.addButton({ title: 'Reset Effects Only' });
-        actionsResetEffectsBtnMain.on('click', () => {
-          PARAMS.trails = DEFAULTS.trails;
-          PARAMS.trailFade = DEFAULTS.trailFade;
-          PARAMS.lineJitter = DEFAULTS.lineJitter;
-          PARAMS.lineJitterSegments = DEFAULTS.lineJitterSegments;
-          PARAMS.lineJitterAmplitude = DEFAULTS.lineJitterAmplitude;
-          PARAMS.wormMotion = DEFAULTS.wormMotion;
-          PARAMS.wormCurvature = DEFAULTS.wormCurvature;
-          PARAMS.wormNoiseSpeed = DEFAULTS.wormNoiseSpeed;
-          applyParamsToNetwork(pn, PARAMS);
-          if (typeof pane.refresh === 'function') pane.refresh();
-        });
+        
+        // Particle Repulsion
+        const bindParticleRepulsion = mainParticles.addBinding(PARAMS, 'particleRepulsion', { label: 'Particle Repulsion' }).on('change', () => { applyParamsToNetwork(pn, PARAMS); updateVisibility(); });
+        const bindParticleInteractionDistance = mainParticles.addBinding(PARAMS, 'particleInteractionDistance', { min: 0, max: 200, step: 1, label: 'Interaction Distance' }).on('change', () => applyParamsToNetwork(pn, PARAMS));
+        const bindParticleRepulsionForce = mainParticles.addBinding(PARAMS, 'particleRepulsionForce', { min: 0, max: 20, step: 0.5, label: 'Repulsion Force' }).on('change', () => applyParamsToNetwork(pn, PARAMS));
 
         // Lines
         const adv = tabs.pages[1];
@@ -590,31 +605,41 @@
         const bindDistCycleSpeed = linesDistance.addBinding(PARAMS, 'distanceColorCyclingSpeed', { min: 0, max: 100, step: 1, label: 'Distance Cycling Speed' }).on('change', () => applyParamsToNetwork(pn, PARAMS));
 
         // Effects
-        // Physics
-        const phys = adv.addFolder({ title: 'Physics', expanded: true });
-        phys.addBinding(PARAMS, 'speed', { min: 0, max: 2, step: 0.01, label: 'Speed' }).on('change', () => applyParamsToNetwork(pn, PARAMS));
-        phys.addBinding(PARAMS, 'boundaryMode', { label: 'Boundary Mode', options: { bounce: 'bounce', wrap: 'wrap', none: 'none' }}).on('change', () => applyParamsToNetwork(pn, PARAMS));
-
         // Motion
-        const motionMain = adv.addFolder({ title: 'Worm Motion', expanded: true });
-        const bindWormMotion = motionMain.addBinding(PARAMS, 'wormMotion', { label: 'Enabled' }).on('change', () => { applyParamsToNetwork(pn, PARAMS); updateVisibility(); });
-        const bindWormCurv = motionMain.addBinding(PARAMS, 'wormCurvature', { min: 1, max: 100, step: 1, label: 'Curvature' }).on('change', () => applyParamsToNetwork(pn, PARAMS));
-        const bindWormNoise = motionMain.addBinding(PARAMS, 'wormNoiseSpeed', { min: 0.1, max: 4.0, step: 0.1, label: 'Noise Speed' }).on('change', () => applyParamsToNetwork(pn, PARAMS));
+        const motionMain = adv.addFolder({ title: 'Motion', expanded: true });
+        motionMain.addBinding(PARAMS, 'speed', { min: 0, max: 2, step: 0.01, label: 'Speed' }).on('change', () => applyParamsToNetwork(pn, PARAMS));
+        motionMain.addBinding(PARAMS, 'boundaryMode', { label: 'Boundary Mode', options: { bounce: 'bounce', wrap: 'wrap', none: 'none' }}).on('change', () => applyParamsToNetwork(pn, PARAMS));
+        const bindCurvedDrift = motionMain.addBinding(PARAMS, 'curvedDrift', { label: 'Curved Drift' }).on('change', () => { applyParamsToNetwork(pn, PARAMS); updateVisibility(); });
+        const bindCurvedCurv = motionMain.addBinding(PARAMS, 'curvedDriftCurvature', { min: 1, max: 100, step: 1, label: 'Curve Intensity' }).on('change', () => applyParamsToNetwork(pn, PARAMS));
+        const bindCurvedNoise = motionMain.addBinding(PARAMS, 'curvedDriftNoiseSpeed', { min: 0.1, max: 4.0, step: 0.1, label: 'Noise Speed' }).on('change', () => applyParamsToNetwork(pn, PARAMS));
 
-        const gatherFolder = adv.addFolder({ title: 'Gather', expanded: true });
-        const bindGatherRadius = gatherFolder.addBinding(PARAMS, 'gatherRadius', { min: 0, max: 500, step: 1, label: 'Radius' }).on('change', () => applyParamsToNetwork(pn, PARAMS));
+        // Moved gather control into Interaction as Attraction Radius
 
         // Interaction
         const inter = adv.addFolder({ title: 'Interaction', expanded: true });
-        const bindInteractive = inter.addBinding(PARAMS, 'interactive', { label: 'Interactive' }).on('change', () => applyParamsToNetwork(pn, PARAMS));
-        inter.addBinding(PARAMS, 'proximityEffectColor', { view: 'color', label: 'Proximity Effect Color' }).on('change', () => applyParamsToNetwork(pn, PARAMS));
-        inter.addBinding(PARAMS, 'proximityEffectDistance', { min: 20, max: 250, step: 5, label: 'Proximity Effect Distance' }).on('change', () => applyParamsToNetwork(pn, PARAMS));
-        inter.addBinding(PARAMS, 'attractionRange', { min: 0, max: 10, step: 0.5, label: 'Attraction Range' }).on('change', () => applyParamsToNetwork(pn, PARAMS));
-        inter.addBinding(PARAMS, 'attractionIntensity', { min: 0, max: 10, step: 0.5, label: 'Attraction Intensity' }).on('change', () => applyParamsToNetwork(pn, PARAMS));
-        inter.addBinding(PARAMS, 'repulsionRange', { min: 0, max: 10, step: 0.5, label: 'Repulsion Range' }).on('change', () => applyParamsToNetwork(pn, PARAMS));
-        inter.addBinding(PARAMS, 'repulsionIntensity', { min: 0, max: 10, step: 0.5, label: 'Repulsion Intensity' }).on('change', () => applyParamsToNetwork(pn, PARAMS));
-        inter.addBinding(PARAMS, 'particleInteractionDistance', { min: 0, max: 200, step: 1, label: 'Particle Interaction Distance' }).on('change', () => applyParamsToNetwork(pn, PARAMS));
-        inter.addBinding(PARAMS, 'particleRepulsionForce', { min: 0, max: 20, step: 0.5, label: 'Particle Repulsion Force' }).on('change', () => applyParamsToNetwork(pn, PARAMS));
+        const bindInteractive = inter.addBinding(PARAMS, 'interactive', { label: 'Interactive' })
+          .on('change', () => { applyParamsToNetwork(pn, PARAMS); updateVisibility(); });
+
+        // Gather (top-level in Interaction)
+        const bindGatherRadius = inter.addBinding(PARAMS, 'gatherRadius', { min: 0, max: 500, step: 1, label: 'Gather Radius (Hold A)' })
+          .on('change', () => applyParamsToNetwork(pn, PARAMS));
+
+        // Pointer highlight (formerly Proximity Effect)
+        const proximityFolder = inter.addFolder({ title: 'Pointer Highlight', expanded: true });
+        const bindProxColor = proximityFolder.addBinding(PARAMS, 'proximityEffectColor', { view: 'color', label: 'Highlight Color' })
+          .on('change', () => applyParamsToNetwork(pn, PARAMS));
+        const bindProxDistance = proximityFolder.addBinding(PARAMS, 'proximityEffectDistance', { min: 20, max: 250, step: 5, label: 'Highlight Distance' })
+          .on('change', () => applyParamsToNetwork(pn, PARAMS));
+
+        const mouseForces = inter.addFolder({ title: 'Mouse Forces', expanded: true });
+        const bindAttractionRange = mouseForces.addBinding(PARAMS, 'attractionRange', { min: 0, max: 300, step: 5, label: 'Repulsion Radius (px)' })
+          .on('change', () => applyParamsToNetwork(pn, PARAMS));
+        const bindAttractionIntensity = mouseForces.addBinding(PARAMS, 'attractionIntensity', { min: 0, max: 30, step: 0.5, label: 'Repulsion Intensity' })
+          .on('change', () => applyParamsToNetwork(pn, PARAMS));
+        const bindRepulsionRange = mouseForces.addBinding(PARAMS, 'repulsionRange', { min: 0, max: 300, step: 5, label: 'Attraction Radius (px)' })
+          .on('change', () => applyParamsToNetwork(pn, PARAMS));
+        const bindRepulsionIntensity = mouseForces.addBinding(PARAMS, 'repulsionIntensity', { min: 0, max: 30, step: 0.5, label: 'Attraction Intensity' })
+          .on('change', () => applyParamsToNetwork(pn, PARAMS));
 
         // Dependent visibility logic
         function updateVisibility() {
@@ -627,6 +652,10 @@
           // Show particle cycling speed only when particle cycling is enabled
           const particleCycleOn = !!PARAMS.particleColorCycling;
           bindParticleCyclingSpeed.hidden = !particleCycleOn;
+          // Show particle repulsion options only when particle repulsion is enabled
+          const particleRepulsionOn = !!PARAMS.particleRepulsion;
+          bindParticleInteractionDistance.hidden = !particleRepulsionOn;
+          bindParticleRepulsionForce.hidden = !particleRepulsionOn;
           // Distance Effect children
           const distOn = !!PARAMS.useDistanceEffect;
           bindMaxColorDist.hidden = !distOn;
@@ -638,28 +667,38 @@
           const jitterOn = !!PARAMS.lineJitter;
           bindJitterSegments.hidden = !jitterOn;
           bindJitterAmplitude.hidden = !jitterOn;
-          // Worm controls hidden when worm off (keep Gather Radius visible)
-          const wormOn = !!PARAMS.wormMotion;
-          bindWormCurv.hidden = !wormOn;
-          bindWormNoise.hidden = !wormOn;
+          // Curved drift controls hidden when off (keep Attraction Radius visible)
+          const curvedOn = !!PARAMS.curvedDrift;
+          bindCurvedCurv.hidden = !curvedOn;
+          bindCurvedNoise.hidden = !curvedOn;
+          // Interaction: hide dependents when Interactive is OFF
+          const interactiveOn = !!PARAMS.interactive;
+          bindGatherRadius.hidden = !interactiveOn;
+          bindProxColor.hidden = !interactiveOn;
+          bindProxDistance.hidden = !interactiveOn;
+          bindAttractionRange.hidden = !interactiveOn;
+          bindAttractionIntensity.hidden = !interactiveOn;
+          bindRepulsionRange.hidden = !interactiveOn;
+          bindRepulsionIntensity.hidden = !interactiveOn;
         }
         updateVisibility();
 
-        const actions = adv.addFolder({ title: 'Actions', expanded: true });
-        const actionsRandBtn = actions.addButton({ title: 'Randomize Visuals' });
+        // Actions at bottom of Main tab
+        const mainActions = main.addFolder({ title: 'Actions', expanded: true });
+        const actionsRandBtn = mainActions.addButton({ title: 'Randomize Visuals' });
         actionsRandBtn.on('click', randomizeVisualParams);
-        const actionsResetBtn = actions.addButton({ title: 'Reset to Default' });
+        const actionsResetBtn = mainActions.addButton({ title: 'Reset to Default' });
         actionsResetBtn.on('click', doReset);
-        const actionsResetEffectsBtn = actions.addButton({ title: 'Reset Effects Only' });
+        const actionsResetEffectsBtn = mainActions.addButton({ title: 'Reset Effects Only' });
         actionsResetEffectsBtn.on('click', () => {
           PARAMS.trails = DEFAULTS.trails;
           PARAMS.trailFade = DEFAULTS.trailFade;
           PARAMS.lineJitter = DEFAULTS.lineJitter;
           PARAMS.lineJitterSegments = DEFAULTS.lineJitterSegments;
           PARAMS.lineJitterAmplitude = DEFAULTS.lineJitterAmplitude;
-          PARAMS.wormMotion = DEFAULTS.wormMotion;
-          PARAMS.wormCurvature = DEFAULTS.wormCurvature;
-          PARAMS.wormNoiseSpeed = DEFAULTS.wormNoiseSpeed;
+          PARAMS.curvedDrift = DEFAULTS.curvedDrift;
+          PARAMS.curvedDriftCurvature = DEFAULTS.curvedDriftCurvature;
+          PARAMS.curvedDriftNoiseSpeed = DEFAULTS.curvedDriftNoiseSpeed;
           applyParamsToNetwork(pn, PARAMS);
           if (typeof pane.refresh === 'function') pane.refresh();
         });
@@ -763,9 +802,9 @@
           PARAMS.lineJitter = randBool();
           PARAMS.lineJitterSegments = randInt(4, 14);
           PARAMS.lineJitterAmplitude = Math.round((0.06 + rand01()*0.18) * 100) / 100; // 0.06..0.24
-          PARAMS.wormMotion = randBool();
-          PARAMS.wormCurvature = Math.round((0.05 + rand01()*0.25) * 100) / 100; // 0.05..0.3
-          PARAMS.wormNoiseSpeed = Math.round((0.5 + rand01()*2.5) * 10) / 10; // 0.5..3.0
+          PARAMS.curvedDrift = randBool();
+          PARAMS.curvedDriftCurvature = Math.round((0.05 + rand01()*0.25) * 100) / 100; // 0.05..0.3
+          PARAMS.curvedDriftNoiseSpeed = Math.round((0.5 + rand01()*2.5) * 10) / 10; // 0.5..3.0
 
           // Respect constraints from distance effect: if distanceEffect ON, keep gradientEffect OFF
           if (PARAMS.useDistanceEffect) {

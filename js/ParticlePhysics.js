@@ -216,6 +216,11 @@
    * @param {Object} options - Interaction options
    */
   ParticlePhysics.prototype.handleParticleInteractions = function(particles, options) {
+    // Only handle particle interactions if particleRepulsion is enabled
+    if (!options.particleRepulsion) {
+      return;
+    }
+    
     const interactionDistance = options.particleInteractionDistance;
     const repulsionForce = options.particleRepulsionForce;
     

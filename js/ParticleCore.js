@@ -74,7 +74,10 @@
       lineCyclingSpeed: 40,
       
       // Color differentiation options
-      colorDifferentiationMethod: 'hueDistance',
+      colorDifferentiationMethod: (() => {
+        const methods = ['hueDistance', 'complementary', 'triadic', 'analogous', 'labPerceptual', 'wcagContrast'];
+        return methods[Math.floor(Math.random() * methods.length)];
+      })(),
       colorDifferentiationOptions: {},
       
       // Interaction options
@@ -92,6 +95,7 @@
       // Physics options
       velocity: 0.66,
       density: 10000,
+      particleRepulsion: false,
       particleInteractionDistance: 50,
       particleRepulsionForce: 5,
       boundaryMode: 'wrap',

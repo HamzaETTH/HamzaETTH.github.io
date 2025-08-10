@@ -18,6 +18,7 @@
     // Particle hue cycling speed (0..100 UI range; mapped internally to time-based degrees/frame)
     particleCyclingSpeed: 10,
     randomParticleColor: false,
+    particleRepulsion: false,
 
 
     // Line options
@@ -30,7 +31,10 @@
     lineThickness: 1.2,
     
     // Color differentiation options
-    colorDifferentiationMethod: 'hueDistance',
+    colorDifferentiationMethod: (() => {
+      const methods = ['hueDistance', 'complementary', 'triadic', 'analogous', 'labPerceptual', 'wcagContrast'];
+      return methods[Math.floor(Math.random() * methods.length)];
+    })(),
     colorDifferentiationOptions: {},
 
     // Interaction options

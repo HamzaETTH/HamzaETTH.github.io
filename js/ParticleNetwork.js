@@ -93,24 +93,38 @@
       var attractionDx = attractionForce.x - this.x;
       var attractionDy = attractionForce.y - this.y;
       var attractionDistance = Math.sqrt(attractionDx * attractionDx + attractionDy * attractionDy);
-      if (attractionDistance < 50) attractionDistance = 50; // Ensure minimum distance
-      var attractionForceDirectionX = attractionDx / attractionDistance;
-      var attractionForceDirectionY = attractionDy / attractionDistance;
-      var attractionforce = (-100 / (attractionDistance * attractionDistance)) * attractionRange * attractionIntensity;
-      this.velocity.x += attractionforce * attractionForceDirectionX;
-      this.velocity.y += attractionforce * attractionForceDirectionY;
+      // Treat attractionRange as radius in pixels (UI 0..30 -> 0..300px)
+      var attractionRadiusPx = (typeof attractionRange === 'number' ? attractionRange : 0) * 10;
+      if (attractionRadiusPx > 0 && attractionDistance > attractionRadiusPx) {
+        // Outside radius: no attraction effect
+      } else {
+        var safeAttractDist = Math.max(attractionDistance, 50); // Ensure minimum distance
+        var attractionForceDirectionX = attractionDx / (safeAttractDist || 1);
+        var attractionForceDirectionY = attractionDy / (safeAttractDist || 1);
+        // Use intensity for magnitude; range is spatial radius only
+        var attractionforce = (-100 / (safeAttractDist * safeAttractDist)) * attractionIntensity;
+        this.velocity.x += attractionforce * attractionForceDirectionX;
+        this.velocity.y += attractionforce * attractionForceDirectionY;
+      }
     }
 
     if (this.options.interactive && repulsionForce) {
       var repulsiveDx = repulsionForce.x - this.x;
       var repulsiveDy = repulsionForce.y - this.y;
       var repulsiveDistance = Math.sqrt(repulsiveDx * repulsiveDx + repulsiveDy * repulsiveDy);
-      if (repulsiveDistance < 50) repulsiveDistance = 50; // Ensure minimum distance
-      var repulsiveForceDirectionX = repulsiveDx / repulsiveDistance;
-      var repulsiveForceDirectionY = repulsiveDy / repulsiveDistance;
-      var repulsiveforce = (100 / (repulsiveDistance * repulsiveDistance)) * repulsionRange * repulsionIntensity;
-      this.velocity.x += repulsiveforce * repulsiveForceDirectionX;
-      this.velocity.y += repulsiveforce * repulsiveForceDirectionY;
+      // Treat repulsionRange as radius in pixels (UI 0..30 -> 0..300px)
+      var repulsionRadiusPx = (typeof repulsionRange === 'number' ? repulsionRange : 0) * 10;
+      if (repulsionRadiusPx > 0 && repulsiveDistance > repulsionRadiusPx) {
+        // Outside radius: no repulsion effect
+      } else {
+        var safeRepulseDist = Math.max(repulsiveDistance, 50); // Ensure minimum distance
+        var repulsiveForceDirectionX = repulsiveDx / (safeRepulseDist || 1);
+        var repulsiveForceDirectionY = repulsiveDy / (safeRepulseDist || 1);
+        // Use intensity for magnitude; range is spatial radius only
+        var repulsiveforce = (100 / (safeRepulseDist * safeRepulseDist)) * repulsionIntensity;
+        this.velocity.x += repulsiveforce * repulsiveForceDirectionX;
+        this.velocity.y += repulsiveforce * repulsiveForceDirectionY;
+      }
     }
 
     var currentSpeed = Math.sqrt(this.velocity.x * this.velocity.x + this.velocity.y * this.velocity.y);
@@ -225,7 +239,10 @@
         lineColorCycling: cfg.lineColorCycling != null ? cfg.lineColorCycling : true,
         lineCyclingSpeed: cfg.lineCyclingSpeed != null ? cfg.lineCyclingSpeed : 50,
         lineThickness: cfg.lineThickness != null ? cfg.lineThickness : 1.2,
-        colorDifferentiationMethod: cfg.colorDifferentiationMethod || 'hueDistance',
+        colorDifferentiationMethod: cfg.colorDifferentiationMethod || (() => {
+          const methods = ['hueDistance', 'complementary', 'triadic', 'analogous', 'labPerceptual', 'wcagContrast'];
+          return methods[Math.floor(Math.random() * methods.length)];
+        })(),
         colorDifferentiationOptions: cfg.colorDifferentiationOptions || {},
         interactive: cfg.interactive != null ? cfg.interactive : true,
         proximityEffectColor: cfg.proximityEffectColor || "#ff0000",
@@ -243,6 +260,7 @@
         startColor: cfg.startColor || "#0BDA51",
         endColor: cfg.endColor || "#BF00FF",
         particleInteractionDistance: cfg.particleInteractionDistance != null ? cfg.particleInteractionDistance : 50,
+        particleRepulsion: cfg.particleRepulsion != null ? cfg.particleRepulsion : false,
         particleRepulsionForce: cfg.particleRepulsionForce != null ? cfg.particleRepulsionForce : 5,
         lineConnectionDistance: cfg.lineConnectionDistance != null ? cfg.lineConnectionDistance : 120,
         performanceOverlay: cfg.performanceOverlay != null ? cfg.performanceOverlay : false,
@@ -266,14 +284,14 @@
         // amplitude as fraction of segment length (0..1); 0.12 is subtle
         lineJitterAmplitude: (typeof cfg.lineJitterAmplitude === 'number') ? cfg.lineJitterAmplitude : 0.12,
 
-        // Worm-like particle motion (curving paths)
-        wormMotion: cfg.wormMotion != null ? cfg.wormMotion : false,
+        // Curved drift particle motion (curving paths)
+        curvedDrift: cfg.curvedDrift != null ? cfg.curvedDrift : false,
         // curvature as fraction of current speed added perpendicular per frame
-        wormCurvature: (typeof cfg.wormCurvature === 'number') ? cfg.wormCurvature : 0.12,
+        curvedDriftCurvature: (typeof cfg.curvedDriftCurvature === 'number') ? cfg.curvedDriftCurvature : 0.12,
         // radians/sec phase advance (scaled internally)
-        wormNoiseSpeed: (typeof cfg.wormNoiseSpeed === 'number') ? cfg.wormNoiseSpeed : 1.5,
+        curvedDriftNoiseSpeed: (typeof cfg.curvedDriftNoiseSpeed === 'number') ? cfg.curvedDriftNoiseSpeed : 1.5,
 
-        // Gather behavior radius to prevent overlap when holding 'A'
+        // Attraction radius (used when holding 'A' to pull particles)
         gatherRadius: (typeof cfg.gatherRadius === 'number') ? cfg.gatherRadius : 100
       };
 
@@ -368,6 +386,37 @@
         // Store initial offset between hues to keep a consistent separation while cycling
         this._lineHue2Offset = ((this.lineHue2 - this.lineHue1) + 360) % 360;
       }
+
+      // Method to regenerate line colors when differentiation method changes
+      this.regenerateLineColors = function() {
+        if (this.options.lineColorCycling) {
+          this.lineHue1 = generateRandomColor();
+          
+          // Use the selected color differentiation method if ColorUtils is available
+          if (window.ColorUtils && window.ColorDiffMethod) {
+            // Convert string method name to ColorDiffMethod enum value if needed
+            let methodName = this.options.colorDifferentiationMethod;
+            let method = window.ColorDiffMethod[methodName.toUpperCase()] || window.ColorDiffMethod.HUE_DISTANCE;
+            
+            // Generate the second color using the selected method
+            this.lineHue2 = window.ColorUtils.generateDistinctColor(
+              this.lineHue1, 
+              method,
+              this.options.colorDifferentiationOptions
+            );
+          } else {
+            // Fallback to original implementation
+            this.lineHue2 = generateDistinctColor(this.lineHue1, 50);
+          }
+
+          // Guards: ensure valid numeric line hues
+          if (!Number.isFinite(this.lineHue1)) this.lineHue1 = 0;
+          if (!Number.isFinite(this.lineHue2)) this.lineHue2 = (this.lineHue1 + 180) % 360;
+
+          // Store initial offset between hues to keep a consistent separation while cycling
+          this._lineHue2Offset = ((this.lineHue2 - this.lineHue1) + 360) % 360;
+        }
+      };
 
       // Initialize grid variables
       this.initGrid();
@@ -684,7 +733,7 @@
               if (!this._gatherToastShown) {
                 this._gatherToastShown = true;
                 var toast = document.createElement('div');
-                toast.textContent = 'Gather: HOLD A';
+               toast.textContent = 'Attract: HOLD A';
                 toast.style.cssText = "position:fixed; top:10px; right:10px; background:rgba(0,0,0,0.7); color:#fff; padding:8px 12px; border-radius:4px; font-family:'Fira Code',monospace; z-index:4000;";
                 document.body.appendChild(toast);
                 setTimeout(function(){ if (toast.parentNode) document.body.removeChild(toast); }, 800);
@@ -1156,10 +1205,10 @@
           var fR = (100 / (dR*dR)) * repR * repI;
           vx += fR * fxR; vy += fR * fyR;
         }
-        // Worm-like curving motion: apply perpendicular bias to velocity
-        if (this.options.wormMotion) {
+        // Curved drift motion: apply perpendicular bias to velocity
+        if (this.options.curvedDrift) {
           // Pseudo-random but temporal: use particle index + time
-          var t = (this._lastUpdateTime || 0) * 0.001 * this.options.wormNoiseSpeed; // seconds
+          var t = (this._lastUpdateTime || 0) * 0.001 * this.options.curvedDriftNoiseSpeed; // seconds
           var phase = i * 12.9898 + t * 6.283185307179586; // 2π per second scaled
           var s = Math.sin(phase);
           // Perpendicular normalized direction to current velocity (fallback when near zero)
@@ -1167,7 +1216,7 @@
           var pxn = -vy / m;
           var pyn =  vx / m;
           // ORIGINAL behavior: curvature as fraction of speed without clamping/renorm
-          var k = this.options.wormCurvature; // fraction of speed
+          var k = this.options.curvedDriftCurvature; // fraction of speed
           vx += pxn * (k * m * s);
           vy += pyn * (k * m * s);
         }
