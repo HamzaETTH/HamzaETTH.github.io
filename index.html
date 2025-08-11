@@ -195,7 +195,6 @@
           lineColorCycling: o.lineColorCycling !== false,
           lineCyclingSpeed: o.lineCyclingSpeed != null ? o.lineCyclingSpeed : 50,
           randomizeDistanceColors: !!o.randomizeDistanceColors,
-          lineThickness: o.lineThickness != null ? o.lineThickness : 1.2,
           colorDifferentiationMethod: (o.colorDifferentiationMethod || 'hueDistance'),
           distanceColorCyclingSpeed: o.distanceColorCyclingSpeed != null ? o.distanceColorCyclingSpeed : (o.lineCyclingSpeed != null ? o.lineCyclingSpeed : 50),
 
@@ -268,7 +267,6 @@
           lineColorCycling: D.lineColorCycling !== false,
           lineCyclingSpeed: D.lineCyclingSpeed != null ? D.lineCyclingSpeed : 50,
           randomizeDistanceColors: !!D.randomizeDistanceColors,
-          lineThickness: D.lineThickness != null ? D.lineThickness : 1.2,
           colorDifferentiationMethod: (D.colorDifferentiationMethod || (() => {
             const methods = ['hueDistance', 'complementary', 'triadic', 'analogous', 'labPerceptual', 'wcagContrast'];
             return methods[Math.floor(Math.random() * methods.length)];
@@ -537,8 +535,8 @@
         const bindGradient1 = mainLines.addBinding(PARAMS, 'gradientColor1', { view: 'color', label: 'Gradient Color 1' }).on('change', () => applyParamsToNetwork(pn, PARAMS));
         const bindGradient2 = mainLines.addBinding(PARAMS, 'gradientColor2', { view: 'color', label: 'Gradient Color 2' }).on('change', () => applyParamsToNetwork(pn, PARAMS));
         const bindLineColorCycling = mainLines.addBinding(PARAMS, 'lineColorCycling', { label: 'Line Color Cycling' }).on('change', () => { applyParamsToNetwork(pn, PARAMS); updateVisibility(); });
-        const bindLineCyclingSpeed = mainLines.addBinding(PARAMS, 'lineCyclingSpeed', { min: 0, max: 100, step: 1, label: 'Line Cycling Speed' }).on('change', () => applyParamsToNetwork(pn, PARAMS));
-        mainLines.addBinding(PARAMS, 'lineThickness', { min: 0.5, max: 4, step: 0.1, label: 'Line Thickness' }).on('change', () => applyParamsToNetwork(pn, PARAMS));
+        const bindLineCyclingSpeed = mainLines.addBinding(PARAMS, 'lineCyclingSpeed', { min: 0, max: 100, step: 1, label: 'Line Color Cycling Speed' }).on('change', () => applyParamsToNetwork(pn, PARAMS));
+        
         mainLines.addBinding(PARAMS, 'lineConnectionDistance', { min: 20, max: 300, step: 5, label: 'Line Connection Distance' }).on('change', () => applyParamsToNetwork(pn, PARAMS));
         mainLines.addBinding(PARAMS, 'colorDifferentiationMethod', { 
           label: 'Color Differentiation Method',
@@ -559,10 +557,10 @@
         });
         // Effects (combined)
         const mainEffects = main.addFolder({ title: 'Effects', expanded: true });
-        mainEffects.addBinding(PARAMS, 'trails', { label: 'Trails' }).on('change', () => applyParamsToNetwork(pn, PARAMS));
+        mainEffects.addBinding(PARAMS, 'trails', { label: 'Trails (Hide Lines)' }).on('change', () => applyParamsToNetwork(pn, PARAMS));
         mainEffects.addBinding(PARAMS, 'trailFade', { min: 0.01, max: 0.3, step: 0.01, label: 'Trail Fade' }).on('change', () => applyParamsToNetwork(pn, PARAMS));
         const bindLineJitter = mainEffects.addBinding(PARAMS, 'lineJitter', { label: 'Electric Lines' }).on('change', () => { applyParamsToNetwork(pn, PARAMS); updateVisibility(); });
-        const bindJitterSegments = mainEffects.addBinding(PARAMS, 'lineJitterSegments', { min: 2, max: 24, step: 1, label: 'Jitter Segments' }).on('change', () => applyParamsToNetwork(pn, PARAMS));
+        const bindJitterSegments = mainEffects.addBinding(PARAMS, 'lineJitterSegments', { min: 6, max: 24, step: 1, label: 'Jitter Segments' }).on('change', () => applyParamsToNetwork(pn, PARAMS));
         const bindJitterAmplitude = mainEffects.addBinding(PARAMS, 'lineJitterAmplitude', { min: 0.0, max: 0.5, step: 0.01, label: 'Jitter Amplitude' }).on('change', () => applyParamsToNetwork(pn, PARAMS));
 
         // Particles
@@ -571,7 +569,7 @@
         mainParticles.addBinding(PARAMS, 'particleColor', { view: 'color', label: 'Particle Color' }).on('change', () => applyParamsToNetwork(pn, PARAMS));
         mainParticles.addBinding(PARAMS, 'randomParticleColor', { label: 'Random Color' }).on('change', () => applyParamsToNetwork(pn, PARAMS));
         const bindParticleColorCycling = mainParticles.addBinding(PARAMS, 'particleColorCycling', { label: 'Particle Color Cycling' }).on('change', () => { applyParamsToNetwork(pn, PARAMS); updateVisibility(); });
-        const bindParticleCyclingSpeed = mainParticles.addBinding(PARAMS, 'particleCyclingSpeed', { min: 0, max: 100, step: 1, label: 'Particle Cycling Speed' }).on('change', () => applyParamsToNetwork(pn, PARAMS));
+        const bindParticleCyclingSpeed = mainParticles.addBinding(PARAMS, 'particleCyclingSpeed', { min: 0, max: 100, step: 1, label: 'Particle Color Cycling Speed' }).on('change', () => applyParamsToNetwork(pn, PARAMS));
         
         // Particle Repulsion
         const bindParticleRepulsion = mainParticles.addBinding(PARAMS, 'particleRepulsion', { label: 'Particle Repulsion' }).on('change', () => { applyParamsToNetwork(pn, PARAMS); updateVisibility(); });
@@ -767,8 +765,10 @@
             PARAMS.particleColor = randHex();
           }
           PARAMS.opacity = Math.round((0.4 + rand01()*0.6) * 100) / 100; // 0.4..1.0
-          // Keep cycling flags as-is; only vary speeds to avoid contradicting toggles
-          PARAMS.particleCyclingSpeed = randInt(0, 100);
+          // Only vary particle cycling speed if particle cycling is enabled
+          if (PARAMS.particleColorCycling) {
+            PARAMS.particleCyclingSpeed = randInt(0, 100);
+          }
 
           // Lines
           // If distance effect is ON, keep gradientEffect OFF to avoid conflict; otherwise randomize gradientEffect
@@ -781,7 +781,7 @@
           PARAMS.gradientColor2 = randHex();
           // Do not toggle lineColorCycling; only tweak speed
           PARAMS.lineCyclingSpeed = randInt(0, 100);
-          PARAMS.lineThickness = Math.round((0.6 + rand01()*2.4) * 10) / 10; // 0.6..3.0
+          
           PARAMS.lineConnectionDistance = randInt(60, 220);
           PARAMS.colorDifferentiationMethod = colorMethods[randInt(0, colorMethods.length-1)];
 
@@ -797,7 +797,8 @@
           PARAMS.distanceColorCyclingSpeed = randInt(0, 100);
 
           // Effects
-          PARAMS.trails = randBool();
+          // 25% chance to enable trails
+          PARAMS.trails = randBool(0.25);
           PARAMS.trailFade = Math.round((0.03 + rand01()*0.18) * 100) / 100; // 0.03..0.21
           PARAMS.lineJitter = randBool();
           PARAMS.lineJitterSegments = randInt(4, 14);

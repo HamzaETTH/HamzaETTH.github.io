@@ -28,7 +28,6 @@
     lineColorCycling: true, 
     // Line hue cycling speed (0..100 UI range; mapped internally to time-based degrees/frame)
     lineCyclingSpeed: 50,
-    lineThickness: 1.2,
     
     // Color differentiation options
     colorDifferentiationMethod: (() => {

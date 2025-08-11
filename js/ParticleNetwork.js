@@ -155,21 +155,11 @@
     }
 
     if (this.options.particleColorCycling) {
-      {
-        var dtLocalG = (this.network && typeof this.network._dt === 'number') ? this.network._dt : (1/60);
-        if (this.network && this.network.forceHueSweep) {
-          this.options.globalHue = this.network._forceHue;
-        } else {
-          // Map UI 0..100 to deg per 60fps frame via 0.01 scale, then time-based by dt
-          // Remap UI 0..100 so that 100 ≈ old 3
-          // Old mapping: delta = (UI * 0.01) per frame @60fps => UI=3 -> 0.03
-          // New mapping: delta = (UI * 0.0003) per frame @60fps so UI=100 -> 0.03
-          var hueDeltaG = (this.options.particleCyclingSpeed * 0.0003) * (dtLocalG * 60);
-          this.options.globalHue = (this.options.globalHue || 0) + hueDeltaG;
-        }
-        if (this.options.globalHue >= 360) this.options.globalHue -= 360;
-        this.particleColor = `hsl(${this.options.globalHue}, 100%, 50%)`;
-      }
+      var dtLocalG = (this.network && typeof this.network._dt === 'number') ? this.network._dt : (1/60);
+      var hueDeltaG = (this.options.particleCyclingSpeed * 0.0003) * (dtLocalG * 60);
+      this.options.particleHue = (this.options.particleHue || 0) + hueDeltaG;
+      if (this.options.particleHue >= 360) this.options.particleHue -= 360;
+      this.particleColor = `hsl(${this.options.particleHue}, 100%, 50%)`;
     } else {
       // Hard lock particle color when cycling is OFF, regardless of line cycling
       if (this.options.randomParticleColor && this.options.calculatedParticleColor) {
@@ -238,7 +228,6 @@
         gradientColor2: cfg.gradientColor2 || "#ff4500",
         lineColorCycling: cfg.lineColorCycling != null ? cfg.lineColorCycling : true,
         lineCyclingSpeed: cfg.lineCyclingSpeed != null ? cfg.lineCyclingSpeed : 50,
-        lineThickness: cfg.lineThickness != null ? cfg.lineThickness : 1.2,
         colorDifferentiationMethod: cfg.colorDifferentiationMethod || (() => {
           const methods = ['hueDistance', 'complementary', 'triadic', 'analogous', 'labPerceptual', 'wcagContrast'];
           return methods[Math.floor(Math.random() * methods.length)];
@@ -1264,16 +1253,17 @@
 
     if (distanceSq < 0.0001) return;
 
-    if (distanceSq < options.particleInteractionDistance * options.particleInteractionDistance) {
-      var distance = Math.sqrt(distanceSq);
-      applyParticleInteraction(
-        [particleA, particleB],
-        (particleA.x + particleB.x) / 2,
-        (particleA.y + particleB.y) / 2,
-        options.particleInteractionDistance,
-        options.particleRepulsionForce
-      );
-    }
+  // Respect toggle: only apply particle repulsion when enabled
+  if (options.particleRepulsion && distanceSq < options.particleInteractionDistance * options.particleInteractionDistance) {
+    var distance = Math.sqrt(distanceSq);
+    applyParticleInteraction(
+      [particleA, particleB],
+      (particleA.x + particleB.x) / 2,
+      (particleA.y + particleB.y) / 2,
+      options.particleInteractionDistance,
+      options.particleRepulsionForce
+    );
+  }
 
     if (distanceSq > options.maxColorChangeDistance * options.maxColorChangeDistance) return;
 
@@ -1442,7 +1432,7 @@
       } else {
         // 2D Canvas path
         g.globalAlpha = alphaFactor;
-        g.lineWidth = this.options.lineThickness != null ? this.options.lineThickness : 1.2;
+        g.lineWidth = 1.2;
         if (network.options.lineJitter) {
           var segs2 = Math.max(2, network.options.lineJitterSegments|0);
           var dx2 = particleB.x - particleA.x; var dy2 = particleB.y - particleA.y;
