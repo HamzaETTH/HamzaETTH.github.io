@@ -250,6 +250,8 @@
         endColor: cfg.endColor || "#BF00FF",
         particleInteractionDistance: cfg.particleInteractionDistance != null ? cfg.particleInteractionDistance : 50,
         particleRepulsion: cfg.particleRepulsion != null ? cfg.particleRepulsion : false,
+        // Simple circular collision toggle
+        particleCollision: cfg.particleCollision != null ? cfg.particleCollision : false,
         particleRepulsionForce: cfg.particleRepulsionForce != null ? cfg.particleRepulsionForce : 5,
         lineConnectionDistance: cfg.lineConnectionDistance != null ? cfg.lineConnectionDistance : 120,
         performanceOverlay: cfg.performanceOverlay != null ? cfg.performanceOverlay : false,
@@ -1068,8 +1070,52 @@
 
               for (var k = 0; k < numNeighborParticles; k++) {
                   var particleB = neighborParticles[k];
-                  if (particleA.index < particleB.index) {
+                   if (particleA.index < particleB.index) {
                     interactParticles(this, particleA, particleB);
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+
+      // Optional simple particle collisions (elastic bounce)
+      if (options.particleCollision) {
+        var radius = (this.options.particleSize || 2);
+        var rad2 = radius + radius;
+        var rad2Sq = rad2 * rad2;
+        for (var gx = 0; gx < gridWidth; gx++) {
+          for (var gy = 0; gy < gridHeight; gy++) {
+            var ci = gx + gy * gridWidth;
+            var arr = grid[ci];
+            var len = arr.length;
+            for (var a = 0; a < len; a++) {
+              var pa = arr[a];
+              for (var b = a + 1; b < len; b++) {
+                var pb = arr[b];
+                var dx = pb.x - pa.x;
+                var dy = pb.y - pa.y;
+                var d2 = dx*dx + dy*dy;
+                if (d2 > 0 && d2 <= rad2Sq) {
+                  var d = Math.sqrt(d2) || 1e-6;
+                  var nx = dx / d;
+                  var ny = dy / d;
+                  // separate overlap
+                  var overlap = rad2 - d;
+                  var half = overlap * 0.5;
+                  pa.x -= nx * half; pa.y -= ny * half;
+                  pb.x += nx * half; pb.y += ny * half;
+                  // reflect velocities along normal (equal mass)
+                  var rvx = pb.velocity.x - pa.velocity.x;
+                  var rvy = pb.velocity.y - pa.velocity.y;
+                  var vn = rvx * nx + rvy * ny;
+                  if (vn < 0) {
+                    var imp = -vn; // coefficient of restitution = 1
+                    pa.velocity.x -= imp * nx;
+                    pa.velocity.y -= imp * ny;
+                    pb.velocity.x += imp * nx;
+                    pb.velocity.y += imp * ny;
                   }
                 }
               }

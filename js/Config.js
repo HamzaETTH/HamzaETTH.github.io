@@ -19,6 +19,8 @@
     particleCyclingSpeed: 10,
     randomParticleColor: false,
     particleRepulsion: false,
+    // Enable simple elastic collisions between particles
+    particleCollision: false,
 
 
     // Line options

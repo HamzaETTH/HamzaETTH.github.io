@@ -187,6 +187,7 @@
           particleCyclingSpeed: o.particleCyclingSpeed != null ? o.particleCyclingSpeed : 10,
           randomParticleColor: !!o.randomParticleColor,
           particleRepulsion: !!o.particleRepulsion,
+          particleCollision: !!o.particleCollision,
 
           // Lines
           gradientEffect: o.gradientEffect !== false,
@@ -259,6 +260,7 @@
           particleCyclingSpeed: D.particleCyclingSpeed != null ? D.particleCyclingSpeed : 10,
           randomParticleColor: !!D.randomParticleColor,
           particleRepulsion: !!D.particleRepulsion,
+          particleCollision: !!D.particleCollision,
 
           // Lines
           gradientEffect: D.gradientEffect !== false,
@@ -349,7 +351,7 @@
 
         // Simple assigns
          const keys = [
-          'particleColor','particleColorCycling','particleCyclingSpeed','randomParticleColor','particleRepulsion',
+          'particleColor','particleColorCycling','particleCyclingSpeed','randomParticleColor','particleRepulsion','particleCollision',
           'gradientEffect','gradientColor1','gradientColor2','lineColorCycling','lineCyclingSpeed',
            'interactive','proximityEffectColor','proximityEffectDistance','attractionIntensity','repulsionIntensity',
           'opacity','useDistanceEffect','randomizeDistanceColors','maxColorChangeDistance','startColor','endColor','lineConnectionDistance','distanceColorCyclingSpeed',
@@ -573,6 +575,7 @@
         
         // Particle Repulsion
         const bindParticleRepulsion = mainParticles.addBinding(PARAMS, 'particleRepulsion', { label: 'Particle Repulsion' }).on('change', () => { applyParamsToNetwork(pn, PARAMS); updateVisibility(); });
+        const bindParticleCollision = mainParticles.addBinding(PARAMS, 'particleCollision', { label: 'Particle Collision' }).on('change', () => { applyParamsToNetwork(pn, PARAMS); updateVisibility(); });
         const bindParticleInteractionDistance = mainParticles.addBinding(PARAMS, 'particleInteractionDistance', { min: 0, max: 200, step: 1, label: 'Interaction Distance' }).on('change', () => applyParamsToNetwork(pn, PARAMS));
         const bindParticleRepulsionForce = mainParticles.addBinding(PARAMS, 'particleRepulsionForce', { min: 0, max: 20, step: 0.5, label: 'Repulsion Force' }).on('change', () => applyParamsToNetwork(pn, PARAMS));
 
@@ -619,7 +622,7 @@
           .on('change', () => { applyParamsToNetwork(pn, PARAMS); updateVisibility(); });
 
         // Gather (top-level in Interaction)
-        const bindGatherRadius = inter.addBinding(PARAMS, 'gatherRadius', { min: 0, max: 500, step: 1, label: 'Gather Radius (Hold A)' })
+        const bindGatherRadius = inter.addBinding(PARAMS, 'gatherRadius', { min: 0, max: 500, step: 1, label: 'Gather Radius' })
           .on('change', () => applyParamsToNetwork(pn, PARAMS));
 
         // Pointer highlight (formerly Proximity Effect)
@@ -822,6 +825,28 @@
           const isHidden = container.style.display === 'none';
           container.style.display = isHidden ? 'block' : 'none';
         }
+        // Bottom-right hotkey guide (H)
+        let _guideTimeout = null;
+        function showHotkeyGuide() {
+          const existing = document.getElementById('hotkey-guide');
+          if (existing && existing.parentNode) existing.parentNode.removeChild(existing);
+          const guide = document.createElement('div');
+          guide.id = 'hotkey-guide';
+          guide.textContent = [
+            'Shortcuts:',
+            'C = Toggle Controls',
+            'P = Performance Overlay',
+            'R = Randomize Visuals',
+            'D = Reset to Default',
+            'A = Attract (hold)',
+            'Left click = Repel',
+            'Right click = Attract'
+          ].join('\n');
+          guide.style.cssText = "position:fixed; bottom:10px; right:10px; background:rgba(0,0,0,0.7); color:white; padding:8px 12px; border-radius:4px; font-family:'Fira Code',monospace; z-index:4000; white-space:pre;";
+          document.body.appendChild(guide);
+          if (_guideTimeout) { clearTimeout(_guideTimeout); _guideTimeout = null; }
+          _guideTimeout = setTimeout(() => { if (guide.parentNode) guide.parentNode.removeChild(guide); }, 3000);
+        }
         window.addEventListener('keydown', (e) => {
           const key = e.key.toLowerCase();
           // avoid conflicts when typing in text inputs
@@ -850,6 +875,10 @@
             case 'd':
               // Reset to default via hotkey D
               doReset();
+              break;
+            case 'h':
+              // Show hotkey guide bottom-right
+              showHotkeyGuide();
               break;
             default:
               break;
