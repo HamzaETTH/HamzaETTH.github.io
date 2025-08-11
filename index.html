@@ -185,8 +185,9 @@
           particleSize: o.particleSize != null ? o.particleSize : 2,
           particleColorCycling: !!o.particleColorCycling,
           particleCyclingSpeed: o.particleCyclingSpeed != null ? o.particleCyclingSpeed : 10,
-          randomParticleColor: !!o.randomParticleColor,
           particleRepulsion: !!o.particleRepulsion,
+          particleAttraction: !!o.particleAttraction,
+          particleAttractionForce: o.particleAttractionForce != null ? o.particleAttractionForce : 5,
           particleCollision: !!o.particleCollision,
 
           // Lines
@@ -258,8 +259,9 @@
           particleSize: D.particleSize != null ? D.particleSize : 2,
           particleColorCycling: !!D.particleColorCycling,
           particleCyclingSpeed: D.particleCyclingSpeed != null ? D.particleCyclingSpeed : 10,
-          randomParticleColor: !!D.randomParticleColor,
           particleRepulsion: !!D.particleRepulsion,
+          particleAttraction: !!D.particleAttraction,
+          particleAttractionForce: D.particleAttractionForce != null ? D.particleAttractionForce : 5,
           particleCollision: !!D.particleCollision,
 
           // Lines
@@ -351,7 +353,7 @@
 
         // Simple assigns
          const keys = [
-          'particleColor','particleColorCycling','particleCyclingSpeed','randomParticleColor','particleRepulsion','particleCollision',
+          'particleColor','particleColorCycling','particleCyclingSpeed','particleRepulsion','particleCollision','particleAttraction','particleAttractionForce',
           'gradientEffect','gradientColor1','gradientColor2','lineColorCycling','lineCyclingSpeed',
            'interactive','proximityEffectColor','proximityEffectDistance','attractionIntensity','repulsionIntensity',
           'opacity','useDistanceEffect','randomizeDistanceColors','maxColorChangeDistance','startColor','endColor','lineConnectionDistance','distanceColorCyclingSpeed',
@@ -444,9 +446,7 @@
             const part = pn.o[i];
             if (part) {
               part.size = p.particleSize;
-              if (!p.randomParticleColor) {
-                part.particleColor = p.particleColor;
-              }
+              part.particleColor = p.particleColor;
             }
           }
           // sync SoA size array if present
@@ -456,13 +456,7 @@
         }
         o.particleSize = p.particleSize;
 
-        // Random color modes immediate application
-        if (p.randomParticleColor && Array.isArray(pn.o)) {
-          const hue = Math.floor(Math.random() * 360);
-          const col = `hsl(${hue}, 100%, 50%)`;
-          o.calculatedParticleColor = col;
-          for (let i = 0; i < pn.o.length; i++) pn.o[i].particleColor = col;
-        }
+        // Random particle color removed; color is either static or cycling
 
         // Update lineHue2 if method changed
         if (window.ColorUtils && window.ColorDiffMethod && typeof window.ColorUtils.generateDistinctColor === 'function') {
@@ -533,7 +527,32 @@
         mainBg.addBinding(PARAMS, 'background', { view: 'color', label: 'Background' }).on('change', () => applyParamsToNetwork(pn, PARAMS));
         // Lines (core)
         const mainLines = main.addFolder({ title: 'Lines', expanded: true });
-        const bindGradientEffect = mainLines.addBinding(PARAMS, 'gradientEffect', { label: 'Gradient Effect' }).on('change', () => { applyParamsToNetwork(pn, PARAMS); updateVisibility(); });
+        // Distance Effect controls (moved from Advanced → Lines, above Gradient Effect)
+        const bindUseDistance = mainLines.addBinding(PARAMS, 'useDistanceEffect', { label: 'Distance Color Effect' }).on('change', () => {
+          if (PARAMS.useDistanceEffect) {
+            PARAMS.gradientEffect = false;
+          }
+          applyParamsToNetwork(pn, PARAMS);
+          updateVisibility();
+        });
+        const bindMaxColorDist = mainLines.addBinding(PARAMS, 'maxColorChangeDistance', { min: 20, max: 400, step: 5, label: 'Max Color Change Distance' }).on('change', () => applyParamsToNetwork(pn, PARAMS));
+        const bindStartColor = mainLines.addBinding(PARAMS, 'startColor', { view: 'color', label: 'Start Color' }).on('change', () => applyParamsToNetwork(pn, PARAMS));
+        const bindEndColor = mainLines.addBinding(PARAMS, 'endColor', { view: 'color', label: 'End Color' }).on('change', () => applyParamsToNetwork(pn, PARAMS));
+        const bindRandDistColors = mainLines.addBinding(PARAMS, 'randomizeDistanceColors', { label: 'Randomize Distance Colors' }).on('change', () => {
+          if (PARAMS.randomizeDistanceColors && PARAMS.useDistanceEffect) {
+            PARAMS.lineColorCycling = false;
+          }
+          applyParamsToNetwork(pn, PARAMS);
+        });
+        const bindDistCycleSpeed = mainLines.addBinding(PARAMS, 'distanceColorCyclingSpeed', { min: 0, max: 100, step: 1, label: 'Distance Cycling Speed' }).on('change', () => applyParamsToNetwork(pn, PARAMS));
+        // Gradient Effect
+        const bindGradientEffect = mainLines.addBinding(PARAMS, 'gradientEffect', { label: 'Gradient Color Effect' }).on('change', () => {
+          if (PARAMS.gradientEffect) {
+            PARAMS.useDistanceEffect = false;
+          }
+          applyParamsToNetwork(pn, PARAMS);
+          updateVisibility();
+        });
         const bindGradient1 = mainLines.addBinding(PARAMS, 'gradientColor1', { view: 'color', label: 'Gradient Color 1' }).on('change', () => applyParamsToNetwork(pn, PARAMS));
         const bindGradient2 = mainLines.addBinding(PARAMS, 'gradientColor2', { view: 'color', label: 'Gradient Color 2' }).on('change', () => applyParamsToNetwork(pn, PARAMS));
         const bindLineColorCycling = mainLines.addBinding(PARAMS, 'lineColorCycling', { label: 'Line Color Cycling' }).on('change', () => { applyParamsToNetwork(pn, PARAMS); updateVisibility(); });
@@ -569,41 +588,34 @@
         const mainParticles = main.addFolder({ title: 'Particles', expanded: true });
         mainParticles.addBinding(PARAMS, 'particleSize', { min: 1, max: 8, step: 1, label: 'Size' }).on('change', () => applyParamsToNetwork(pn, PARAMS));
         mainParticles.addBinding(PARAMS, 'particleColor', { view: 'color', label: 'Particle Color' }).on('change', () => applyParamsToNetwork(pn, PARAMS));
-        mainParticles.addBinding(PARAMS, 'randomParticleColor', { label: 'Random Color' }).on('change', () => applyParamsToNetwork(pn, PARAMS));
+        // Random particle color removed
         const bindParticleColorCycling = mainParticles.addBinding(PARAMS, 'particleColorCycling', { label: 'Particle Color Cycling' }).on('change', () => { applyParamsToNetwork(pn, PARAMS); updateVisibility(); });
-        const bindParticleCyclingSpeed = mainParticles.addBinding(PARAMS, 'particleCyclingSpeed', { min: 0, max: 100, step: 1, label: 'Particle Color Cycling Speed' }).on('change', () => applyParamsToNetwork(pn, PARAMS));
-        
-        // Particle Repulsion
-        const bindParticleRepulsion = mainParticles.addBinding(PARAMS, 'particleRepulsion', { label: 'Particle Repulsion' }).on('change', () => { applyParamsToNetwork(pn, PARAMS); updateVisibility(); });
+        const bindParticleCyclingSpeed = mainParticles.addBinding(PARAMS, 'particleCyclingSpeed', { min: 0, max: 10, step: 0.1, label: 'Particle Color Cycling Speed' }).on('change', () => applyParamsToNetwork(pn, PARAMS));
+
+        // Particle collisions and forces
         const bindParticleCollision = mainParticles.addBinding(PARAMS, 'particleCollision', { label: 'Particle Collision' }).on('change', () => { applyParamsToNetwork(pn, PARAMS); updateVisibility(); });
+        const bindParticleAttraction = mainParticles.addBinding(PARAMS, 'particleAttraction', { label: 'Particle Attraction' }).on('change', () => {
+          if (PARAMS.particleAttraction) {
+            PARAMS.particleRepulsion = false;
+            bindParticleRepulsion.refresh();
+          }
+          applyParamsToNetwork(pn, PARAMS);
+          updateVisibility();
+        });
+        const bindParticleRepulsion = mainParticles.addBinding(PARAMS, 'particleRepulsion', { label: 'Particle Repulsion' }).on('change', () => {
+          if (PARAMS.particleRepulsion) {
+            PARAMS.particleAttraction = false;
+            bindParticleAttraction.refresh();
+          }
+          applyParamsToNetwork(pn, PARAMS);
+          updateVisibility();
+        });
         const bindParticleInteractionDistance = mainParticles.addBinding(PARAMS, 'particleInteractionDistance', { min: 0, max: 200, step: 1, label: 'Interaction Distance' }).on('change', () => applyParamsToNetwork(pn, PARAMS));
+        const bindParticleAttractionForce = mainParticles.addBinding(PARAMS, 'particleAttractionForce', { min: 0, max: 20, step: 0.5, label: 'Attraction Force' }).on('change', () => applyParamsToNetwork(pn, PARAMS));
         const bindParticleRepulsionForce = mainParticles.addBinding(PARAMS, 'particleRepulsionForce', { min: 0, max: 20, step: 0.5, label: 'Repulsion Force' }).on('change', () => applyParamsToNetwork(pn, PARAMS));
 
         // Lines
         const adv = tabs.pages[1];
-        // Distance Effect (advanced)
-        const linesDistance = adv.addFolder({ title: 'Distance Effect', expanded: true });
-        const bindUseDistance = linesDistance.addBinding(PARAMS, 'useDistanceEffect', { label: 'Use Distance Effect' }).on('change', () => {
-          if (PARAMS.useDistanceEffect && PARAMS.randomizeDistanceColors) {
-            PARAMS.lineColorCycling = false;
-            // no-op: line cycling controls live in Main/Basics
-          }
-          // When enabled, keep gradient off to avoid conflict
-          if (PARAMS.useDistanceEffect) PARAMS.gradientEffect = false;
-          applyParamsToNetwork(pn, PARAMS);
-          updateVisibility();
-        });
-        const bindMaxColorDist = linesDistance.addBinding(PARAMS, 'maxColorChangeDistance', { min: 20, max: 400, step: 5, label: 'Max Color Change Distance' }).on('change', () => applyParamsToNetwork(pn, PARAMS));
-        const bindStartColor = linesDistance.addBinding(PARAMS, 'startColor', { view: 'color', label: 'Start Color' }).on('change', () => applyParamsToNetwork(pn, PARAMS));
-        const bindEndColor = linesDistance.addBinding(PARAMS, 'endColor', { view: 'color', label: 'End Color' }).on('change', () => applyParamsToNetwork(pn, PARAMS));
-        const bindRandDistColors = linesDistance.addBinding(PARAMS, 'randomizeDistanceColors', { label: 'Randomize Distance Colors' }).on('change', () => {
-          if (PARAMS.randomizeDistanceColors && PARAMS.useDistanceEffect) {
-            PARAMS.lineColorCycling = false;
-            // no-op
-          }
-          applyParamsToNetwork(pn, PARAMS);
-        });
-        const bindDistCycleSpeed = linesDistance.addBinding(PARAMS, 'distanceColorCyclingSpeed', { min: 0, max: 100, step: 1, label: 'Distance Cycling Speed' }).on('change', () => applyParamsToNetwork(pn, PARAMS));
 
         // Effects
         // Motion
@@ -650,13 +662,16 @@
           // Show line cycling speed only when cycling is enabled
           const lineCycleOn = !!PARAMS.lineColorCycling;
           bindLineCyclingSpeed.hidden = !lineCycleOn;
+          // Mutual exclusion handled by on-change; keep both toggles enabled
           // Show particle cycling speed only when particle cycling is enabled
           const particleCycleOn = !!PARAMS.particleColorCycling;
           bindParticleCyclingSpeed.hidden = !particleCycleOn;
-          // Show particle repulsion options only when particle repulsion is enabled
+          // Show inter-particle interaction controls
           const particleRepulsionOn = !!PARAMS.particleRepulsion;
-          bindParticleInteractionDistance.hidden = !particleRepulsionOn;
+          const particleAttractionOn = !!PARAMS.particleAttraction;
+          bindParticleInteractionDistance.hidden = !(particleRepulsionOn || particleAttractionOn);
           bindParticleRepulsionForce.hidden = !particleRepulsionOn;
+          bindParticleAttractionForce.hidden = !particleAttractionOn;
           // Distance Effect children
           const distOn = !!PARAMS.useDistanceEffect;
           bindMaxColorDist.hidden = !distOn;
@@ -737,6 +752,15 @@
               bindGradient1 && bindGradient1.refresh();
               bindGradient2 && bindGradient2.refresh();
             }
+            // Sync particle color control to cycling hue when particle cycling is enabled
+            if (PARAMS.particleColorCycling && typeof pn.options.particleHue === 'number') {
+              const h = ((pn.options.particleHue % 360) + 360) % 360;
+              if (window.ColorUtils && window.ColorUtils.hslToRgb) {
+                const rgb = window.ColorUtils.hslToRgb(h, 100, 50);
+                const to2 = (n) => Math.max(0, Math.min(255, Math.round(n))).toString(16).padStart(2, '0');
+                PARAMS.particleColor = `#${to2(rgb.r)}${to2(rgb.g)}${to2(rgb.b)}`;
+              }
+            }
           } finally {
             syncing = false;
             requestAnimationFrame(syncRuntimeToControls);
@@ -762,9 +786,8 @@
         function randomizeVisualParams() {
           // Particles
           PARAMS.particleSize = randInt(1, 6);
-          const useRandomParticleColor = randBool();
-          PARAMS.randomParticleColor = useRandomParticleColor;
-          if (!useRandomParticleColor) {
+          // Random particle color removed: set a random static color only when not cycling
+          if (!PARAMS.particleColorCycling) {
             PARAMS.particleColor = randHex();
           }
           PARAMS.opacity = Math.round((0.4 + rand01()*0.6) * 100) / 100; // 0.4..1.0
@@ -823,7 +846,21 @@
         // --- Unified Key Controls ---
         function togglePane() {
           const isHidden = container.style.display === 'none';
-          container.style.display = isHidden ? 'block' : 'none';
+          const showing = isHidden;
+          container.style.display = showing ? 'block' : 'none';
+          if (showing) {
+            // Fade away the features-tiles section once controls are shown
+            const features = document.querySelector('.features-tiles.section');
+            if (features && !features.dataset.hidden) {
+              features.style.transition = features.style.transition || 'opacity 400ms ease';
+              features.style.opacity = '0';
+              features.style.pointerEvents = 'none';
+              setTimeout(() => {
+                features.style.display = 'none';
+                features.dataset.hidden = '1';
+              }, 420);
+            }
+          }
         }
         // Bottom-right hotkey guide (H)
         let _guideTimeout = null;

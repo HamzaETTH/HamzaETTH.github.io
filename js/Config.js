@@ -17,8 +17,9 @@
     particleColorCycling: false,
     // Particle hue cycling speed (0..100 UI range; mapped internally to time-based degrees/frame)
     particleCyclingSpeed: 10,
-    randomParticleColor: false,
     particleRepulsion: false,
+    particleAttraction: false,
+    particleAttractionForce: 5,
     // Enable simple elastic collisions between particles
     particleCollision: false,
 
@@ -100,11 +101,10 @@
     
     // Colorful mode
     colorful: {
-      randomIndividualParticleColor: true,
       particleColorCycling: true,
       lineColorCycling: true,
       lineCyclingSpeed: 2,
-      particleCyclingSpeed: 0.02
+      particleCyclingSpeed: 10
     },
     
     // Performance mode - optimized for lower-end devices

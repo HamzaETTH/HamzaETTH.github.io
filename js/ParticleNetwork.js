@@ -66,16 +66,9 @@
       (this.size = a.options.particleSize),
       (this.options = a.options);
 
-    this.hue = generateRandomColor();
-    if (!Number.isFinite(this.hue)) this.hue = 0;
-    if (this.options.randomParticleColor) {
-      if (!this.options.calculatedParticleColor) {
-        this.options.calculatedParticleColor = `hsl(${this.hue}, 100%, 50%)`;
-      }
-      this.particleColor = this.options.calculatedParticleColor;
-    } else {
+      this.hue = generateRandomColor();
+      if (!Number.isFinite(this.hue)) this.hue = 0;
       this.particleColor = this.options.particleColor;
-    }
   };
 
   c.prototype.update = function (
@@ -162,11 +155,7 @@
       this.particleColor = `hsl(${this.options.particleHue}, 100%, 50%)`;
     } else {
       // Hard lock particle color when cycling is OFF, regardless of line cycling
-      if (this.options.randomParticleColor && this.options.calculatedParticleColor) {
-        this.particleColor = this.options.calculatedParticleColor;
-      } else {
-        this.particleColor = this.options.particleColor;
-      }
+      this.particleColor = this.options.particleColor;
     }
   };
 
@@ -222,7 +211,6 @@
         particleColorCycling: !!cfg.particleColorCycling,
         // UI 0..100; remapped internally so 100 ≈ legacy 3
         particleCyclingSpeed: cfg.particleCyclingSpeed != null ? cfg.particleCyclingSpeed : 10,
-        randomParticleColor: !!cfg.randomParticleColor,
         gradientEffect: cfg.gradientEffect != null ? cfg.gradientEffect : true,
         gradientColor1: cfg.gradientColor1 || "#00bfff",
         gradientColor2: cfg.gradientColor2 || "#ff4500",
@@ -250,9 +238,11 @@
         endColor: cfg.endColor || "#BF00FF",
         particleInteractionDistance: cfg.particleInteractionDistance != null ? cfg.particleInteractionDistance : 50,
         particleRepulsion: cfg.particleRepulsion != null ? cfg.particleRepulsion : false,
+        particleAttraction: cfg.particleAttraction != null ? cfg.particleAttraction : false,
         // Simple circular collision toggle
         particleCollision: cfg.particleCollision != null ? cfg.particleCollision : false,
         particleRepulsionForce: cfg.particleRepulsionForce != null ? cfg.particleRepulsionForce : 5,
+        particleAttractionForce: cfg.particleAttractionForce != null ? cfg.particleAttractionForce : 5,
         lineConnectionDistance: cfg.lineConnectionDistance != null ? cfg.lineConnectionDistance : 120,
         performanceOverlay: cfg.performanceOverlay != null ? cfg.performanceOverlay : false,
         // New feature flags
@@ -784,18 +774,9 @@
       var dt = Math.min(Math.max((now - (this._lastUpdateTime || now)) / 1000, 0), 0.1);
       this._lastUpdateTime = now;
       this._dt = dt;
-      // Hard lock particle colors when cycling is OFF (belt-and-suspenders)
+      // Hard lock particle colors when cycling is OFF
       if (!options.particleColorCycling && this.o && this.o.length) {
-        var fixedCol;
-        if (options.randomParticleColor) {
-          if (!options.calculatedParticleColor) {
-            var hueRand = Math.floor(Math.random() * 360);
-            options.calculatedParticleColor = 'hsl(' + hueRand + ', 100%, 50%)';
-          }
-          fixedCol = options.calculatedParticleColor;
-        } else {
-          fixedCol = options.particleColor;
-        }
+        var fixedCol = options.particleColor;
         for (var fi = 0; fi < this.o.length; fi++) {
           var fp = this.o[fi];
           if (fp) fp.particleColor = fixedCol;
@@ -1005,9 +986,7 @@
             var rgbaArray01;
             // Hard override when particle color cycling is OFF
             var pc = (!this.options.particleColorCycling)
-              ? ((this.options.randomParticleColor && this.options.calculatedParticleColor)
-                  ? this.options.calculatedParticleColor
-                  : this.options.particleColor)
+              ? this.options.particleColor
               : particleA.particleColor;
               if (typeof pc === 'string' && pc[0] === '#') {
                 if (window.ColorUtils && window.ColorUtils.hexToRgb) {
@@ -1300,15 +1279,20 @@
     if (distanceSq < 0.0001) return;
 
   // Respect toggle: only apply particle repulsion when enabled
-  if (options.particleRepulsion && distanceSq < options.particleInteractionDistance * options.particleInteractionDistance) {
+  var interDistSq = options.particleInteractionDistance * options.particleInteractionDistance;
+  if (distanceSq < interDistSq) {
     var distance = Math.sqrt(distanceSq);
-    applyParticleInteraction(
-      [particleA, particleB],
-      (particleA.x + particleB.x) / 2,
-      (particleA.y + particleB.y) / 2,
-      options.particleInteractionDistance,
-      options.particleRepulsionForce
-    );
+    var cx = (particleA.x + particleB.x) / 2;
+    var cy = (particleA.y + particleB.y) / 2;
+    if (options.particleRepulsion) {
+      applyParticleInteraction([particleA, particleB], cx, cy, options.particleInteractionDistance, options.particleRepulsionForce);
+    } else if (options.particleAttraction) {
+      // For attraction, invert sign by calling repulsion with negative force
+      var saved = options.particleRepulsionForce;
+      options.particleRepulsionForce = -Math.abs(options.particleAttractionForce || 5);
+      applyParticleInteraction([particleA, particleB], cx, cy, options.particleInteractionDistance, options.particleRepulsionForce);
+      options.particleRepulsionForce = saved;
+    }
   }
 
     if (distanceSq > options.maxColorChangeDistance * options.maxColorChangeDistance) return;
@@ -1541,7 +1525,7 @@ var options = {
   particleSize: 2,
   particleColorCycling: false,
   particleCyclingSpeed: 10,
-  randomParticleColor: false,
+  
 
   // Line options
   gradientEffect: true,
