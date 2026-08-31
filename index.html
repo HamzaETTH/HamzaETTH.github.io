@@ -345,7 +345,7 @@
         // Particles
         const mainParticles = main.addFolder({ title: 'Particles', expanded: true });
         mainParticles.addBinding(PARAMS, 'particleSize', { min: 1, max: 8, step: 1, label: 'Size' }).on('change', () => applyParamsToNetwork(pn, PARAMS));
-        mainParticles.addBinding(PARAMS, 'particleColor', { view: 'color', label: 'Particle Color' }).on('change', () => applyParamsToNetwork(pn, PARAMS));
+        const bindParticleColor = mainParticles.addBinding(PARAMS, 'particleColor', { view: 'color', label: 'Particle Color' }).on('change', () => applyParamsToNetwork(pn, PARAMS));
         const bindParticleColorCycling = mainParticles.addBinding(PARAMS, 'particleColorCycling', { label: 'Particle Color Cycling' }).on('change', () => { applyParamsToNetwork(pn, PARAMS); updateVisibility(); });
         const bindParticleCyclingSpeed = mainParticles.addBinding(PARAMS, 'particleCyclingSpeed', { min: 0, max: 10, step: 0.1, label: 'Particle Color Cycling Speed' }).on('change', () => applyParamsToNetwork(pn, PARAMS));
 
@@ -475,44 +475,67 @@
 
         // Runtime → UI sync without feedback loops
 
-        let syncing = false;
+        const syncIntervalMs = 100;
+        let syncTimerId = null;
+
+        function syncColorBinding(key, color, binding) {
+          if (PARAMS[key] === color) return;
+          PARAMS[key] = color;
+          if (binding) binding.refresh();
+        }
+
         function syncRuntimeToControls() {
-          if (!pn || syncing) { requestAnimationFrame(syncRuntimeToControls); return; }
-          syncing = true;
-          try {
+          if (!pn) return;
           if (PARAMS.useDistanceEffect && PARAMS.randomizeDistanceColors && pn.startColorRgb && pn.endColorRgb) {
-              PARAMS.startColor = rgbArrayToHex(pn.startColorRgb);
-              PARAMS.endColor = rgbArrayToHex(pn.endColorRgb);
-              bindStartColor && bindStartColor.refresh();
-              bindEndColor && bindEndColor.refresh();
+            syncColorBinding('startColor', rgbArrayToHex(pn.startColorRgb), bindStartColor);
+            syncColorBinding('endColor', rgbArrayToHex(pn.endColorRgb), bindEndColor);
+          }
+          if (PARAMS.lineColorCycling && pn.currentLineColor1Rgb) {
+            const color1Hex = rgbArrayToHex(pn.currentLineColor1Rgb);
+            const color2Hex = PARAMS.gradientEffect && pn.currentLineColor2Rgb
+              ? rgbArrayToHex(pn.currentLineColor2Rgb)
+              : color1Hex;
+            syncColorBinding('gradientColor1', color1Hex, bindGradient1);
+            syncColorBinding('gradientColor2', color2Hex, bindGradient2);
+          }
+          // Sync particle color control to cycling hue when particle cycling is enabled
+          if (PARAMS.particleColorCycling && typeof pn.options.particleHue === 'number') {
+            const h = ((pn.options.particleHue % 360) + 360) % 360;
+            if (window.ColorUtils && window.ColorUtils.hslToRgb) {
+              const rgb = window.ColorUtils.hslToRgb(h, 100, 50);
+              const to2 = (n) => Math.max(0, Math.min(255, Math.round(n))).toString(16).padStart(2, '0');
+              syncColorBinding('particleColor', `#${to2(rgb.r)}${to2(rgb.g)}${to2(rgb.b)}`, bindParticleColor);
             }
-            if (PARAMS.lineColorCycling && pn.currentLineColor1Rgb) {
-              const color1Hex = rgbArrayToHex(pn.currentLineColor1Rgb);
-              PARAMS.gradientColor1 = color1Hex;
-              if (PARAMS.gradientEffect && pn.currentLineColor2Rgb) {
-                PARAMS.gradientColor2 = rgbArrayToHex(pn.currentLineColor2Rgb);
-              } else {
-                // When gradient effect is off, mirror color1
-                PARAMS.gradientColor2 = color1Hex;
-              }
-              bindGradient1 && bindGradient1.refresh();
-              bindGradient2 && bindGradient2.refresh();
-            }
-            // Sync particle color control to cycling hue when particle cycling is enabled
-            if (PARAMS.particleColorCycling && typeof pn.options.particleHue === 'number') {
-              const h = ((pn.options.particleHue % 360) + 360) % 360;
-              if (window.ColorUtils && window.ColorUtils.hslToRgb) {
-                const rgb = window.ColorUtils.hslToRgb(h, 100, 50);
-                const to2 = (n) => Math.max(0, Math.min(255, Math.round(n))).toString(16).padStart(2, '0');
-                PARAMS.particleColor = `#${to2(rgb.r)}${to2(rgb.g)}${to2(rgb.b)}`;
-              }
-            }
-          } finally {
-            syncing = false;
-            requestAnimationFrame(syncRuntimeToControls);
           }
         }
-        requestAnimationFrame(syncRuntimeToControls);
+
+        function scheduleRuntimeSync() {
+          if (syncTimerId !== null || container.style.display === 'none') return;
+          syncTimerId = setTimeout(() => {
+            syncTimerId = null;
+            if (container.style.display === 'none') return;
+            try {
+              syncRuntimeToControls();
+            } finally {
+              scheduleRuntimeSync();
+            }
+          }, syncIntervalMs);
+        }
+
+        function startRuntimeSync() {
+          if (syncTimerId !== null) {
+            clearTimeout(syncTimerId);
+            syncTimerId = null;
+          }
+          syncRuntimeToControls();
+          scheduleRuntimeSync();
+        }
+
+        function stopRuntimeSync() {
+          if (syncTimerId === null) return;
+          clearTimeout(syncTimerId);
+          syncTimerId = null;
+        }
 
         // Randomize visuals (no interaction, no background, no speed, no particle amount)
 
@@ -579,6 +602,7 @@
           const showing = isHidden;
           container.style.display = showing ? 'block' : 'none';
           if (showing) {
+            startRuntimeSync();
             // Fade away the features-tiles section once controls are shown
             const features = document.querySelector('.features-tiles.section');
             if (features && !features.dataset.hidden) {
@@ -590,6 +614,8 @@
                 features.dataset.hidden = '1';
               }, 420);
             }
+          } else {
+            stopRuntimeSync();
           }
         }
 

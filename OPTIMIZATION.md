@@ -13,8 +13,8 @@ This file is the permanent optimization record. Every optimization must be isola
 | 1 | P0-1 — pair-loop allocations | **COMPLETE** | Full two-profile A/B matrix below | Keep |
 | 2 | P0-2 — redundant GL resize | **COMPLETE** | Resize regression plus full two-profile A/B matrix below | Keep |
 | 3 | P0-3 — unconditional UI rebuild | **REJECTED** | 2026-08-31 live rebuild-count validation below | Audit premise was stale; no production change |
-| 4 | P1-4 — duplicate neighbor scan | **QUEUED** | Rationale corrected after index-guard review | Deterministic pair-set equivalence test, then full A/B matrix |
-| 5 | P1-5 — permanent UI-sync rAF | **IN PROGRESS** | Baseline commit `46da522`; live rate approximately 288 hidden refreshes/s | Hidden-pane/refresh instrumentation and quick FPS gate |
+| 4 | P1-4 — duplicate neighbor scan | **NEXT** | Rationale corrected after index-guard review | Deterministic pair-set equivalence test, then full A/B matrix |
+| 5 | P1-5 — permanent UI-sync rAF | **COMPLETE** | Five-trial UI instrumentation and quick FPS gate below | Keep |
 
 Progress protocol:
 
@@ -173,6 +173,8 @@ Progress protocol:
 
 ## P1-4. 8-neighbor grid scan visits every pair twice
 
+**Status:** NEXT.
+
 **Locations:** `js/ParticleNetwork.js:1029-1050` — 3×3 neighbor loop visits all 8 offsets; dedup guard `particleA.index < particleB.index` at `:1045` runs *after* visiting; same-cell pairs handled at `:1024-1027`.
 
 **Why expensive:** ~half of the neighboring-cell traversal and pair-index comparisons are redundant: the pair (A,B) is reached from A's cell and again from B's cell, but the existing `particleA.index < particleB.index` guard skips the second visit before interaction and distance calculations run. A half-neighborhood scan would remove the duplicate traversal and comparisons, not duplicate distance math, so the expected gain is smaller than originally documented.
@@ -183,9 +185,9 @@ Progress protocol:
 
 **Confidence:** high.
 
-## P1-5. Second permanent rAF loop doing DOM writes every frame
+## P1-5 — COMPLETE. Second permanent rAF loop doing DOM writes every frame
 
-**Status:** IN PROGRESS. Baseline commit: `46da522`.
+**Baseline commit:** `46da522` (implementation benchmarked from instrumentation checkpoint `b264500`).
 
 **Locations:** `index.html:479-515` — `syncRuntimeToControls`; self-reschedules in the early-return branch (`:480`, even when `!pn` — would spin forever) and in `finally` (`:512`); starts unconditionally at `:515` in DOMContentLoaded.
 
@@ -201,6 +203,40 @@ Latent feedback-loop risk: if a refresh emits `change`, it re-triggers the full 
 **Validation:** Performance trace shows 2 rAF callbacks per frame; set speed to 0 — this loop still fires. Toggle `lineColorCycling` off and observe frame-time drop.
 
 **Confidence:** high.
+
+### Benchmark results — 2026-08-31
+
+**Environment:** Windows 10 Pro 22H2, AMD Ryzen 7 5800X3D, 32 GB RAM, NVIDIA GeForce RTX 5080, Microsoft Edge 152.0.4191.53, and ANGLE D3D11 WebGL. Playwright launched Edge headlessly with a 1280×720 viewport and DPR 1. Both detached worktrees came from `b264500`; the baseline was clean and the optimized tree differed only in `index.html`.
+
+**Method:** `scripts/benchmark-ui-sync.js` ran five alternating A/B trials in one Edge context. Each state used a 1.1-second measurement window; stopped states followed a 500 ms settling period. The runner recursively instrumented Tweakpane leaf bindings through both `children` and tab `pages`, counted executed rAF callbacks, binding refresh calls, and refresh execution time, and exercised the real `C` hotkey toggle. Values below are medians.
+
+| State | Baseline rAF callbacks | Optimized rAF callbacks | Baseline binding refreshes | Optimized binding refreshes | Baseline refresh time | Optimized refresh time |
+|---|---:|---:|---:|---:|---:|---:|
+| Hidden / running | 318 | 159 | 318 | 0 | 80.4 ms | 0 ms |
+| Visible / running | 320 | 159 | 320 | 20 | 79.5 ms | 8.8 ms |
+| Visible / stopped | 159 | 0 | 318 | 0 | 1.1 ms | 0 ms |
+| Hidden / stopped | 159 | 0 | 318 | 0 | 1.2 ms | 0 ms |
+
+The optimized visible/running result stayed below the 24-refresh gate in every trial while both gradient values advanced. Hidden/running, visible/stopped, and hidden/stopped produced zero binding refreshes in every optimized trial. Hidden/stopped also produced zero continuing rAF callbacks. Showing the pane synchronously updated its gradient sources to `#123456` and `#654321` in all five trials.
+
+**Quick FPS gate:** the existing 12-measurement runner used one trial at 1,500/5,000/15,000 particles for static and cycling/gradient profiles. This diagnostic is a regression gate, not a reportable performance claim.
+
+| Profile | Particles | Baseline avg | Optimized avg | Avg change | Baseline minimum | Optimized minimum |
+|---|---:|---:|---:|---:|---:|---:|
+| Static | 1,500 | 144.00 | 144.01 | +0.00% | 128.21 | 111.11 |
+| Static | 5,000 | 21.71 | 27.47 | +26.51% | 19.69 | 22.32 |
+| Static | 15,000 | 1.29 | 2.26 | +74.79% | 1.29 | 2.26 |
+| Cycling/gradient | 1,500 | 144.05 | 143.07 | -0.68% | 123.46 | 52.08 |
+| Cycling/gradient | 5,000 | 20.20 | 26.82 | +32.75% | 16.29 | 23.31 |
+| Cycling/gradient | 15,000 | 1.91 | 2.46 | +29.10% | 1.91 | 2.46 |
+
+No uncapped average-FPS row regressed by more than 5%, so the focused confirmation rule did not trigger. The 1,500-particle minimum variation occurred at the approximately 144 Hz refresh cap and did not affect the gate decision.
+
+**Verification:** all UI-sync and FPS measurements retained WebGL with no context loss, console error, or page error. The FPS smoke restored the original particle count and settings with no mismatch. A final focused UI-sync trial also asserted the rendered Tweakpane HEX inputs and swatches, not only the shared parameter sources; they synchronously showed `#123456` and `#654321`. A targeted controls-visible smoke updated randomized distance colors to `#abcdef` / `#012345` and particle cycling to `#00ff00`. Visual inspection of the 1280×720 controls-visible screenshot confirmed a correctly rendered pane over the live particle canvas, matching color swatches, and no blank frame or layout artifact.
+
+**Duration:** the five-trial UI-sync A/B completed in 0:54; the quick FPS gate completed in 0:28.
+
+**Conclusion:** keep P1-5 and mark it complete. Synchronization now starts with an immediate refresh when controls become visible, continues through one 100 ms timer only while visible, refreshes only changed color bindings, and cancels when hidden. Promote P1-4 to NEXT.
 
 ## P1-6. Startup: unused Inter font @import (render-blocking chain)
 

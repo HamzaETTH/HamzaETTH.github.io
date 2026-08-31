@@ -49,6 +49,7 @@ function installUiSyncInstrumentation() {
   const metrics = { rafCallbacks: 0, bindingRefreshes: 0, refreshTimeMs: 0 };
   const visited = new WeakSet();
   const wrappedBindings = new WeakSet();
+  const bindingsByLabel = new Map();
   const context = window.hotkeyManager.context;
   const originalRaf = window.requestAnimationFrame.bind(window);
   let bindingCount = 0;
@@ -77,6 +78,7 @@ function installUiSyncInstrumentation() {
     if (children.length || pages.length || typeof api.refresh !== 'function' || wrappedBindings.has(api)) return;
     wrappedBindings.add(api);
     bindingCount++;
+    if (typeof api.label === 'string') bindingsByLabel.set(api.label, api);
     const originalRefresh = api.refresh;
     const wrappedRefresh = function(...args) {
       const startedAt = performance.now();
@@ -106,6 +108,15 @@ function installUiSyncInstrumentation() {
     },
     bindingSnapshot(key) {
       return { sourceValue: context.params[key] };
+    },
+    renderedColorSnapshot(label) {
+      const api = bindingsByLabel.get(label);
+      const input = api && api.element ? api.element.querySelector('.tp-colv_t input.tp-txtv_i') : null;
+      const swatch = api && api.element ? api.element.querySelector('.tp-colswv_sw') : null;
+      return {
+        inputValue: input ? input.value : null,
+        swatchColor: swatch ? swatch.style.backgroundColor : null
+      };
     },
     bindingCount() {
       return bindingCount;
@@ -228,7 +239,9 @@ async function runVariant(page, url, variant, trial) {
     }));
     const after = {
       gradientColor1: state.bindingSnapshot('gradientColor1'),
-      gradientColor2: state.bindingSnapshot('gradientColor2')
+      gradientColor2: state.bindingSnapshot('gradientColor2'),
+      renderedGradientColor1: state.renderedColorSnapshot('Gradient Color 1'),
+      renderedGradientColor2: state.renderedColorSnapshot('Gradient Color 2')
     };
     const metrics = state.snapshotMetrics();
     return {
@@ -238,6 +251,10 @@ async function runVariant(page, url, variant, trial) {
       paneVisible: getComputedStyle(document.getElementById('tp-container')).display !== 'none',
       immediate: after.gradientColor1.sourceValue.toLowerCase() === '#123456' &&
         after.gradientColor2.sourceValue.toLowerCase() === '#654321' &&
+        after.renderedGradientColor1.inputValue &&
+        after.renderedGradientColor1.inputValue.toLowerCase() === '#123456' &&
+        after.renderedGradientColor2.inputValue &&
+        after.renderedGradientColor2.inputValue.toLowerCase() === '#654321' &&
         metrics.bindingRefreshes >= 2
     };
   });
