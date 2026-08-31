@@ -15,6 +15,9 @@ This file is the permanent optimization record. Every optimization must be isola
 | 3 | P0-3 — unconditional UI rebuild | **REJECTED** | 2026-08-31 live rebuild-count validation below | Audit premise was stale; no production change |
 | 4 | P1-4 — duplicate neighbor scan | **NEXT** | Rationale corrected after index-guard review | Deterministic pair-set equivalence test, then full A/B matrix |
 | 5 | P1-5 — permanent UI-sync rAF | **COMPLETE** | Five-trial UI instrumentation and quick FPS gate below | Keep |
+| 6 | P1-10 — per-particle color work | **COMPLETE** | Deterministic color-path test plus focused three-trial A/B matrix below | Keep |
+| 7 | P2-1 — repeated pair thresholds | **REJECTED** | Deterministic win, but focused FPS gate confirmed a regression | Production change removed |
+| 8 | P2-2 — per-pair velocity validation | **REJECTED** | Deterministic win, but focused FPS gate confirmed a regression | Production change removed |
 
 Progress protocol:
 
@@ -292,7 +295,9 @@ No uncapped average-FPS row regressed by more than 5%, so the focused confirmati
 
 **Confidence:** high for all rows.
 
-## P1-10. Per-particle color string parsing every frame
+## P1-10 — COMPLETE. Per-particle color string parsing every frame
+
+**Baseline:** `e18889b` (`perf: pause hidden UI synchronization`), recorded 2026-08-31. This experiment also includes the adjacent P2 per-frame static color-lock loop because both loops feed the same rendered particle color and can be removed by one frame-level cache.
 
 **Locations:** `js/ParticleNetwork.js:828-835` — when cycling is on, writes the *identical* `hsl(...)` string to all N particles; `:977-1018` — parses each particle's `particleColor` string to RGBA (including an `hsl(...)` regex match) every frame.
 
@@ -303,6 +308,110 @@ No uncapped average-FPS row regressed by more than 5%, so the focused confirmati
 **Validation:** CPU profile delta; fold into the P0-1 hot-loop cleanup A/B.
 
 **Confidence:** high.
+
+### Benchmark results — 2026-08-31
+
+**Environment:** Windows 10 Pro 22H2, AMD Ryzen 7 5800X3D, 32 GB RAM, NVIDIA GeForce RTX 5080, Microsoft Edge 152.0.4191.53, and ANGLE D3D11 WebGL. Playwright launched Edge headlessly at 1280×720 and DPR 1. The baseline was instrumentation checkpoint `8442cfd`; the optimized application differed only in `js/ParticleNetwork.js`.
+
+**Deterministic behavior:** a 32-particle WebGL/Canvas fixture sampled static `#123456`, short `#888`, and cycling hue 120. Baseline made 160 `particleColor` writes in five settled static frames and another 160 in five cycling frames, passed 32 distinct RGBA arrays per WebGL frame, supplied no shared frame color to the trails path, and decoded `#888` incorrectly. Optimized made zero particle-property writes, passed one reusable RGBA buffer per frame, decoded `#888` as equal RGB channels, and supplied `#123456` / `hsl(120, 100%, 50%)` to every Canvas 2D particle. Both static and cycling rendered RGBA values matched within floating-point tolerance; restoration, rAF, and WebGL checks passed with no console or page errors.
+
+**Quick diagnostic (one trial; not a reportable performance claim):**
+
+| Profile | Particles | Baseline avg | Optimized avg | Change |
+|---|---:|---:|---:|---:|
+| Static | 1,500 | 144.08 | 144.09 | +0.0% |
+| Static | 5,000 | 26.10 | 24.58 | -5.8% |
+| Static | 15,000 | 2.80 | 2.81 | +0.4% |
+| Particle cycling | 1,500 | 144.05 | 142.00 | -1.4% |
+| Particle cycling | 5,000 | 22.30 | 24.02 | +7.7% |
+| Particle cycling | 15,000 | 2.78 | 2.65 | -4.5% |
+
+**Focused high-count matrix:** three alternating trials per variant at each count. Values are medians; "minimum" is minimum instantaneous FPS, not a 1% low.
+
+| Profile | Particles | Baseline avg | Baseline minimum | Optimized avg | Optimized minimum | Avg change | Minimum change |
+|---|---:|---:|---:|---:|---:|---:|---:|
+| Static | 5,000 | 25.20 | 15.58 | 24.24 | 17.89 | -3.8% | +14.8% |
+| Static | 10,000 | 5.32 | 3.89 | 5.76 | 5.77 | +8.3% | +48.5% |
+| Static | 15,000 | 1.97 | 1.97 | 2.57 | 2.54 | +30.4% | +29.0% |
+| Particle cycling | 5,000 | 21.48 | 17.79 | 21.49 | 17.61 | +0.1% | -1.1% |
+| Particle cycling | 10,000 | 5.34 | 4.96 | 5.30 | 5.20 | -0.7% | +4.8% |
+| Particle cycling | 15,000 | 2.52 | 2.46 | 2.67 | 2.72 | +5.7% | +10.6% |
+
+**Duration:** quick diagnostic 0:28; focused matrix 2:10.
+
+**Conclusion:** keep P1-10. The quick static 5,000-particle regression exceeded 5%, but its required focused three-trial median was only 3.8% lower, so it did not confirm the rejection condition. All deterministic work-removal and renderer behavior checks passed, four high-count average-FPS medians improved, and neither of the two lower medians exceeded the 5% regression gate.
+
+## P2-1 — REJECTED. Cache repeated particle-pair thresholds
+
+**Baseline:** `ae34186` (`perf: cache particle frame colors`), recorded 2026-08-31.
+
+The frame loop already computes squared interaction, line-connection, and maximum-color distances, but `interactParticles()` ignores them and repeats the option reads and multiplications for every candidate pair. The experiment will reuse one private threshold object per network, update its six numeric fields once per frame, and pass it through the existing pair path without changing traversal, pair selection, comparison operators, force formulas, or rendering branches.
+
+**Deterministic gate:** `scripts/test-pair-hot-path.js` runs alternating baseline/optimized fixtures for no force, repulsion, attraction, and invalid force. It compares object positions and velocities plus every WebGL `addLine()` value, while a Proxy counts the three threshold option reads and a wrapped global `isNaN` counts velocity checks. The threshold build must reduce each tracked option to one read per frame and preserve finite-scenario output within floating-point tolerance.
+
+### Benchmark results — 2026-08-31
+
+**Method:** baseline `58bad1f` was served from a detached worktree and the candidate differed only in `js/ParticleNetwork.js`. Microsoft Edge 152.0.4191.53 ran headlessly at 1280×720, DPR 1, using ANGLE D3D11 on an NVIDIA GeForce RTX 5080. The focused matrix used three alternating trials per variant at 5,000, 10,000, and 15,000 particles under the static and cycling/gradient profiles.
+
+**Deterministic result:** across no-force, repulsion, and attraction frames, tracked threshold reads fell from 358 to 9: each optimized threshold was read once per frame instead of once per candidate/connected pair. Positions, velocities, and all WebGL line values matched within tolerance in three alternating trials. Invalid-force recovery, WebGL health, and browser-error checks passed. Pair-scaled `isNaN` calls were intentionally unchanged at this stage.
+
+| Profile | Particles | Baseline avg | Optimized avg | Avg change |
+|---|---:|---:|---:|---:|
+| Static | 5,000 | 25.79 | 25.68 | -0.4% |
+| Static | 10,000 | 6.07 | 6.09 | +0.5% |
+| Static | 15,000 | 2.60 | 3.01 | +15.8% |
+| Cycling/gradient | 5,000 | 25.57 | 25.36 | -0.8% |
+| Cycling/gradient | 10,000 | 6.40 | 6.03 | -5.8% |
+| Cycling/gradient | 15,000 | 2.49 | 2.78 | +11.7% |
+
+**Duration and smoke:** quick diagnostic 0:27 plus smoke; focused matrix 2:08 plus smoke. Every measurement reached its requested count with rAF and WebGL active. Settings restored to the shipped 185-particle state, the context remained healthy, and there were no console or page errors.
+
+**Conclusion:** reject P2-1 and remove its production change. Although the structural work removal was exact and the median change across the six rows was non-negative, cycling/gradient at 10,000 particles regressed by 5.8%, with two of three paired trials lower. That meets the predeclared rejection rule, so threshold caching is not included in the final build.
+
+## P2-2 — REJECTED. Validate velocities once after particle interactions
+
+**Baseline:** `58bad1f` (`test: measure particle pair hot path`). P2-1 was rejected, so this experiment starts from the unchanged particle engine. Valid finite-input behavior must remain equivalent; invalid object and SoA velocities must be finite by frame end, including an interactive pointer outside the SoA buffers.
+
+### Benchmark results — 2026-08-31
+
+**Method:** the same isolated baseline, Edge environment, viewport, profiles, particle counts, and alternating three-trial procedure as P2-1 were used. The candidate differed only in `js/ParticleNetwork.js`: four pair-tail `isNaN` calls were removed and one linear post-interaction validation pass covered every particle object while copying regular-particle velocities to SoA.
+
+**Deterministic result:** across the three finite scenarios, global `isNaN` calls fell from 132 to 48, leaving only the existing two checks per regular particle in `_updateSoA`. Positions, velocities, and every WebGL line value matched in three alternating trials. An injected NaN force was repaired in both object and SoA storage, and the optimized pass additionally repaired an invalid interactive pointer excluded from SoA. WebGL and browser-error checks passed.
+
+| Profile | Particles | Baseline avg | Optimized avg | Avg change |
+|---|---:|---:|---:|---:|
+| Static | 5,000 | 26.06 | 28.62 | +9.8% |
+| Static | 10,000 | 7.04 | 6.82 | -3.2% |
+| Static | 15,000 | 3.05 | 2.80 | -8.1% |
+| Cycling/gradient | 5,000 | 27.81 | 27.12 | -2.5% |
+| Cycling/gradient | 10,000 | 6.97 | 7.13 | +2.2% |
+| Cycling/gradient | 15,000 | 2.89 | 3.06 | +5.7% |
+
+**Duration and smoke:** quick diagnostic 0:27 plus smoke; focused matrix 2:08 plus smoke. Every measurement reached its requested count with rAF and WebGL active. Settings restored to 185 particles, the context remained healthy, and no console or page errors occurred.
+
+**Conclusion:** reject P2-2 and remove its production change. Static at 15,000 particles regressed by 8.1%, with two of three paired trials lower, which meets the rejection rule. The structural improvement and stronger non-finite recovery are real, but they do not justify a confirmed high-count FPS regression.
+
+## Cumulative optimized-engine benchmark — 2026-08-31
+
+**Comparison:** the baseline was detached commit `6bb19b8` with only the documented P0-1 application-code hunks reversed, recreating the pre-P0-1 particle engine while retaining its compatible profiling controls. The optimized variant was `a846ec5`, whose runtime application code matches accepted optimization commit `ae34186`; both P2 experiments above were removed. This comparison therefore includes the accepted P0-1 pair-loop cleanup, P0-2 WebGL resize guard, P1-5 hidden-pane synchronization pause, and P1-10 frame particle-color cache without mixing in unrelated pre-`6bb19b8` UI changes.
+
+**Method:** Edge 152.0.4191.53 ran headlessly at 1280×720 and DPR 1 using ANGLE D3D11 on an NVIDIA GeForce RTX 5080. The reportable matrix used three alternating trials per variant at 5,000, 10,000, and 15,000 particles under static, cycling/gradient, and particle-cycling profiles. Values are medians.
+
+| Profile | Particles | Original avg | Optimized avg | Total gain |
+|---|---:|---:|---:|---:|
+| Static | 5,000 | 17.11 | 26.29 | +53.7% |
+| Static | 10,000 | 4.26 | 6.93 | +62.6% |
+| Static | 15,000 | 1.83 | 3.04 | +66.7% |
+| Cycling/gradient | 5,000 | 15.99 | 26.55 | +66.0% |
+| Cycling/gradient | 10,000 | 4.00 | 6.74 | +68.2% |
+| Cycling/gradient | 15,000 | 1.56 | 2.94 | +89.3% |
+| Particle cycling | 5,000 | 16.82 | 27.03 | +60.7% |
+| Particle cycling | 10,000 | 4.10 | 6.96 | +70.0% |
+| Particle cycling | 15,000 | 1.81 | 2.92 | +61.4% |
+
+**Duration and smoke:** the cumulative quick diagnostic completed 18 measurements in 0:43; the reportable matrix completed 54 measurements in 3:20, followed by the restoration smoke. All 72 measurements reached the requested particle count with rAF active, WebGL available, and no context loss or browser errors. At the shipped 185-particle state, the page remained refresh-rate capped; the settings pane opened with the `C` hotkey, displayed current runtime values, and a 1280×720 visual inspection showed intact particles, gradient lines, controls, and canvas coverage.
+
+**Overall conclusion:** the accepted optimization series improves median high-count average FPS by 53.7% to 89.3% across every tested workload. The ordinary shipped scene is already display-refresh capped, so its benefit is lower CPU/background overhead and more headroom rather than a visible FPS-number increase. P1-4 remains the next candidate, but it is expected to be smaller because it removes duplicate traversal and index comparisons rather than distance calculations.
 
 ---
 
@@ -353,7 +462,8 @@ No uncapped average-FPS row regressed by more than 5%, so the focused confirmati
 1. **P0-1, P0-2** — hot pair loop and resize guard. Core wins, small patches, low risk. P0-3 was rejected after live validation disproved its premise.
 2. **P1-5, then P1-4** — pause hidden UI synchronization first; defer the smaller half-neighborhood traversal win.
 3. **P1-6 → P1-9** — startup batch: fonts, defer, dead loads, tweakpane lazy-load.
-4. **P1-10 + P2 cleanup** — per-frame color cache, NaN guards, dead thresholds, reset path, color lock loop.
-5. **Optional:** dt-scaling, destroy(), growth caps, SoA second wave.
+4. **P1-10 COMPLETE** — per-frame particle color cache plus the adjacent static color-lock loop.
+5. **P2-1, then P2-2** — dead pair thresholds and per-pair velocity validation, each measured against its immediately preceding checkpoint.
+6. **Optional:** dt-scaling, destroy(), growth caps, SoA second wave.
 
 Validate each step with Benchmark.js (B) and FPS overlay (P) A/B, plus DevTools Performance/Allocation traces.

@@ -15,9 +15,11 @@ const QUICK_STEPS = [
   { count: 5000, duration: 1000 },
   { count: 15000, duration: 1500 }
 ];
+const DEFAULT_PROFILE_NAMES = ['static', 'cyclingGradient'];
 const PROFILES = {
-  static: { lineColorCycling: false, gradientEffect: false },
-  cyclingGradient: { lineColorCycling: true, gradientEffect: true }
+  static: { particleColorCycling: false, lineColorCycling: false, gradientEffect: false },
+  cyclingGradient: { particleColorCycling: false, lineColorCycling: true, gradientEffect: true },
+  particleCycling: { particleColorCycling: true, lineColorCycling: false, gradientEffect: false }
 };
 
 function usage() {
@@ -30,6 +32,7 @@ Options:
   --quick          One short diagnostic trial at 1,500, 5,000, and 15,000 particles
   --smoke-only     Skip performance measurements and only verify the optimized URL
   --counts <list>  Test selected full-run counts, for example 1500,5000
+  --profiles <list>  Select profiles; defaults to static,cyclingGradient
   --trials <n>     Override the trial count
   --headless       Run without a visible Edge window
   --output <path>  Save the complete JSON result
@@ -37,11 +40,13 @@ Options:
   --help           Show this help
 
 The default full run is the reportable benchmark: three alternating trials for
-both profiles at 1,500, 3,000, 5,000, 10,000, and 15,000 particles.`);
+the historical static and cyclingGradient profiles at 1,500, 3,000, 5,000,
+10,000, and 15,000 particles. Use --profiles static,particleCycling for the
+focused particle-color benchmark.`);
 }
 
 function parseArgs(argv) {
-  const options = { quick: false, smokeOnly: false, headless: false, output: null, screenshot: null, counts: null, trials: null };
+  const options = { quick: false, smokeOnly: false, headless: false, output: null, screenshot: null, counts: null, profiles: null, trials: null };
   for (let i = 0; i < argv.length; i++) {
     const arg = argv[i];
     if (arg === '--baseline') options.baseline = argv[++i];
@@ -49,6 +54,7 @@ function parseArgs(argv) {
     else if (arg === '--output') options.output = argv[++i];
     else if (arg === '--screenshot') options.screenshot = argv[++i];
     else if (arg === '--counts') options.counts = argv[++i].split(',').map(Number);
+    else if (arg === '--profiles') options.profiles = argv[++i].split(',');
     else if (arg === '--trials') options.trials = Number(argv[++i]);
     else if (arg === '--quick') options.quick = true;
     else if (arg === '--smoke-only') options.smokeOnly = true;
@@ -110,7 +116,7 @@ async function runOne(page, url, variant, profileName, trial, step) {
     const benchmark = new window.BenchmarkSystem(pn);
     window.applyParamsToNetwork(pn, {
       interactive: false,
-      particleColorCycling: false,
+      particleColorCycling: profile.particleColorCycling,
       lineColorCycling: profile.lineColorCycling,
       gradientEffect: profile.gradientEffect,
       speed: 1.0,
@@ -209,9 +215,13 @@ async function main() {
     steps = FULL_STEPS.filter(step => options.counts.includes(step.count));
     if (steps.length !== new Set(options.counts).size) throw new Error('--counts contains an unsupported particle count');
   }
+  const profileNames = options.profiles || DEFAULT_PROFILE_NAMES;
+  const unknownProfiles = profileNames.filter(name => !Object.hasOwn(PROFILES, name));
+  if (unknownProfiles.length) throw new Error(`Unknown profiles: ${unknownProfiles.join(',')}`);
+  if (new Set(profileNames).size !== profileNames.length) throw new Error('--profiles contains duplicates');
   const trials = options.trials == null ? (options.quick ? 1 : 3) : options.trials;
   if (!Number.isInteger(trials) || trials < 1) throw new Error('--trials must be a positive integer');
-  const measurementCount = options.smokeOnly ? 0 : Object.keys(PROFILES).length * steps.length * trials * 2;
+  const measurementCount = options.smokeOnly ? 0 : profileNames.length * steps.length * trials * 2;
   const mode = options.smokeOnly ? 'Smoke check' : (options.quick ? 'Quick diagnostic' : 'Full benchmark');
   console.log(`${mode}: ${measurementCount} measurements.`);
 
@@ -246,7 +256,7 @@ async function main() {
     environment.launchMode = launchMode;
 
     if (!options.smokeOnly) {
-      for (const profileName of Object.keys(PROFILES)) {
+      for (const profileName of profileNames) {
         for (let trial = 1; trial <= trials; trial++) {
           for (const step of steps) {
             const order = trial % 2 === 1 ? ['baseline', 'optimized'] : ['optimized', 'baseline'];
@@ -273,7 +283,7 @@ async function main() {
 
     const summary = [];
     if (!options.smokeOnly) {
-      for (const profile of Object.keys(PROFILES)) {
+      for (const profile of profileNames) {
         for (const step of steps) {
           const baseline = records.filter(r => r.profile === profile && r.count === step.count && r.variant === 'baseline');
           const optimized = records.filter(r => r.profile === profile && r.count === step.count && r.variant === 'optimized');
@@ -298,7 +308,7 @@ async function main() {
     currentRun = 'optimized-smoke';
     const smoke = await smokeTest(page, options.optimized);
     if (options.screenshot) await page.screenshot({ path: options.screenshot, fullPage: true });
-    const result = { environment, mode: options.smokeOnly ? 'smoke-only' : (options.quick ? 'quick' : 'full'), records, summary, smoke, browserErrors };
+    const result = { environment, mode: options.smokeOnly ? 'smoke-only' : (options.quick ? 'quick' : 'full'), profiles: profileNames, records, summary, smoke, browserErrors };
     if (options.output) fs.writeFileSync(options.output, JSON.stringify(result, null, 2) + '\n');
     console.log('RESULTS_JSON=' + JSON.stringify(result));
 
