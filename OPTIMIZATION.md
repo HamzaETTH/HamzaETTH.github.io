@@ -16,8 +16,8 @@ This file is the permanent optimization record. Every optimization must be isola
 | 4 | P1-4 — duplicate neighbor scan | **NEXT** | Rationale corrected after index-guard review | Deterministic pair-set equivalence test, then full A/B matrix |
 | 5 | P1-5 — permanent UI-sync rAF | **COMPLETE** | Five-trial UI instrumentation and quick FPS gate below | Keep |
 | 6 | P1-10 — per-particle color work | **COMPLETE** | Deterministic color-path test plus focused three-trial A/B matrix below | Keep |
-| 7 | P2-1 — repeated pair thresholds | **IN PROGRESS** | Baseline `ae34186`; deterministic pair-path instrumentation added | Isolated A/B behavior and FPS gates |
-| 8 | P2-2 — per-pair velocity validation | **PENDING** | Will baseline from the accepted P2-1 commit | Isolated A/B behavior and FPS gates |
+| 7 | P2-1 — repeated pair thresholds | **REJECTED** | Deterministic win, but focused FPS gate confirmed a regression | Production change removed |
+| 8 | P2-2 — per-pair velocity validation | **IN PROGRESS** | Baseline `58bad1f`; P2-1 production code excluded | Isolated A/B behavior and FPS gates |
 
 Progress protocol:
 
@@ -341,7 +341,7 @@ No uncapped average-FPS row regressed by more than 5%, so the focused confirmati
 
 **Conclusion:** keep P1-10. The quick static 5,000-particle regression exceeded 5%, but its required focused three-trial median was only 3.8% lower, so it did not confirm the rejection condition. All deterministic work-removal and renderer behavior checks passed, four high-count average-FPS medians improved, and neither of the two lower medians exceeded the 5% regression gate.
 
-## P2-1 — IN PROGRESS. Cache repeated particle-pair thresholds
+## P2-1 — REJECTED. Cache repeated particle-pair thresholds
 
 **Baseline:** `ae34186` (`perf: cache particle frame colors`), recorded 2026-08-31.
 
@@ -349,9 +349,28 @@ The frame loop already computes squared interaction, line-connection, and maximu
 
 **Deterministic gate:** `scripts/test-pair-hot-path.js` runs alternating baseline/optimized fixtures for no force, repulsion, attraction, and invalid force. It compares object positions and velocities plus every WebGL `addLine()` value, while a Proxy counts the three threshold option reads and a wrapped global `isNaN` counts velocity checks. The threshold build must reduce each tracked option to one read per frame and preserve finite-scenario output within floating-point tolerance.
 
-## P2-2 — PENDING. Validate velocities once after particle interactions
+### Benchmark results — 2026-08-31
 
-P2-2 will start only after P2-1 is independently benchmarked and accepted. Its baseline will be the accepted P2-1 commit so the gain from removing pair-scaled `isNaN` checks remains attributable. Valid finite-input behavior must remain equivalent; invalid object and SoA velocities must be finite by frame end, including an interactive pointer outside the SoA buffers.
+**Method:** baseline `58bad1f` was served from a detached worktree and the candidate differed only in `js/ParticleNetwork.js`. Microsoft Edge 152.0.4191.53 ran headlessly at 1280×720, DPR 1, using ANGLE D3D11 on an NVIDIA GeForce RTX 5080. The focused matrix used three alternating trials per variant at 5,000, 10,000, and 15,000 particles under the static and cycling/gradient profiles.
+
+**Deterministic result:** across no-force, repulsion, and attraction frames, tracked threshold reads fell from 358 to 9: each optimized threshold was read once per frame instead of once per candidate/connected pair. Positions, velocities, and all WebGL line values matched within tolerance in three alternating trials. Invalid-force recovery, WebGL health, and browser-error checks passed. Pair-scaled `isNaN` calls were intentionally unchanged at this stage.
+
+| Profile | Particles | Baseline avg | Optimized avg | Avg change |
+|---|---:|---:|---:|---:|
+| Static | 5,000 | 25.79 | 25.68 | -0.4% |
+| Static | 10,000 | 6.07 | 6.09 | +0.5% |
+| Static | 15,000 | 2.60 | 3.01 | +15.8% |
+| Cycling/gradient | 5,000 | 25.57 | 25.36 | -0.8% |
+| Cycling/gradient | 10,000 | 6.40 | 6.03 | -5.8% |
+| Cycling/gradient | 15,000 | 2.49 | 2.78 | +11.7% |
+
+**Duration and smoke:** quick diagnostic 0:27 plus smoke; focused matrix 2:08 plus smoke. Every measurement reached its requested count with rAF and WebGL active. Settings restored to the shipped 185-particle state, the context remained healthy, and there were no console or page errors.
+
+**Conclusion:** reject P2-1 and remove its production change. Although the structural work removal was exact and the median change across the six rows was non-negative, cycling/gradient at 10,000 particles regressed by 5.8%, with two of three paired trials lower. That meets the predeclared rejection rule, so threshold caching is not included in the final build.
+
+## P2-2 — IN PROGRESS. Validate velocities once after particle interactions
+
+**Baseline:** `58bad1f` (`test: measure particle pair hot path`). P2-1 was rejected, so this experiment starts from the unchanged particle engine. Valid finite-input behavior must remain equivalent; invalid object and SoA velocities must be finite by frame end, including an interactive pointer outside the SoA buffers.
 
 ---
 
