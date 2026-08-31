@@ -12,9 +12,9 @@ This file is the permanent optimization record. Every optimization must be isola
 |---:|---|---|---|---|
 | 1 | P0-1 — pair-loop allocations | **COMPLETE** | Full two-profile A/B matrix below | Keep |
 | 2 | P0-2 — redundant GL resize | **COMPLETE** | Resize regression plus full two-profile A/B matrix below | Keep |
-| 3 | P0-3 — unconditional UI rebuild | **NEXT** | Not benchmarked | Rebuild-count regression and UI-event latency A/B |
-| 4 | P1-4 — duplicate neighbor scan | **QUEUED** | Not benchmarked | Deterministic pair-set equivalence test, then full A/B matrix |
-| 5 | P1-5 — permanent UI-sync rAF | **BACKLOG** | Read-code finding only | Hidden-pane/refresh instrumentation after P1-4 |
+| 3 | P0-3 — unconditional UI rebuild | **REJECTED** | 2026-08-31 live rebuild-count validation below | Audit premise was stale; no production change |
+| 4 | P1-4 — duplicate neighbor scan | **QUEUED** | Rationale corrected after index-guard review | Deterministic pair-set equivalence test, then full A/B matrix |
+| 5 | P1-5 — permanent UI-sync rAF | **IN PROGRESS** | Baseline commit `46da522`; live rate approximately 288 hidden refreshes/s | Hidden-pane/refresh instrumentation and quick FPS gate |
 
 Progress protocol:
 
@@ -161,6 +161,12 @@ Progress protocol:
 
 **Confidence:** high (code path unambiguous).
 
+### Runtime validation — 2026-08-31
+
+**Evidence:** live instrumentation against baseline commit `46da522` found that the shipped density is the string `"5000"`, not a number. The numeric guard in `applyParamsToNetwork` therefore rejects density during ordinary full-`PARAMS` UI applies. Ordinary control changes caused zero `_rebuildOnResize()` calls, while Reset caused exactly one call from its explicit reset path.
+
+**Conclusion:** reject P0-3 without a production change. Its audit premise was stale, and adding a density comparison or removing the reset rebuild would not eliminate a repeated rebuild in the shipped UI path. Preserve the one reset rebuild because Reset intentionally restores a pristine particle state.
+
 ---
 
 # P1 — High value
@@ -169,7 +175,7 @@ Progress protocol:
 
 **Locations:** `js/ParticleNetwork.js:1029-1050` — 3×3 neighbor loop visits all 8 offsets; dedup guard `particleA.index < particleB.index` at `:1045` runs *after* visiting; same-cell pairs handled at `:1024-1027`.
 
-**Why expensive:** ~half of all pair visits are redundant — the pair (A,B) is visited from A's cell and again from B's cell, with `dx²+dy²` computed both times before the guard skips the second. Pair-distance math dominates frame cost at high counts; at 15000 particles that's hundreds of thousands of wasted distance computations per frame.
+**Why expensive:** ~half of the neighboring-cell traversal and pair-index comparisons are redundant: the pair (A,B) is reached from A's cell and again from B's cell, but the existing `particleA.index < particleB.index` guard skips the second visit before interaction and distance calculations run. A half-neighborhood scan would remove the duplicate traversal and comparisons, not duplicate distance math, so the expected gain is smaller than originally documented.
 
 **Fix:** replace the 8-offset loop with the 4 half-neighborhood offsets `(0,1), (1,-1), (1,0), (1,1)` — same-cell already covered. Existing index guard keeps it correct and deduped. Identical math, zero visual change.
 
@@ -179,6 +185,8 @@ Progress protocol:
 
 ## P1-5. Second permanent rAF loop doing DOM writes every frame
 
+**Status:** IN PROGRESS. Baseline commit: `46da522`.
+
 **Locations:** `index.html:479-515` — `syncRuntimeToControls`; self-reschedules in the early-return branch (`:480`, even when `!pn` — would spin forever) and in `finally` (`:512`); starts unconditionally at `:515` in DOMContentLoaded.
 
 **Why expensive:** runs forever alongside the sim loop, even when the animation is stopped (velocity 0 halts the sim loop at `ParticleNetwork.js:1120-1124`; this loop does not halt). With shipped defaults (`lineColorCycling: true`, `gradientEffect: true`), every frame:
@@ -186,7 +194,7 @@ Progress protocol:
 - calls `bindGradient1.refresh()` / `bindGradient2.refresh()` (`:489-500`) — tweakpane re-renders the color views → DOM style writes at 60Hz on a pane that is `display:none` by default
 - with `randomizeDistanceColors` on, also refreshes start/end color bindings every frame
 
-Latent feedback-loop risk: if a refresh emits `change`, it re-triggers `applyParamsToNetwork` → P0-3 rebuild, every frame.
+Latent feedback-loop risk: if a refresh emits `change`, it re-triggers the full `applyParamsToNetwork` path every frame. The 2026-08-31 P0-3 validation confirmed that this does not rebuild particles with the shipped string density, but the repeated apply work would still be wasteful.
 
 **Fix:** only refresh when the computed hex actually changed (string compare against last synced value); throttle to ~10Hz; skip entirely while pane is hidden; or drive the sync event-based from the change handlers. Store the rAF id so it can be cancelled.
 
@@ -306,8 +314,8 @@ Latent feedback-loop risk: if a refresh emits `change`, it re-triggers `applyPar
 
 # Execution order
 
-1. **P0-1, P0-2, P0-3** — hot pair loop, resize guard, rebuild guard. Core win, small patches, low risk.
-2. **P1-4, P1-5** — half-neighborhood scan, kill second rAF loop.
+1. **P0-1, P0-2** — hot pair loop and resize guard. Core wins, small patches, low risk. P0-3 was rejected after live validation disproved its premise.
+2. **P1-5, then P1-4** — pause hidden UI synchronization first; defer the smaller half-neighborhood traversal win.
 3. **P1-6 → P1-9** — startup batch: fonts, defer, dead loads, tweakpane lazy-load.
 4. **P1-10 + P2 cleanup** — per-frame color cache, NaN guards, dead thresholds, reset path, color lock loop.
 5. **Optional:** dt-scaling, destroy(), growth caps, SoA second wave.
