@@ -391,6 +391,28 @@ The frame loop already computes squared interaction, line-connection, and maximu
 
 **Conclusion:** reject P2-2 and remove its production change. Static at 15,000 particles regressed by 8.1%, with two of three paired trials lower, which meets the rejection rule. The structural improvement and stronger non-finite recovery are real, but they do not justify a confirmed high-count FPS regression.
 
+## Cumulative optimized-engine benchmark — 2026-08-31
+
+**Comparison:** the baseline was detached commit `6bb19b8` with only the documented P0-1 application-code hunks reversed, recreating the pre-P0-1 particle engine while retaining its compatible profiling controls. The optimized variant was `a846ec5`, whose runtime application code matches accepted optimization commit `ae34186`; both P2 experiments above were removed. This comparison therefore includes the accepted P0-1 pair-loop cleanup, P0-2 WebGL resize guard, P1-5 hidden-pane synchronization pause, and P1-10 frame particle-color cache without mixing in unrelated pre-`6bb19b8` UI changes.
+
+**Method:** Edge 152.0.4191.53 ran headlessly at 1280×720 and DPR 1 using ANGLE D3D11 on an NVIDIA GeForce RTX 5080. The reportable matrix used three alternating trials per variant at 5,000, 10,000, and 15,000 particles under static, cycling/gradient, and particle-cycling profiles. Values are medians.
+
+| Profile | Particles | Original avg | Optimized avg | Total gain |
+|---|---:|---:|---:|---:|
+| Static | 5,000 | 17.11 | 26.29 | +53.7% |
+| Static | 10,000 | 4.26 | 6.93 | +62.6% |
+| Static | 15,000 | 1.83 | 3.04 | +66.7% |
+| Cycling/gradient | 5,000 | 15.99 | 26.55 | +66.0% |
+| Cycling/gradient | 10,000 | 4.00 | 6.74 | +68.2% |
+| Cycling/gradient | 15,000 | 1.56 | 2.94 | +89.3% |
+| Particle cycling | 5,000 | 16.82 | 27.03 | +60.7% |
+| Particle cycling | 10,000 | 4.10 | 6.96 | +70.0% |
+| Particle cycling | 15,000 | 1.81 | 2.92 | +61.4% |
+
+**Duration and smoke:** the cumulative quick diagnostic completed 18 measurements in 0:43; the reportable matrix completed 54 measurements in 3:20, followed by the restoration smoke. All 72 measurements reached the requested particle count with rAF active, WebGL available, and no context loss or browser errors. At the shipped 185-particle state, the page remained refresh-rate capped; the settings pane opened with the `C` hotkey, displayed current runtime values, and a 1280×720 visual inspection showed intact particles, gradient lines, controls, and canvas coverage.
+
+**Overall conclusion:** the accepted optimization series improves median high-count average FPS by 53.7% to 89.3% across every tested workload. The ordinary shipped scene is already display-refresh capped, so its benefit is lower CPU/background overhead and more headroom rather than a visible FPS-number increase. P1-4 remains the next candidate, but it is expected to be smaller because it removes duplicate traversal and index comparisons rather than distance calculations.
+
 ---
 
 # P2 — Smaller / conditional
