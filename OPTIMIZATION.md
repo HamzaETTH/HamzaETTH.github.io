@@ -16,6 +16,8 @@ This file is the permanent optimization record. Every optimization must be isola
 | 4 | P1-4 — duplicate neighbor scan | **NEXT** | Rationale corrected after index-guard review | Deterministic pair-set equivalence test, then full A/B matrix |
 | 5 | P1-5 — permanent UI-sync rAF | **COMPLETE** | Five-trial UI instrumentation and quick FPS gate below | Keep |
 | 6 | P1-10 — per-particle color work | **COMPLETE** | Deterministic color-path test plus focused three-trial A/B matrix below | Keep |
+| 7 | P2-1 — repeated pair thresholds | **IN PROGRESS** | Baseline `ae34186`; deterministic pair-path instrumentation added | Isolated A/B behavior and FPS gates |
+| 8 | P2-2 — per-pair velocity validation | **PENDING** | Will baseline from the accepted P2-1 commit | Isolated A/B behavior and FPS gates |
 
 Progress protocol:
 
@@ -339,6 +341,18 @@ No uncapped average-FPS row regressed by more than 5%, so the focused confirmati
 
 **Conclusion:** keep P1-10. The quick static 5,000-particle regression exceeded 5%, but its required focused three-trial median was only 3.8% lower, so it did not confirm the rejection condition. All deterministic work-removal and renderer behavior checks passed, four high-count average-FPS medians improved, and neither of the two lower medians exceeded the 5% regression gate.
 
+## P2-1 — IN PROGRESS. Cache repeated particle-pair thresholds
+
+**Baseline:** `ae34186` (`perf: cache particle frame colors`), recorded 2026-08-31.
+
+The frame loop already computes squared interaction, line-connection, and maximum-color distances, but `interactParticles()` ignores them and repeats the option reads and multiplications for every candidate pair. The experiment will reuse one private threshold object per network, update its six numeric fields once per frame, and pass it through the existing pair path without changing traversal, pair selection, comparison operators, force formulas, or rendering branches.
+
+**Deterministic gate:** `scripts/test-pair-hot-path.js` runs alternating baseline/optimized fixtures for no force, repulsion, attraction, and invalid force. It compares object positions and velocities plus every WebGL `addLine()` value, while a Proxy counts the three threshold option reads and a wrapped global `isNaN` counts velocity checks. The threshold build must reduce each tracked option to one read per frame and preserve finite-scenario output within floating-point tolerance.
+
+## P2-2 — PENDING. Validate velocities once after particle interactions
+
+P2-2 will start only after P2-1 is independently benchmarked and accepted. Its baseline will be the accepted P2-1 commit so the gain from removing pair-scaled `isNaN` checks remains attributable. Valid finite-input behavior must remain equivalent; invalid object and SoA velocities must be finite by frame end, including an interactive pointer outside the SoA buffers.
+
 ---
 
 # P2 — Smaller / conditional
@@ -389,7 +403,7 @@ No uncapped average-FPS row regressed by more than 5%, so the focused confirmati
 2. **P1-5, then P1-4** — pause hidden UI synchronization first; defer the smaller half-neighborhood traversal win.
 3. **P1-6 → P1-9** — startup batch: fonts, defer, dead loads, tweakpane lazy-load.
 4. **P1-10 COMPLETE** — per-frame particle color cache plus the adjacent static color-lock loop.
-5. **P2 hot-loop cleanup** — NaN guards and dead thresholds, measured separately from P1-10.
+5. **P2-1, then P2-2** — dead pair thresholds and per-pair velocity validation, each measured against its immediately preceding checkpoint.
 6. **Optional:** dt-scaling, destroy(), growth caps, SoA second wave.
 
 Validate each step with Benchmark.js (B) and FPS overlay (P) A/B, plus DevTools Performance/Allocation traces.
