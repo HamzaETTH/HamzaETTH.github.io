@@ -17,7 +17,7 @@ This file is the permanent optimization record. Every optimization must be isola
 | 5 | P1-5 — permanent UI-sync rAF | **COMPLETE** | Five-trial UI instrumentation and quick FPS gate below | Keep |
 | 6 | P1-10 — per-particle color work | **COMPLETE** | Deterministic color-path test plus focused three-trial A/B matrix below | Keep |
 | 7 | P2-1 — repeated pair thresholds | **REJECTED** | Deterministic win, but focused FPS gate confirmed a regression | Production change removed |
-| 8 | P2-2 — per-pair velocity validation | **IN PROGRESS** | Baseline `58bad1f`; P2-1 production code excluded | Isolated A/B behavior and FPS gates |
+| 8 | P2-2 — per-pair velocity validation | **REJECTED** | Deterministic win, but focused FPS gate confirmed a regression | Production change removed |
 
 Progress protocol:
 
@@ -368,9 +368,28 @@ The frame loop already computes squared interaction, line-connection, and maximu
 
 **Conclusion:** reject P2-1 and remove its production change. Although the structural work removal was exact and the median change across the six rows was non-negative, cycling/gradient at 10,000 particles regressed by 5.8%, with two of three paired trials lower. That meets the predeclared rejection rule, so threshold caching is not included in the final build.
 
-## P2-2 — IN PROGRESS. Validate velocities once after particle interactions
+## P2-2 — REJECTED. Validate velocities once after particle interactions
 
 **Baseline:** `58bad1f` (`test: measure particle pair hot path`). P2-1 was rejected, so this experiment starts from the unchanged particle engine. Valid finite-input behavior must remain equivalent; invalid object and SoA velocities must be finite by frame end, including an interactive pointer outside the SoA buffers.
+
+### Benchmark results — 2026-08-31
+
+**Method:** the same isolated baseline, Edge environment, viewport, profiles, particle counts, and alternating three-trial procedure as P2-1 were used. The candidate differed only in `js/ParticleNetwork.js`: four pair-tail `isNaN` calls were removed and one linear post-interaction validation pass covered every particle object while copying regular-particle velocities to SoA.
+
+**Deterministic result:** across the three finite scenarios, global `isNaN` calls fell from 132 to 48, leaving only the existing two checks per regular particle in `_updateSoA`. Positions, velocities, and every WebGL line value matched in three alternating trials. An injected NaN force was repaired in both object and SoA storage, and the optimized pass additionally repaired an invalid interactive pointer excluded from SoA. WebGL and browser-error checks passed.
+
+| Profile | Particles | Baseline avg | Optimized avg | Avg change |
+|---|---:|---:|---:|---:|
+| Static | 5,000 | 26.06 | 28.62 | +9.8% |
+| Static | 10,000 | 7.04 | 6.82 | -3.2% |
+| Static | 15,000 | 3.05 | 2.80 | -8.1% |
+| Cycling/gradient | 5,000 | 27.81 | 27.12 | -2.5% |
+| Cycling/gradient | 10,000 | 6.97 | 7.13 | +2.2% |
+| Cycling/gradient | 15,000 | 2.89 | 3.06 | +5.7% |
+
+**Duration and smoke:** quick diagnostic 0:27 plus smoke; focused matrix 2:08 plus smoke. Every measurement reached its requested count with rAF and WebGL active. Settings restored to 185 particles, the context remained healthy, and no console or page errors occurred.
+
+**Conclusion:** reject P2-2 and remove its production change. Static at 15,000 particles regressed by 8.1%, with two of three paired trials lower, which meets the rejection rule. The structural improvement and stronger non-finite recovery are real, but they do not justify a confirmed high-count FPS regression.
 
 ---
 
