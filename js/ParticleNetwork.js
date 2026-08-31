@@ -37,14 +37,18 @@
   var glLineColor2Scratch = new Float32Array(4);
   var glSegmentColor1Scratch = new Float32Array(4);
   var glSegmentColor2Scratch = new Float32Array(4);
-  var glPointColorScratch = new Float32Array(4);
-
   function hexToRgb01(hex, target, alphaFactor) {
     if (!hex || typeof hex !== 'string') {
       console.warn('hexToRgb01: invalid hex value:', hex, 'using default #00bfff');
       hex = '#00bfff';
     }
-    var bigint = parseInt(hex.slice(1), 16);
+    var normalized = hex.slice(1);
+    if (normalized.length === 3) {
+      normalized = normalized[0] + normalized[0] +
+        normalized[1] + normalized[1] +
+        normalized[2] + normalized[2];
+    }
+    var bigint = parseInt(normalized, 16);
     target[0] = ((bigint >> 16) & 255) / 255;
     target[1] = ((bigint >> 8) & 255) / 255;
     target[2] = (bigint & 255) / 255;
@@ -90,6 +94,23 @@
       hexToRgb01(options.gradientColor2, lineColor2, 1);
     }
     hexToRgb01(options.proximityEffectColor || '#ff0000', proximityColor, 1);
+  }
+
+  function prepareFrameParticleColor(network, dt) {
+    var options = network.options;
+    var particleColor = network._frameParticleColor ||
+      (network._frameParticleColor = new Float32Array(4));
+
+    if (options.particleColorCycling) {
+      var hueDelta = (options.particleCyclingSpeed * 0.0003) * (dt * 60);
+      options.particleHue = (options.particleHue || 0) + hueDelta;
+      if (options.particleHue >= 360) options.particleHue -= 360;
+      network._frameParticleCssColor = `hsl(${options.particleHue}, 100%, 50%)`;
+      hslToRgb01(options.particleHue, particleColor, options.opacity);
+    } else {
+      network._frameParticleCssColor = options.particleColor;
+      hexToRgb01(options.particleColor, particleColor, options.opacity);
+    }
   }
 
   // We'll use the ColorUtils functions if available, otherwise use these
@@ -216,9 +237,9 @@
     }
   };
 
-  c.prototype.h = function () {
+  c.prototype.h = function (frameColor) {
     this.g.beginPath();
-    this.g.fillStyle = this.particleColor;
+    this.g.fillStyle = frameColor || this.particleColor;
     this.g.globalAlpha = this.options.opacity;
     this.g.arc(this.x, this.y, this.size, 0, 2 * Math.PI);
     this.g.fill();
@@ -829,14 +850,6 @@
       var dt = Math.min(Math.max((now - (this._lastUpdateTime || now)) / 1000, 0), 0.1);
       this._lastUpdateTime = now;
       this._dt = dt;
-      // Hard lock particle colors when cycling is OFF
-      if (!options.particleColorCycling && this.o && this.o.length) {
-        var fixedCol = options.particleColor;
-        for (var fi = 0; fi < this.o.length; fi++) {
-          var fp = this.o[fi];
-          if (fp) fp.particleColor = fixedCol;
-        }
-      }
       // Update motion using SoA for performance, then sync back to objects for rendering/grid
       if (this.numParticles > 0) {
         this._updateSoA();
@@ -845,6 +858,7 @@
       var particles = this.o;
       var numParticles = particles.length;
       var g = this.g;
+      var i;
 
       // Clear or fade the canvas for trails
       if (this.options.trails) {
@@ -885,19 +899,7 @@
         this.glRenderer.beginFrame();
       }
 
-      // Update particle colors (physics handled by SoA, but colors need per-particle update)
-      if (options.particleColorCycling) {
-        // Update shared hue once per frame
-        var hueDeltaG = (options.particleCyclingSpeed * 0.0003) * (dt * 60);
-        options.particleHue = (options.particleHue || 0) + hueDeltaG;
-        if (options.particleHue >= 360) options.particleHue -= 360;
-        var cyclingColor = `hsl(${options.particleHue}, 100%, 50%)`;
-        // Apply cycling color to all particles
-        for (var i = 0; i < numParticles; i++) {
-          if (particles[i]) particles[i].particleColor = cyclingColor;
-        }
-      }
-      // Static colors already handled above (lines 778-784) when cycling is OFF
+      prepareFrameParticleColor(this, dt);
 
       // Build the grid
       var gridCellSize = this.gridCellSize;
@@ -1042,48 +1044,14 @@
             // Draw particle
             // When trails are enabled, render particles on 2D canvas to accumulate trails
             if (!this.options.trails && this.glRenderer && this.glRenderer.addPoint) {
-            // Derive particle color with support for hex, hsl(), and rgb() strings
-            var rgbaArray01;
-            // Hard override when particle color cycling is OFF
-            var pc = (!this.options.particleColorCycling)
-              ? this.options.particleColor
-              : particleA.particleColor;
-              if (typeof pc === 'string' && pc[0] === '#') {
-                if (window.ColorUtils && window.ColorUtils.hexToRgb) {
-                  var rr = window.ColorUtils.hexToRgb(pc);
-                  if (rr) rgbaArray01 = [rr.r/255, rr.g/255, rr.b/255, this.options.opacity];
-                }
-                if (!rgbaArray01) {
-                  var val = parseInt((pc || '#ffffff').slice(1), 16);
-                  rgbaArray01 = [((val>>16)&255)/255, ((val>>8)&255)/255, (val&255)/255, this.options.opacity];
-                }
-              } else if (typeof pc === 'string' && /^hsl\(/i.test(pc)) {
-                // Extract hue and convert to RGB
-                var mh = /hsl\(([-\d\.]+)\s*,\s*([\d\.]+)%\s*,\s*([\d\.]+)%\s*\)/i.exec(pc);
-                var hueDeg = mh ? parseFloat(mh[1]) : 0;
-                var sat = mh ? parseFloat(mh[2]) : 100;
-                var lig = mh ? parseFloat(mh[3]) : 50;
-                if (window.ColorUtils && window.ColorUtils.hslToRgb) {
-                  var rgbObj = window.ColorUtils.hslToRgb(hueDeg, sat, lig);
-                  rgbaArray01 = [rgbObj.r/255, rgbObj.g/255, rgbObj.b/255, this.options.opacity];
-                } else {
-                  // Fallback simple HSL to RGB approximation using existing helper
-                  var csol = hslToRgb01(hueDeg, glPointColorScratch, this.options.opacity);
-                  rgbaArray01 = csol;
-                }
-              } else if (typeof pc === 'string' && /^rgb\(/i.test(pc)) {
-                var mr = /rgb\(\s*(\d+)\s*,\s*(\d+)\s*,\s*(\d+)\s*\)/i.exec(pc);
-                if (mr) {
-                  rgbaArray01 = [parseInt(mr[1],10)/255, parseInt(mr[2],10)/255, parseInt(mr[3],10)/255, this.options.opacity];
-                }
-              }
-              if (!rgbaArray01) {
-                // Fallback to static white
-                rgbaArray01 = [1,1,1,this.options.opacity];
-              }
-              this.glRenderer.addPoint(particleA.x, particleA.y, rgbaArray01, particleA.size || this.options.particleSize);
+              this.glRenderer.addPoint(
+                particleA.x,
+                particleA.y,
+                this._frameParticleColor,
+                particleA.size || options.particleSize
+              );
             } else {
-              particleA.h(); // 2D fallback draw
+              particleA.h(this._frameParticleCssColor); // 2D fallback draw
             }
 
             // Interactions within the same cell

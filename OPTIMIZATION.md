@@ -15,7 +15,7 @@ This file is the permanent optimization record. Every optimization must be isola
 | 3 | P0-3 — unconditional UI rebuild | **REJECTED** | 2026-08-31 live rebuild-count validation below | Audit premise was stale; no production change |
 | 4 | P1-4 — duplicate neighbor scan | **NEXT** | Rationale corrected after index-guard review | Deterministic pair-set equivalence test, then full A/B matrix |
 | 5 | P1-5 — permanent UI-sync rAF | **COMPLETE** | Five-trial UI instrumentation and quick FPS gate below | Keep |
-| 6 | P1-10 — per-particle color work | **IN PROGRESS** | Baseline `e18889b`; includes the adjacent static color-lock loop | Deterministic color-path test, then focused A/B matrix |
+| 6 | P1-10 — per-particle color work | **COMPLETE** | Deterministic color-path test plus focused three-trial A/B matrix below | Keep |
 
 Progress protocol:
 
@@ -293,7 +293,7 @@ No uncapped average-FPS row regressed by more than 5%, so the focused confirmati
 
 **Confidence:** high for all rows.
 
-## P1-10 — IN PROGRESS. Per-particle color string parsing every frame
+## P1-10 — COMPLETE. Per-particle color string parsing every frame
 
 **Baseline:** `e18889b` (`perf: pause hidden UI synchronization`), recorded 2026-08-31. This experiment also includes the adjacent P2 per-frame static color-lock loop because both loops feed the same rendered particle color and can be removed by one frame-level cache.
 
@@ -306,6 +306,38 @@ No uncapped average-FPS row regressed by more than 5%, so the focused confirmati
 **Validation:** CPU profile delta; fold into the P0-1 hot-loop cleanup A/B.
 
 **Confidence:** high.
+
+### Benchmark results — 2026-08-31
+
+**Environment:** Windows 10 Pro 22H2, AMD Ryzen 7 5800X3D, 32 GB RAM, NVIDIA GeForce RTX 5080, Microsoft Edge 152.0.4191.53, and ANGLE D3D11 WebGL. Playwright launched Edge headlessly at 1280×720 and DPR 1. The baseline was instrumentation checkpoint `8442cfd`; the optimized application differed only in `js/ParticleNetwork.js`.
+
+**Deterministic behavior:** a 32-particle WebGL/Canvas fixture sampled static `#123456`, short `#888`, and cycling hue 120. Baseline made 160 `particleColor` writes in five settled static frames and another 160 in five cycling frames, passed 32 distinct RGBA arrays per WebGL frame, supplied no shared frame color to the trails path, and decoded `#888` incorrectly. Optimized made zero particle-property writes, passed one reusable RGBA buffer per frame, decoded `#888` as equal RGB channels, and supplied `#123456` / `hsl(120, 100%, 50%)` to every Canvas 2D particle. Both static and cycling rendered RGBA values matched within floating-point tolerance; restoration, rAF, and WebGL checks passed with no console or page errors.
+
+**Quick diagnostic (one trial; not a reportable performance claim):**
+
+| Profile | Particles | Baseline avg | Optimized avg | Change |
+|---|---:|---:|---:|---:|
+| Static | 1,500 | 144.08 | 144.09 | +0.0% |
+| Static | 5,000 | 26.10 | 24.58 | -5.8% |
+| Static | 15,000 | 2.80 | 2.81 | +0.4% |
+| Particle cycling | 1,500 | 144.05 | 142.00 | -1.4% |
+| Particle cycling | 5,000 | 22.30 | 24.02 | +7.7% |
+| Particle cycling | 15,000 | 2.78 | 2.65 | -4.5% |
+
+**Focused high-count matrix:** three alternating trials per variant at each count. Values are medians; "minimum" is minimum instantaneous FPS, not a 1% low.
+
+| Profile | Particles | Baseline avg | Baseline minimum | Optimized avg | Optimized minimum | Avg change | Minimum change |
+|---|---:|---:|---:|---:|---:|---:|---:|
+| Static | 5,000 | 25.20 | 15.58 | 24.24 | 17.89 | -3.8% | +14.8% |
+| Static | 10,000 | 5.32 | 3.89 | 5.76 | 5.77 | +8.3% | +48.5% |
+| Static | 15,000 | 1.97 | 1.97 | 2.57 | 2.54 | +30.4% | +29.0% |
+| Particle cycling | 5,000 | 21.48 | 17.79 | 21.49 | 17.61 | +0.1% | -1.1% |
+| Particle cycling | 10,000 | 5.34 | 4.96 | 5.30 | 5.20 | -0.7% | +4.8% |
+| Particle cycling | 15,000 | 2.52 | 2.46 | 2.67 | 2.72 | +5.7% | +10.6% |
+
+**Duration:** quick diagnostic 0:28; focused matrix 2:10.
+
+**Conclusion:** keep P1-10. The quick static 5,000-particle regression exceeded 5%, but its required focused three-trial median was only 3.8% lower, so it did not confirm the rejection condition. All deterministic work-removal and renderer behavior checks passed, four high-count average-FPS medians improved, and neither of the two lower medians exceeded the 5% regression gate.
 
 ---
 
@@ -356,7 +388,7 @@ No uncapped average-FPS row regressed by more than 5%, so the focused confirmati
 1. **P0-1, P0-2** — hot pair loop and resize guard. Core wins, small patches, low risk. P0-3 was rejected after live validation disproved its premise.
 2. **P1-5, then P1-4** — pause hidden UI synchronization first; defer the smaller half-neighborhood traversal win.
 3. **P1-6 → P1-9** — startup batch: fonts, defer, dead loads, tweakpane lazy-load.
-4. **P1-10 IN PROGRESS** — per-frame particle color cache plus the adjacent static color-lock loop.
+4. **P1-10 COMPLETE** — per-frame particle color cache plus the adjacent static color-lock loop.
 5. **P2 hot-loop cleanup** — NaN guards and dead thresholds, measured separately from P1-10.
 6. **Optional:** dt-scaling, destroy(), growth caps, SoA second wave.
 
