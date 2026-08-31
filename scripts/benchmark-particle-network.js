@@ -64,6 +64,12 @@ function median(values) {
   return sorted[Math.floor(sorted.length / 2)];
 }
 
+function formatDuration(ms) {
+  const seconds = Math.max(0, Math.round(ms / 1000));
+  const minutes = Math.floor(seconds / 60);
+  return `${minutes}:${String(seconds % 60).padStart(2, '0')}`;
+}
+
 async function launchEdge(headless, browserErrors) {
   const args = [
     '--no-first-run',
@@ -210,6 +216,8 @@ async function main() {
   console.log(`${mode}: ${measurementCount} measurements.`);
 
   const records = [];
+  let completedMeasurements = 0;
+  const benchmarkStartedAt = performance.now();
   const browserErrors = [];
   let currentRun = 'startup';
   const { browser, launchMode } = await launchEdge(options.headless, browserErrors);
@@ -248,6 +256,15 @@ async function main() {
               const record = await runOne(page, url, variant, profileName, trial, step);
               records.push(record);
               console.log('RUN', JSON.stringify(record));
+              completedMeasurements++;
+              const elapsed = performance.now() - benchmarkStartedAt;
+              const eta = completedMeasurements > 0
+                ? (elapsed / completedMeasurements) * (measurementCount - completedMeasurements)
+                : 0;
+              console.log(
+                `PROGRESS ${completedMeasurements}/${measurementCount}` +
+                ` elapsed=${formatDuration(elapsed)} eta=${formatDuration(eta)}`
+              );
             }
           }
         }

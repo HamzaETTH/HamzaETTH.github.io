@@ -4,6 +4,26 @@ Generated 2026-08-30. Four parallel review lanes (UI/main-thread, memory lifecyc
 
 Estimated combined win: **1.3–2x at default particle count, 2–5x at 1.5k–15k particles**, plus ~30 KB off the load path and render-blocking cleanup.
 
+## Optimization progress ledger
+
+This file is the permanent optimization record. Every optimization must be isolated, benchmarked against the exact tree that preceded it, and updated here before moving to the next item. Results are append-only: regressions and rejected experiments stay documented.
+
+| Order | Item | Status | Evidence | Next gate |
+|---:|---|---|---|---|
+| 1 | P0-1 — pair-loop allocations | **COMPLETE** | Full two-profile A/B matrix below | Keep |
+| 2 | P0-2 — redundant GL resize | **IN PROGRESS** | Baseline commit `6bb19b8`; benchmark pending | Isolated resize regression test, quick gate, then full A/B matrix |
+| 3 | P0-3 — unconditional UI rebuild | **QUEUED** | Not benchmarked | Rebuild-count regression and UI-event latency A/B |
+| 4 | P1-4 — duplicate neighbor scan | **QUEUED** | Not benchmarked | Deterministic pair-set equivalence test, then full A/B matrix |
+| 5 | P1-5 — permanent UI-sync rAF | **BACKLOG** | Read-code finding only | Hidden-pane/refresh instrumentation after P1-4 |
+
+Progress protocol:
+
+1. Mark one item **IN PROGRESS** and record the baseline commit before editing code.
+2. Run the smallest relevant correctness test and the automated `--quick` benchmark gate.
+3. Use the full 60-measurement matrix only for steady-state render/physics changes; use an interaction-latency benchmark for event-driven UI changes.
+4. Append dated environment, method, median average FPS, minimum instantaneous FPS, regressions, smoke results, and the keep/revert decision to that item's section.
+5. Mark the item **COMPLETE**, **INCOMPLETE**, or **REJECTED** before starting another optimization. Never claim completion from code inspection alone.
+
 ---
 
 # P0 — Do first (big wins, low risk)
