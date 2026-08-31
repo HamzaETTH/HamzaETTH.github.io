@@ -15,6 +15,7 @@ This file is the permanent optimization record. Every optimization must be isola
 | 3 | P0-3 — unconditional UI rebuild | **REJECTED** | 2026-08-31 live rebuild-count validation below | Audit premise was stale; no production change |
 | 4 | P1-4 — duplicate neighbor scan | **NEXT** | Rationale corrected after index-guard review | Deterministic pair-set equivalence test, then full A/B matrix |
 | 5 | P1-5 — permanent UI-sync rAF | **COMPLETE** | Five-trial UI instrumentation and quick FPS gate below | Keep |
+| 6 | P1-10 — per-particle color work | **IN PROGRESS** | Baseline `e18889b`; includes the adjacent static color-lock loop | Deterministic color-path test, then focused A/B matrix |
 
 Progress protocol:
 
@@ -292,7 +293,9 @@ No uncapped average-FPS row regressed by more than 5%, so the focused confirmati
 
 **Confidence:** high for all rows.
 
-## P1-10. Per-particle color string parsing every frame
+## P1-10 — IN PROGRESS. Per-particle color string parsing every frame
+
+**Baseline:** `e18889b` (`perf: pause hidden UI synchronization`), recorded 2026-08-31. This experiment also includes the adjacent P2 per-frame static color-lock loop because both loops feed the same rendered particle color and can be removed by one frame-level cache.
 
 **Locations:** `js/ParticleNetwork.js:828-835` — when cycling is on, writes the *identical* `hsl(...)` string to all N particles; `:977-1018` — parses each particle's `particleColor` string to RGBA (including an `hsl(...)` regex match) every frame.
 
@@ -353,7 +356,8 @@ No uncapped average-FPS row regressed by more than 5%, so the focused confirmati
 1. **P0-1, P0-2** — hot pair loop and resize guard. Core wins, small patches, low risk. P0-3 was rejected after live validation disproved its premise.
 2. **P1-5, then P1-4** — pause hidden UI synchronization first; defer the smaller half-neighborhood traversal win.
 3. **P1-6 → P1-9** — startup batch: fonts, defer, dead loads, tweakpane lazy-load.
-4. **P1-10 + P2 cleanup** — per-frame color cache, NaN guards, dead thresholds, reset path, color lock loop.
-5. **Optional:** dt-scaling, destroy(), growth caps, SoA second wave.
+4. **P1-10 IN PROGRESS** — per-frame particle color cache plus the adjacent static color-lock loop.
+5. **P2 hot-loop cleanup** — NaN guards and dead thresholds, measured separately from P1-10.
+6. **Optional:** dt-scaling, destroy(), growth caps, SoA second wave.
 
 Validate each step with Benchmark.js (B) and FPS overlay (P) A/B, plus DevTools Performance/Allocation traces.
