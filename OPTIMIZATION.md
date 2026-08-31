@@ -11,8 +11,8 @@ This file is the permanent optimization record. Every optimization must be isola
 | Order | Item | Status | Evidence | Next gate |
 |---:|---|---|---|---|
 | 1 | P0-1 — pair-loop allocations | **COMPLETE** | Full two-profile A/B matrix below | Keep |
-| 2 | P0-2 — redundant GL resize | **IN PROGRESS** | Baseline commit `6bb19b8`; benchmark pending | Isolated resize regression test, quick gate, then full A/B matrix |
-| 3 | P0-3 — unconditional UI rebuild | **QUEUED** | Not benchmarked | Rebuild-count regression and UI-event latency A/B |
+| 2 | P0-2 — redundant GL resize | **COMPLETE** | Resize regression plus full two-profile A/B matrix below | Keep |
+| 3 | P0-3 — unconditional UI rebuild | **NEXT** | Not benchmarked | Rebuild-count regression and UI-event latency A/B |
 | 4 | P1-4 — duplicate neighbor scan | **QUEUED** | Not benchmarked | Deterministic pair-set equivalence test, then full A/B matrix |
 | 5 | P1-5 — permanent UI-sync rAF | **BACKLOG** | Read-code finding only | Hidden-pane/refresh instrumentation after P1-4 |
 
@@ -88,10 +88,10 @@ Progress protocol:
 
 **Conclusion:** P0-1 is complete. At the refresh-rate cap it is neutral; from 3,000 through 15,000 particles it consistently improves median average FPS and minimum instantaneous FPS in both profiles, with no repeatable regression or functional failure.
 
-## P0-2. Per-frame GL canvas resize (drawing buffer destroyed 60x/sec)
+## P0-2 — COMPLETE. Per-frame GL canvas resize (drawing buffer destroyed 60x/sec)
 
 **Locations:**
-- Call site: `js/ParticleNetwork.js:820-823` — `update()` calls `this.glRenderer.resize(this.i.size.width, this.i.size.height)` at the top of every frame, unconditionally
+- Call site: `js/ParticleNetwork.js:881-885` — `update()` called `this.glRenderer.resize(this.i.size.width, this.i.size.height)` at the top of every frame, unconditionally
 - Implementation: `js/ParticleRendererGL.js:131-140` — `resize()` assigns `this.canvas.width/height` with **no change-check**
 - Aggravation: `beginFrame()` clears again at `ParticleRendererGL.js:154` (double clear)
 
@@ -104,6 +104,40 @@ Progress protocol:
 **Validation:** FPS overlay (P) before/after; Performance trace — recurring GPU buffer-realloc tasks disappear.
 
 **Confidence:** high.
+
+### Benchmark results — 2026-08-31
+
+**Environment:** Windows 10 Pro 22H2, AMD Ryzen 7 5800X3D, 32 GB RAM, NVIDIA GeForce RTX 5080, Microsoft Edge 152.0.4191.53, and ANGLE D3D11 WebGL. Playwright launched Edge headlessly with a 1280×720 viewport and DPR 1. Both variants ran in the same browser context; the observed refresh cap was approximately 144 Hz.
+
+**Method:** the benchmark baseline was detached worktree `30eb954` (benchmark progress and the failing resize regression present, P0-2 production code absent). The optimized worktree copied in only the current `js/ParticleNetwork.js` and `js/ParticleRendererGL.js`; both worktrees otherwise came from the same commit, the baseline was clean, and the optimized status listed only those two files. The unrelated nested `webgl-black-hole` repository was excluded. The quick gate used one trial at 1,500/5,000/15,000 particles. The reportable run used both profiles, all five particle counts, a 500 ms warmup, 2/2/2/2/3-second measurement windows, and three alternating trials per variant/profile. Values below are medians; "minimum" means minimum instantaneous FPS, not a 1% low.
+
+**Static control** (`lineColorCycling=false`, `gradientEffect=false`):
+
+| Particles | Baseline avg | Baseline minimum | Optimized avg | Optimized minimum | Avg change | Minimum change |
+|---:|---:|---:|---:|---:|---:|---:|
+| 1,500 | 143.49 | 51.55 | 143.96 | 117.65 | +0.33% | +128.24% |
+| 3,000 | 70.53 | 57.47 | 70.99 | 54.95 | +0.65% | -4.40% |
+| 5,000 | 23.28 | 17.67 | 23.55 | 20.75 | +1.18% | +17.43% |
+| 10,000 | 5.33 | 5.09 | 6.05 | 5.16 | +13.61% | +1.39% |
+| 15,000 | 2.40 | 2.49 | 2.56 | 2.59 | +6.45% | +3.83% |
+
+**Cycling/gradient** (`lineColorCycling=true`, `gradientEffect=true`):
+
+| Particles | Baseline avg | Baseline minimum | Optimized avg | Optimized minimum | Avg change | Minimum change |
+|---:|---:|---:|---:|---:|---:|---:|
+| 1,500 | 143.53 | 55.25 | 144.11 | 101.01 | +0.40% | +82.83% |
+| 3,000 | 60.49 | 47.62 | 59.04 | 49.75 | -2.40% | +4.48% |
+| 5,000 | 18.98 | 15.08 | 20.10 | 15.58 | +5.93% | +3.27% |
+| 10,000 | 4.62 | 5.18 | 5.26 | 4.20 | +14.01% | -18.83% |
+| 15,000 | 1.94 | 1.94 | 1.74 | 1.74 | -10.20% | -10.20% |
+
+**Low-FPS confirmation:** the full matrix's 15,000-particle cycling/gradient result sampled only about 5–8 frames per trial and conflicted with the static improvement. A focused second three-trial alternating run at 15,000 particles did not reproduce the same magnitude: static average/minimum changed by +2.72%/+3.48%, while cycling/gradient changed by -1.79%/-1.79%. The direction and magnitude varied across trials, so no consistent regression was established. The refresh-capped 1,500-particle minimums were likewise dominated by isolated page-load hitches and are not treated as a claimed 2× improvement.
+
+**Verification:** the regression test recorded 30 stable-frame `resize()` calls on baseline and zero on optimized; a real 1200×700 container resize produced exactly one optimized call, correct CSS/backing dimensions, an active non-lost WebGL context, and no console/page errors. All quick, full, and focused-confirmation measurements reached the requested particle counts with rAF active, WebGL present, and no context loss. Smoke checks rendered cycling/gradient colors and restored the original count and settings with no unexpected mismatch or browser error; visual inspection of the restored 1280×720 screenshot confirmed full-canvas particles and gradient lines with no blank/reset frame or rendering artifact.
+
+**Duration:** the quick gate completed 12 measurements in 0:29; the full 60-measurement matrix completed in 3:16; the focused 12-measurement confirmation completed in 1:04. `scripts/benchmark-particle-network.js` now prints completed/total measurements, elapsed time, and ETA after every run, so future optimization benchmarks expose their progress without user interaction.
+
+**Conclusion:** keep P0-2 and mark it complete. The change removes all stable-frame canvas resize/reset calls while preserving initialization, actual container resize, and DPR-change handling. Median average FPS improved in 8 of 10 reportable rows; the two negative rows and low-FPS minimum variation did not reproduce consistently in focused confirmation, and no functional failure occurred.
 
 ## P0-3. Every UI change rebuilds the entire particle system
 

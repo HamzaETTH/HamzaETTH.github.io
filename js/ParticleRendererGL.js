@@ -129,14 +129,24 @@
   };
 
   ParticleRendererGL.prototype.resize = function(width, height) {
-    if (!this.gl) return;
-    this.dpr = window.devicePixelRatio || 1;
+    if (!this.gl) return false;
+    var dpr = window.devicePixelRatio || 1;
+    var backingWidth = Math.max(1, Math.floor(width * dpr));
+    var backingHeight = Math.max(1, Math.floor(height * dpr));
+    if (this._cssWidth === width && this._cssHeight === height &&
+        this.dpr === dpr && this.canvas.width === backingWidth &&
+        this.canvas.height === backingHeight) return false;
+
+    this._cssWidth = width;
+    this._cssHeight = height;
+    this.dpr = dpr;
     // Preserve CSS size via style; set drawing buffer to DPR size
     this.canvas.style.width = width + 'px';
     this.canvas.style.height = height + 'px';
-    this.canvas.width = Math.max(1, Math.floor(width * this.dpr));
-    this.canvas.height = Math.max(1, Math.floor(height * this.dpr));
-    this.gl.viewport(0, 0, this.canvas.width, this.canvas.height);
+    this.canvas.width = backingWidth;
+    this.canvas.height = backingHeight;
+    this.gl.viewport(0, 0, backingWidth, backingHeight);
+    return true;
   };
 
   ParticleRendererGL.prototype.beginFrame = function() {
@@ -253,5 +263,4 @@
     window.ParticleNetworkRendererGL = ParticleRendererGL;
   }
 })(window);
-
 

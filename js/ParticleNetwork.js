@@ -879,7 +879,9 @@
 
       // Begin GL frame if available
       if (this.glRenderer && this.glRenderer.beginFrame) {
-        this.glRenderer.resize(this.i.size.width, this.i.size.height);
+        if (this.glRenderer.dpr !== (window.devicePixelRatio || 1)) {
+          this.glRenderer.resize(this.i.size.width, this.i.size.height);
+        }
         this.glRenderer.beginFrame();
       }
 
