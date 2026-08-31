@@ -9,7 +9,6 @@
     ? (module.exports = a(b, {}))
     : (b.ParticleNetwork = a(b, {}));
 })(function (a, b) {
-  // Keep these for backward compatibility and internal use
   function hexToRgb(hex) {
     if (window.ColorUtils && window.ColorUtils.hexToRgbArray) {
       return window.ColorUtils.hexToRgbArray(hex);
@@ -34,12 +33,70 @@
     return "rgb(" + rgb[0] + "," + rgb[1] + "," + rgb[2] + ")";
   }
 
+  var glLineColor1Scratch = new Float32Array(4);
+  var glLineColor2Scratch = new Float32Array(4);
+  var glSegmentColor1Scratch = new Float32Array(4);
+  var glSegmentColor2Scratch = new Float32Array(4);
+  var glPointColorScratch = new Float32Array(4);
+
+  function hexToRgb01(hex, target, alphaFactor) {
+    if (!hex || typeof hex !== 'string') {
+      console.warn('hexToRgb01: invalid hex value:', hex, 'using default #00bfff');
+      hex = '#00bfff';
+    }
+    var bigint = parseInt(hex.slice(1), 16);
+    target[0] = ((bigint >> 16) & 255) / 255;
+    target[1] = ((bigint >> 8) & 255) / 255;
+    target[2] = (bigint & 255) / 255;
+    target[3] = alphaFactor;
+    return target;
+  }
+
+  function hslToRgb01(h, target, alphaFactor) {
+    var x = 1 - Math.abs(((h / 60) % 2) - 1);
+    var r = 0, g = 0, b = 0;
+    if (0 <= h && h < 60) { r = 1; g = x; }
+    else if (60 <= h && h < 120) { r = x; g = 1; }
+    else if (120 <= h && h < 180) { g = 1; b = x; }
+    else if (180 <= h && h < 240) { g = x; b = 1; }
+    else if (240 <= h && h < 300) { r = x; b = 1; }
+    else { r = 1; b = x; }
+    target[0] = r;
+    target[1] = g;
+    target[2] = b;
+    target[3] = alphaFactor;
+    return target;
+  }
+
+  function copyRgb01WithAlpha(source, target, alphaFactor) {
+    target[0] = source[0];
+    target[1] = source[1];
+    target[2] = source[2];
+    target[3] = alphaFactor;
+    return target;
+  }
+
+  function prepareFrameLineColors(network) {
+    var options = network.options;
+    var lineColor1 = network._frameLineColor1 || (network._frameLineColor1 = new Float32Array(4));
+    var lineColor2 = network._frameLineColor2 || (network._frameLineColor2 = new Float32Array(4));
+    var proximityColor = network._frameProximityColor || (network._frameProximityColor = new Float32Array(4));
+
+    if (options.lineColorCycling) {
+      hslToRgb01(Number.isFinite(network.lineHue1) ? network.lineHue1 : 0, lineColor1, 1);
+      hslToRgb01(Number.isFinite(network.lineHue2) ? network.lineHue2 : 0, lineColor2, 1);
+    } else {
+      hexToRgb01(options.gradientColor1, lineColor1, 1);
+      hexToRgb01(options.gradientColor2, lineColor2, 1);
+    }
+    hexToRgb01(options.proximityEffectColor || '#ff0000', proximityColor, 1);
+  }
+
   // We'll use the ColorUtils functions if available, otherwise use these
   function generateRandomColor() {
     return Math.floor(Math.random() * 360);
   }
 
-  // Legacy function kept for backward compatibility
   function generateDistinctColor(hue1, minDifference) {
     // Use ColorUtils if available, otherwise use the original implementation
     if (window.ColorUtils) {
@@ -168,19 +225,21 @@
   };
 
   var applyParticleInteraction = function (
-    particles,
+    particleA,
+    particleB,
     centerX,
     centerY,
     particleInteractionDistance,
     particleRepulsionForce
   ) {
-    for (var i = 0; i < particles.length; i++) {
-      var particle = particles[i];
+    var interactionDistanceSq = particleInteractionDistance * particleInteractionDistance;
+    for (var i = 0; i < 2; i++) {
+      var particle = i === 0 ? particleA : particleB;
       var dx = particle.x - centerX;
       var dy = particle.y - centerY;
       var distanceSq = dx * dx + dy * dy;
 
-      if (distanceSq < particleInteractionDistance * particleInteractionDistance && distanceSq > 0) {
+      if (distanceSq < interactionDistanceSq && distanceSq > 0) {
         var distance = Math.sqrt(distanceSq);
         var forceDirectionX = dx / distance;
         var forceDirectionY = dy / distance;
@@ -209,7 +268,6 @@
         particleColor: cfg.particleColor || "#fff",
         particleSize: cfg.particleSize != null ? cfg.particleSize : 2,
         particleColorCycling: !!cfg.particleColorCycling,
-        // UI 0..100; remapped internally so 100 ≈ legacy 3
         particleCyclingSpeed: cfg.particleCyclingSpeed != null ? cfg.particleCyclingSpeed : 10,
         gradientEffect: cfg.gradientEffect != null ? cfg.gradientEffect : true,
         gradientColor1: cfg.gradientColor1 || "#00bfff",
@@ -633,8 +691,6 @@
         this.canvas.addEventListener('pointerleave', clearPointer, { passive: false });
       }
 
-      // Legacy performance overlay removed; external PerformanceMonitor handles overlay now
-
       // RAF control flags
       this._rafActive = false;
       this._rafId = null;
@@ -764,7 +820,6 @@
       this.gridHeight = Math.ceil(this.i.size.height / this.gridCellSize);
       this.gridSize = this.gridWidth * this.gridHeight;
     }),
-    // Removed legacy setupPerformanceOverlay/updatePerformanceOverlay (now no-ops)
     (b.prototype.setupPerformanceOverlay = function () { /* no-op */ }),
     (b.prototype.updatePerformanceOverlay = function () { /* no-op */ }),
     (b.prototype.update = function () {
@@ -828,20 +883,19 @@
         this.glRenderer.beginFrame();
       }
 
-      // Legacy overlay update removed
-
-      // Update particles
-      for (var i = 0; i < numParticles; i++) {
-    
-        particles[i].update(
-          this.attractionForce,
-          this.repulsionForce,
-          options.repulsionRange,
-          options.repulsionIntensity,
-          options.attractionRange,
-          options.attractionIntensity
-        );
+      // Update particle colors (physics handled by SoA, but colors need per-particle update)
+      if (options.particleColorCycling) {
+        // Update shared hue once per frame
+        var hueDeltaG = (options.particleCyclingSpeed * 0.0003) * (dt * 60);
+        options.particleHue = (options.particleHue || 0) + hueDeltaG;
+        if (options.particleHue >= 360) options.particleHue -= 360;
+        var cyclingColor = `hsl(${options.particleHue}, 100%, 50%)`;
+        // Apply cycling color to all particles
+        for (var i = 0; i < numParticles; i++) {
+          if (particles[i]) particles[i].particleColor = cyclingColor;
+        }
       }
+      // Static colors already handled above (lines 778-784) when cycling is OFF
 
       // Build the grid
       var gridCellSize = this.gridCellSize;
@@ -969,6 +1023,10 @@
         }
       }
 
+      if (this.glRenderer && this.glRenderer.addLine) {
+        prepareFrameLineColors(this);
+      }
+
       // Process interactions
       for (var x = 0; x < gridWidth; x++) {
         for (var y = 0; y < gridHeight; y++) {
@@ -1008,8 +1066,7 @@
                   rgbaArray01 = [rgbObj.r/255, rgbObj.g/255, rgbObj.b/255, this.options.opacity];
                 } else {
                   // Fallback simple HSL to RGB approximation using existing helper
-                  var csol = hslToRgb01(hueDeg);
-                  csol[3] = this.options.opacity;
+                  var csol = hslToRgb01(hueDeg, glPointColorScratch, this.options.opacity);
                   rgbaArray01 = csol;
                 }
               } else if (typeof pc === 'string' && /^rgb\(/i.test(pc)) {
@@ -1285,13 +1342,16 @@
     var cx = (particleA.x + particleB.x) / 2;
     var cy = (particleA.y + particleB.y) / 2;
     if (options.particleRepulsion) {
-      applyParticleInteraction([particleA, particleB], cx, cy, options.particleInteractionDistance, options.particleRepulsionForce);
+      applyParticleInteraction(particleA, particleB, cx, cy, options.particleInteractionDistance, options.particleRepulsionForce);
     } else if (options.particleAttraction) {
-      // For attraction, invert sign by calling repulsion with negative force
-      var saved = options.particleRepulsionForce;
-      options.particleRepulsionForce = -Math.abs(options.particleAttractionForce || 5);
-      applyParticleInteraction([particleA, particleB], cx, cy, options.particleInteractionDistance, options.particleRepulsionForce);
-      options.particleRepulsionForce = saved;
+      applyParticleInteraction(
+        particleA,
+        particleB,
+        cx,
+        cy,
+        options.particleInteractionDistance,
+        -Math.abs(options.particleAttractionForce || 5)
+      );
     }
   }
 
@@ -1305,47 +1365,30 @@
       var glColor2 = null;
       var alphaFactor = (options.lineConnectionDistance - distance) / options.lineConnectionDistance;
 
-      function hexToRgb01(hex){
-        var bigint = parseInt(hex.slice(1), 16);
-        return [((bigint>>16)&255)/255, ((bigint>>8)&255)/255, (bigint&255)/255, alphaFactor];
-      }
-      function hslToRgb01(h) {
-        var c = 1; // s=1,l=0.5
-        var x = 1 - Math.abs(((h/60) % 2) - 1);
-        var r=0,g=0,b=0;
-        if (0 <= h && h < 60) { r = c; g = x; b = 0; }
-        else if (60 <= h && h < 120) { r = x; g = c; b = 0; }
-        else if (120 <= h && h < 180) { r = 0; g = c; b = x; }
-        else if (180 <= h && h < 240) { r = 0; g = x; b = c; }
-        else if (240 <= h && h < 300) { r = x; g = 0; b = c; }
-        else { r = c; g = 0; b = x; }
-        return [r, g, b, alphaFactor];
-      }
-      function extractHue(hslStr) {
-        var m = /hsl\((\d+),/i.exec(hslStr);
-        return m ? parseFloat(m[1]) : 0;
-      }
-
       if (options.useDistanceEffect) {
         var colorFactor = Math.min(distance / options.maxColorChangeDistance, 1);
 
-        var interpolatedColor = interpolateColor(network.startColorRgb, network.endColorRgb, colorFactor);
-        var colorString = rgbToString(interpolatedColor);
         if (network.glRenderer && network.glRenderer.addLine) {
-          var n = interpolatedColor;
-          var c = [n[0]/255, n[1]/255, n[2]/255, alphaFactor];
-          glColor1 = c; glColor2 = c;
+          var startColor = network.startColorRgb;
+          var endColor = network.endColorRgb;
+          glLineColor1Scratch[0] = Math.round(startColor[0] + colorFactor * (endColor[0] - startColor[0])) / 255;
+          glLineColor1Scratch[1] = Math.round(startColor[1] + colorFactor * (endColor[1] - startColor[1])) / 255;
+          glLineColor1Scratch[2] = Math.round(startColor[2] + colorFactor * (endColor[2] - startColor[2])) / 255;
+          glLineColor1Scratch[3] = alphaFactor;
+          copyRgb01WithAlpha(glLineColor1Scratch, glLineColor2Scratch, alphaFactor);
+          glColor1 = glLineColor1Scratch;
+          glColor2 = glLineColor2Scratch;
         } else {
+          var interpolatedColor = interpolateColor(network.startColorRgb, network.endColorRgb, colorFactor);
+          var colorString = rgbToString(interpolatedColor);
           gradient = g.createLinearGradient(particleA.x, particleA.y, particleB.x, particleB.y);
           gradient.addColorStop(0, colorString);
           gradient.addColorStop(1, colorString);
         }
       } else if (options.lineColorCycling && options.gradientEffect) {
         if (network.glRenderer && network.glRenderer.addLine) {
-          var h1 = Number.isFinite(network.lineHue1) ? network.lineHue1 : extractHue(network.currentLineColor1);
-          var h2 = Number.isFinite(network.lineHue2) ? network.lineHue2 : extractHue(network.currentLineColor2);
-          glColor1 = hslToRgb01(h1);
-          glColor2 = hslToRgb01(h2);
+          glColor1 = copyRgb01WithAlpha(network._frameLineColor1, glLineColor1Scratch, alphaFactor);
+          glColor2 = copyRgb01WithAlpha(network._frameLineColor2, glLineColor2Scratch, alphaFactor);
         } else {
           gradient = g.createLinearGradient(particleA.x, particleA.y, particleB.x, particleB.y);
           gradient.addColorStop(0, network.currentLineColor1);
@@ -1353,9 +1396,8 @@
         }
       } else if (options.lineColorCycling) {
         if (network.glRenderer && network.glRenderer.addLine) {
-          var h = Number.isFinite(network.lineHue1) ? network.lineHue1 : extractHue(network.currentLineColor1);
-          var csol = hslToRgb01(h);
-          glColor1 = csol; glColor2 = csol;
+          glColor1 = copyRgb01WithAlpha(network._frameLineColor1, glLineColor1Scratch, alphaFactor);
+          glColor2 = copyRgb01WithAlpha(network._frameLineColor1, glLineColor2Scratch, alphaFactor);
         } else {
           // Use current cycling color per draw; do not reuse cached gradient
           gradient = g.createLinearGradient(particleA.x, particleA.y, particleB.x, particleB.y);
@@ -1364,8 +1406,8 @@
         }
       } else if (options.gradientEffect) {
         if (network.glRenderer && network.glRenderer.addLine) {
-          glColor1 = hexToRgb01(options.gradientColor1);
-          glColor2 = hexToRgb01(options.gradientColor2);
+          glColor1 = copyRgb01WithAlpha(network._frameLineColor1, glLineColor1Scratch, alphaFactor);
+          glColor2 = copyRgb01WithAlpha(network._frameLineColor2, glLineColor2Scratch, alphaFactor);
         } else {
           gradient = g.createLinearGradient(particleA.x, particleA.y, particleB.x, particleB.y);
           gradient.addColorStop(0, options.gradientColor1);
@@ -1373,8 +1415,8 @@
         }
       } else {
         if (network.glRenderer && network.glRenderer.addLine) {
-          var cflat = hexToRgb01(options.gradientColor1);
-          glColor1 = cflat; glColor2 = cflat;
+          glColor1 = copyRgb01WithAlpha(network._frameLineColor1, glLineColor1Scratch, alphaFactor);
+          glColor2 = copyRgb01WithAlpha(network._frameLineColor1, glLineColor2Scratch, alphaFactor);
         } else {
           gradient = network.cachedGradient2;
           if (!gradient) {
@@ -1394,8 +1436,7 @@
         if (d < options.proximityEffectDistance) {
           if (network.glRenderer && network.glRenderer.addLine) {
             // override start color with proximity color
-            var prox = hexToRgb01(options.proximityEffectColor || '#ff0000');
-            glColor1 = prox;
+            glColor1 = copyRgb01WithAlpha(network._frameProximityColor, glLineColor1Scratch, alphaFactor);
           } else {
             gradient = g.createLinearGradient(particleA.x, particleA.y, particleB.x, particleB.y);
             gradient.addColorStop(0, options.proximityEffectColor);
@@ -1427,7 +1468,10 @@
           var ampFrac = network.options.lineJitterAmplitude != null ? network.options.lineJitterAmplitude : 0.12;
           var amp = Math.min(6, ampFrac * lenj);
           var tphase = (network._pulsePhase || 0);
-          var prev = [particleA.x, particleA.y];
+          var prevX = particleA.x;
+          var prevY = particleA.y;
+          var color1R = glColor1[0], color1G = glColor1[1], color1B = glColor1[2], color1A = glColor1[3];
+          var color2R = glColor2[0], color2G = glColor2[1], color2B = glColor2[2], color2A = glColor2[3];
           for (var si = 1; si <= segs; si++) {
             var t = si / segs;
             var bx = particleA.x + dxj * t;
@@ -1438,20 +1482,18 @@
             var cx = bx + nxj * off;
             var cy = by + nyj * off;
             // interpolate colors per segment end
-            var cL = [
-              glColor1[0] + (glColor2[0] - glColor1[0]) * (t - 1/segs),
-              glColor1[1] + (glColor2[1] - glColor1[1]) * (t - 1/segs),
-              glColor1[2] + (glColor2[2] - glColor1[2]) * (t - 1/segs),
-              glColor1[3] + (glColor2[3] - glColor1[3]) * (t - 1/segs)
-            ];
-            var cR = [
-              glColor1[0] + (glColor2[0] - glColor1[0]) * t,
-              glColor1[1] + (glColor2[1] - glColor1[1]) * t,
-              glColor1[2] + (glColor2[2] - glColor1[2]) * t,
-              glColor1[3] + (glColor2[3] - glColor1[3]) * t
-            ];
-            network.glRenderer.addLine(prev[0], prev[1], cL, cx, cy, cR);
-            prev[0] = cx; prev[1] = cy;
+            var leftT = t - 1 / segs;
+            glSegmentColor1Scratch[0] = color1R + (color2R - color1R) * leftT;
+            glSegmentColor1Scratch[1] = color1G + (color2G - color1G) * leftT;
+            glSegmentColor1Scratch[2] = color1B + (color2B - color1B) * leftT;
+            glSegmentColor1Scratch[3] = color1A + (color2A - color1A) * leftT;
+            glSegmentColor2Scratch[0] = color1R + (color2R - color1R) * t;
+            glSegmentColor2Scratch[1] = color1G + (color2G - color1G) * t;
+            glSegmentColor2Scratch[2] = color1B + (color2B - color1B) * t;
+            glSegmentColor2Scratch[3] = color1A + (color2A - color1A) * t;
+            network.glRenderer.addLine(prevX, prevY, glSegmentColor1Scratch, cx, cy, glSegmentColor2Scratch);
+            prevX = cx;
+            prevY = cy;
           }
         } else {
           network.glRenderer.addLine(
@@ -1567,4 +1609,3 @@ var particleCanvas = new ParticleNetwork(canvasDiv, options);
 
 // Export the instance for external access
 window.particleInstance = particleCanvas;
-
