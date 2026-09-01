@@ -21,8 +21,8 @@ This file is the permanent optimization record. Every optimization must be isola
 | 9 | P1-6 — unused Inter load | **COMPLETE** | Deterministic two-to-one font stylesheet request result below | Keep |
 | 10 | Missing `site.webmanifest` | **COMPLETE** | Explicit HTTP/JSON gate and full startup smoke below | Keep |
 | 11 | P1-9 — dead startup loads/code | **COMPLETE** | Three accepted subchanges and two documented benchmark rejections below | Keep accepted tree `5f52b88` |
-| 12 | P1-7/P1-8 — deferred startup and Tweakpane | **PENDING** | Coupled to settings-UI construction | Plan after low-risk startup cleanup |
-| 13 | Lazy-build settings UI | **PENDING** | Existing pane is still built during `DOMContentLoaded` | Couple with P1-8 without restoring hidden polling |
+| 12 | P1-7 — deferred classic scripts | **IN PROGRESS** | 2026-09-01 lifecycle baseline below | Add ordered defer, repeat lifecycle/FPS gates |
+| 13 | P1-8 + lazy-build settings UI | **PENDING** | Existing pane is built during DCL and gates hotkeys on CDN | Couple load/build without restoring hidden polling |
 | 14 | Pause simulation while hidden | **PENDING** | No current visibility lifecycle | Isolate running/stopped/resume-state test |
 | 15 | Proper `destroy()` / teardown | **PENDING** | Current engine has no complete lifecycle cleanup | Listener/resource/recreation regression |
 | 16 | Configuration cleanup | **PENDING** | Shipped string types and duplicated maps require equivalence fixture | Preserve exact runtime option values/types |
@@ -286,6 +286,10 @@ No uncapped average-FPS row regressed by more than 5%, so the focused confirmati
 
 ## P1-7. Startup: parser-blocking scripts + parse-time engine init
 
+**Status:** IN PROGRESS.
+
+**Application baseline:** `f2146c5` (`docs: plan deferred settings cycle`), recorded 2026-09-01. The tracked tree was otherwise clean, with the unrelated untracked `webgl-black-hole/` directory excluded.
+
 **Locations:**
 - `index.html:48-55` — 8 classic scripts (~136 KB unminified total), no `defer`/`async`
 - `js/ParticleNetwork.js:1557-1562` — `new ParticleNetwork(canvasDiv, options)` is **top-level code**, running during script evaluation
@@ -297,6 +301,12 @@ No uncapped average-FPS row regressed by more than 5%, so the focused confirmati
 **Validation:** Performance trace "Evaluate Script" blocks; FCP/DCL delta before/after.
 
 **Confidence:** high.
+
+### Lifecycle baseline — 2026-09-01
+
+**Method:** `scripts/test-startup-lifecycle.js` launched Edge 152.0.4191.53 headlessly at 1280×720/DPR 1, instrumented the `window.particleInstance` assignment before page code, inspected all classic script attributes, recorded navigation timings, and exercised the real C hotkey.
+
+**Result:** all eight classic scripts had `defer=false`/`async=false`, and the engine instance was assigned while `document.readyState` was `loading`. In this diagnostic load the instance appeared at 281.5 ms and DOMContentLoaded ended at 412.5 ms. The hidden pane was already built with controls and Tweakpane had already been requested; first C only revealed it in 19.0 ms. All seven hotkeys were registered, the shipped 185-particle loop and WebGL were healthy, and there were no browser errors. Timing values are single-load diagnostics; script attributes, ready state, request/build state, and runtime health are the deterministic gates.
 
 ## P1-8. Startup: tweakpane CDN gates DOMContentLoaded
 
