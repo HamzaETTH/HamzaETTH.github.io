@@ -3,19 +3,30 @@
 const fs = require('node:fs');
 const { chromium } = require('playwright');
 
+const PROFILES = {
+  static: { particleColorCycling: false, lineColorCycling: false, gradientEffect: false },
+  cyclingGradient: { particleColorCycling: false, lineColorCycling: true, gradientEffect: true },
+  particleCycling: { particleColorCycling: true, lineColorCycling: false, gradientEffect: false }
+};
+
 function parseArgs(argv) {
-  const options = { count: 10000, duration: 4000, trials: 3, output: null };
+  const options = { count: 10000, duration: 4000, trials: 3, profile: 'static', output: null };
   for (let i = 0; i < argv.length; i++) {
     const arg = argv[i];
-    if (arg === '--baseline') options.baseline = argv[++i];
+    if (arg === '--url') options.url = argv[++i];
+    else if (arg === '--baseline') options.baseline = argv[++i];
     else if (arg === '--optimized') options.optimized = argv[++i];
     else if (arg === '--count') options.count = Number(argv[++i]);
     else if (arg === '--duration') options.duration = Number(argv[++i]);
     else if (arg === '--trials') options.trials = Number(argv[++i]);
+    else if (arg === '--profile') options.profile = argv[++i];
     else if (arg === '--output') options.output = argv[++i];
     else throw new Error(`Unknown argument: ${arg}`);
   }
-  if (!options.baseline || !options.optimized) throw new Error('--baseline and --optimized are required');
+  if (!options.url && (!options.baseline || !options.optimized)) {
+    throw new Error('--url or both --baseline and --optimized are required');
+  }
+  if (!PROFILES[options.profile]) throw new Error(`Unknown profile: ${options.profile}`);
   return options;
 }
 
@@ -63,7 +74,7 @@ async function runProfile(browser, url, variant, trial, options) {
 
   await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 30000 });
   await page.waitForFunction(() => window.particleInstance && window.BenchmarkSystem, null, { timeout: 30000 });
-  await page.evaluate(async count => {
+  await page.evaluate(async ({ count, profile }) => {
     if (!window.applyParamsToNetwork) {
       const module = await import('./js/ui/applyParams.js');
       window.applyParamsToNetwork = module.applyParamsToNetwork;
@@ -71,9 +82,9 @@ async function runProfile(browser, url, variant, trial, options) {
     const pn = window.particleInstance;
     window.applyParamsToNetwork(pn, {
       interactive: false,
-      particleColorCycling: false,
-      lineColorCycling: false,
-      gradientEffect: false,
+      particleColorCycling: profile.particleColorCycling,
+      lineColorCycling: profile.lineColorCycling,
+      gradientEffect: profile.gradientEffect,
       speed: 1.0,
       boundaryMode: 'wrap',
       performanceOverlay: false
@@ -91,7 +102,7 @@ async function runProfile(browser, url, variant, trial, options) {
     };
     pn._rafActive = true;
     pn._rafId = requestAnimationFrame(pn.update);
-  }, options.count);
+  }, { count: options.count, profile: PROFILES[options.profile] });
 
   const client = await context.newCDPSession(page);
   await client.send('Profiler.enable');
@@ -123,9 +134,11 @@ async function main() {
   const records = [];
   try {
     for (let trial = 1; trial <= options.trials; trial++) {
-      const order = trial % 2
-        ? [['baseline', options.baseline], ['optimized', options.optimized]]
-        : [['optimized', options.optimized], ['baseline', options.baseline]];
+      const order = options.url
+        ? [['current', options.url]]
+        : (trial % 2
+          ? [['baseline', options.baseline], ['optimized', options.optimized]]
+          : [['optimized', options.optimized], ['baseline', options.baseline]]);
       for (const [variant, url] of order) {
         const record = await runProfile(browser, url, variant, trial, options);
         records.push(record);
@@ -141,22 +154,30 @@ async function main() {
     await browser.close();
   }
 
-  const baseline = records.filter(record => record.variant === 'baseline');
-  const optimized = records.filter(record => record.variant === 'optimized');
-  const baselineMedian = median(baseline.map(record => record.particleNetworkSelfMsPerFrame));
-  const optimizedMedian = median(optimized.map(record => record.particleNetworkSelfMsPerFrame));
+  const summary = options.url
+    ? {
+      currentMedianSelfMsPerFrame: median(records.map(record => record.particleNetworkSelfMsPerFrame)),
+      currentMedianFrames: median(records.map(record => record.frameCount))
+    }
+    : (() => {
+      const baseline = records.filter(record => record.variant === 'baseline');
+      const optimized = records.filter(record => record.variant === 'optimized');
+      const baselineMedian = median(baseline.map(record => record.particleNetworkSelfMsPerFrame));
+      const optimizedMedian = median(optimized.map(record => record.particleNetworkSelfMsPerFrame));
+      return {
+        baselineMedianSelfMsPerFrame: baselineMedian,
+        optimizedMedianSelfMsPerFrame: optimizedMedian,
+        changePct: ((optimizedMedian - baselineMedian) / baselineMedian) * 100
+      };
+    })();
   const result = {
     passed: records.every(record =>
       record.particleCount === options.count &&
       record.rafActive && record.hasGl && !record.glContextLost &&
       record.browserErrors.length === 0
     ),
-    environment: { count: options.count, duration: options.duration, trials: options.trials },
-    summary: {
-      baselineMedianSelfMsPerFrame: baselineMedian,
-      optimizedMedianSelfMsPerFrame: optimizedMedian,
-      changePct: ((optimizedMedian - baselineMedian) / baselineMedian) * 100
-    },
+    environment: { count: options.count, duration: options.duration, trials: options.trials, profile: options.profile },
+    summary,
     records
   };
   if (options.output) fs.writeFileSync(options.output, JSON.stringify(result, null, 2) + '\n');
