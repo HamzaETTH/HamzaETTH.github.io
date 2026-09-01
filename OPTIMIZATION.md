@@ -23,7 +23,7 @@ This file is the permanent optimization record. Every optimization must be isola
 | 11 | P1-9 — dead startup loads/code | **COMPLETE** | Three accepted subchanges and two documented benchmark rejections below | Keep accepted tree `5f52b88` |
 | 12 | P1-7 — deferred classic scripts | **COMPLETE** | Deterministic ready-state/lifecycle and quick FPS gates below | Keep |
 | 13 | P1-8 + lazy-build settings UI | **COMPLETE** | Lifecycle, blocked-CDN, UI-sync, deterministic color, and quick FPS gates below | Keep |
-| 14 | Pause simulation while hidden | **IN PROGRESS** | Exact application baseline `efd8d1f`; Cycle 3 plan below | Commit test-only lifecycle checkpoint before engine edit |
+| 14 | Pause simulation while hidden | **IN PROGRESS** | Exact implementation baseline `95f1593`; deterministic defect reproduced below | Implement stored visibility lifecycle and run gates |
 | 15 | Proper `destroy()` / teardown | **PENDING** | Current engine has no complete lifecycle cleanup | Listener/resource/recreation regression |
 | 16 | Configuration cleanup | **PENDING** | Shipped string types and duplicated maps require equivalence fixture | Preserve exact runtime option values/types |
 | 17 | Full SoA/index architecture | **DEFERRED** | Start only after the requested cumulative milestone | Re-profile and write a staged plan |
@@ -343,6 +343,16 @@ The HTML body changed from 35,847 bytes to 2,625 bytes and the extracted local m
 **Quick FPS gate:** no uncapped average row regressed beyond 5%. At 5,000 particles, static changed -3.82% and cycling/gradient -0.42%; refresh-capped 1,500 averages changed +0.03%/-1.39%. The very low-sample 15,000 rows improved and are not treated as claimed gains. WebGL stayed healthy, the loop remained active, and settings restored exactly.
 
 **Decision:** keep P1-8 and the lazy-built settings UI. It removes the guaranteed cross-origin startup gate while preserving startup hotkeys, settings behavior, P1-5 refresh semantics, and the performance gate.
+
+## Pause simulation while the document is hidden
+
+**Status:** IN PROGRESS.
+
+**Application baseline:** `efd8d1f` (`perf: lazy-build settings controls`). **Exact implementation baseline:** `95f1593` (`test: capture hidden loop baseline`), which adds only `scripts/test-visibility-lifecycle.js` on top of the Cycle 3 plan/checkpoint. The tracked tree was otherwise clean apart from excluded untracked `webgl-black-hole/`.
+
+**Baseline method and result:** the headless Edge lifecycle probe overrides the document visibility properties, dispatches the real `visibilitychange` event, and counts calls through the live bound update chain. A visible/running 250 ms sample ran 36 frames. The hidden/running sample still ran 37 frames with `_rafActive=true` and an rAF id. After a stopped velocity was changed back to non-zero while hidden, the synchronous restart plus queued loop ran 23 frames in 150 ms and its first `dt` hit the 0.1 s clamp. A zero-velocity hide/show round trip correctly remained stopped. The shipped 185-particle state and WebGL context stayed healthy with no browser errors.
+
+**Required change:** one stored visibility handler must cancel and clear the active frame while hidden, remember only valid running intent, reset the timebase on visible resume, and schedule at most one frame chain. Direct restart attempts while hidden must record resume intent without simulating a frame. A loop stopped by zero velocity must remain stopped across hide/show.
 
 ## P1-9. Dead loads: ~30 KB waste + dead code
 
