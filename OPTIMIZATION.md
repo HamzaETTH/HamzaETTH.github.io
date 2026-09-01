@@ -24,7 +24,7 @@ This file is the permanent optimization record. Every optimization must be isola
 | 12 | P1-7 — deferred classic scripts | **COMPLETE** | Deterministic ready-state/lifecycle and quick FPS gates below | Keep |
 | 13 | P1-8 + lazy-build settings UI | **COMPLETE** | Lifecycle, blocked-CDN, UI-sync, deterministic color, and quick FPS gates below | Keep |
 | 14 | Pause simulation while hidden | **COMPLETE** | Deterministic visibility lifecycle plus focused five-trial 10k gate below | Keep `b47c8f1` |
-| 15 | Proper `destroy()` / teardown | **PENDING** | Current engine has no complete lifecycle cleanup | Listener/resource/recreation regression |
+| 15 | Proper `destroy()` / teardown | **IN PROGRESS** | Exact application baseline `3bbe80c`; Cycle 4 plan below | Commit instrumented recreation baseline before production edits |
 | 16 | Configuration cleanup | **PENDING** | Shipped string types and duplicated maps require equivalence fixture | Preserve exact runtime option values/types |
 | 17 | Full SoA/index architecture | **DEFERRED** | Start only after the requested cumulative milestone | Re-profile and write a staged plan |
 
