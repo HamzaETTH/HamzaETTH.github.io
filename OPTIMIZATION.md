@@ -19,7 +19,7 @@ This file is the permanent optimization record. Every optimization must be isola
 | 7 | P2-1 — repeated pair thresholds | **REJECTED** | Deterministic win, but focused FPS gate confirmed a regression | Production change removed |
 | 8 | P2-2 — per-pair velocity validation | **REJECTED** | Deterministic win, but focused FPS gate confirmed a regression | Production change removed |
 | 9 | P1-6 — unused Inter load | **COMPLETE** | Deterministic two-to-one font stylesheet request result below | Keep |
-| 10 | Missing `site.webmanifest` | **BASELINED** | Explicit fetch is HTTP 404 and the only baseline console error | Fix after P1-6 in an isolated commit |
+| 10 | Missing `site.webmanifest` | **COMPLETE** | Explicit HTTP/JSON gate and full startup smoke below | Keep |
 | 11 | P1-9 — dead startup loads/code | **PENDING** | Current-reference audit reconfirmed the documented entry loads | Split into reversible cleanup commits |
 | 12 | P1-7/P1-8 — deferred startup and Tweakpane | **PENDING** | Coupled to settings-UI construction | Plan after low-risk startup cleanup |
 | 13 | Lazy-build settings UI | **PENDING** | Existing pane is still built during `DOMContentLoaded` | Couple with P1-8 without restoring hidden polling |
@@ -325,6 +325,24 @@ No uncapped average-FPS row regressed by more than 5%, so the focused confirmati
 **Validation:** DevTools Coverage tab.
 
 **Confidence:** high for all rows.
+
+## Missing `site.webmanifest`
+
+**Status:** COMPLETE.
+
+**Baseline:** `88ea324` (`perf: remove unused Inter font load`), recorded 2026-09-01. The tracked tree was clean apart from the excluded untracked `webgl-black-hole/` directory.
+
+**Baseline evidence:** `index.html` references `/site.webmanifest`, but no tracked file exists. The startup probe's explicit fetch returned HTTP 404, `text/html`, and an HTML error page that failed JSON parsing; this was the only browser console error. Existing Android icons are tracked at 192×192 and 256×256, so the fix can describe already-shipped assets without creating or transforming images.
+
+**Gate:** require HTTP 200, valid manifest JSON, the expected name/colors/icon paths, no request/console/page error, and an unchanged particle/WebGL/settings smoke.
+
+### Validation results — 2026-09-01
+
+**Change:** added a 416-byte `site.webmanifest` describing the existing Hamza E site, black theme/background, standalone display, root scope/start URL, and the already-tracked 192×192 and 256×256 Android icons. No icon was regenerated or relabeled as maskable.
+
+**Result:** the explicit fetch changed from HTTP 404 `text/html` with a JSON parse failure to HTTP 200 `application/manifest+json` with the expected parsed fields. The prior console 404 disappeared; there were zero console errors, page errors, or request failures. The shipped 185-particle runtime remained active, WebGL was present and not lost, and the `C` hotkey still opened a populated settings pane.
+
+**Conclusion:** keep the manifest and mark the missing-resource finding complete.
 
 ## P1-10 — COMPLETE. Per-particle color string parsing every frame
 
