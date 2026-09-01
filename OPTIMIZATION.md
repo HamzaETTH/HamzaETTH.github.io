@@ -27,7 +27,7 @@ This file is the permanent optimization record. Every optimization must be isola
 | 15 | Proper `destroy()` / teardown | **COMPLETE** | Two destroy/recreate cycles, pending-build abort, resource release, UI-sync, and FPS gates below | Keep `5da077d` |
 | 16 | Configuration cleanup | **COMPLETE** | Exact configuration contract, lifecycle suite, pair equivalence, and focused FPS confirmation below | Keep `9e51979` |
 | 17 | Requested-scope cumulative milestone | **COMPLETE** | Final regression suite and 54-measurement three-profile A/B below | Keep application checkpoint `2cabf86` |
-| 18 | Full SoA/index architecture | **IN PROGRESS** | Investigation baseline `bc3ba54`; final-engine profile and consumer map next | Commit staged plan before production migration |
+| 18 | Full SoA/index architecture | **REJECTED** | Final-engine profile, exact state contract, and two rejected staged A/B experiments below | Revisit only if a future runtime/profile changes the bottleneck |
 
 Progress protocol:
 
@@ -690,7 +690,7 @@ The frame loop already computes squared interaction, line-connection, and maximu
 
 ## Full SoA / index architecture — investigation
 
-**Status:** PLANNING.
+**Status:** REJECTED after staged measurement; production unchanged.
 
 **Pre-SoA milestone baseline:** `bc3ba54` (`docs: record cumulative optimization milestone`), whose application tree is exact checkpoint `2cabf86`. The tracked tree is clean apart from the excluded user-owned `webgl-black-hole/` directory. Cycle 8 is tooling/profiling/design only; its plan is `docs/plans/2026-09-01-soa-investigation.md`.
 
@@ -758,6 +758,31 @@ All measurements reached the requested count with active rAF and healthy WebGL; 
 ### Stage 2 — indexed pair geometry plan
 
 **Exact baseline:** `230e626` (`docs: record rejected index grid`); production remains unchanged from `2cabf86`. Cycle 9 keeps object-reference grid cells and uses stable object indices only to read regular typed coordinates inside point/pair geometry, with a pointer-sentinel fallback. Force velocity precision, collision, trails, sync, pair order, and renderer order stay unchanged. The cycle plan and rejection thresholds are in `docs/plans/2026-09-01-soa-indexed-pair-geometry.md`.
+
+### Stage 2 — indexed pair geometry rejected
+
+**Exact implementation baseline:** `aca24a6` (`docs: plan indexed pair geometry`); its application matches `2cabf86`. The candidate kept object-reference grid cells, used each object's stable index to read regular `posX`, `posY`, and `sizeA`, fell back to object fields for the pointer sentinel, and threaded scalar coordinates through point draw, distance/midpoint/color/proximity/jitter, GL, and 2D line geometry. Object force precision, collision, trails drawing, sync/writeback, pair order, and renderer call order stayed unchanged.
+
+**Correctness:** the full Stage 0 multi-frame hash remained exact, and three alternating live pair trials matched positions, velocities, typed velocities, rendered line data, threshold reads, validation counts, WebGL health, and browser errors. The quick gate nevertheless changed static average FPS -8.58% at 5,000 and -12.01% at 15,000, and cycling/gradient -9.81% and +4.56%, requiring the reportable alternating matrix.
+
+| Profile | Count | Object-coordinate avg | Indexed-coordinate avg | Change |
+|---|---:|---:|---:|---:|
+| Static | 5,000 | 26.83 | 23.90 | -10.91% |
+| Static | 10,000 | 7.32 | 6.13 | -16.18% |
+| Static | 15,000 | 3.11 | 2.61 | -15.99% |
+| Cycling/gradient | 5,000 | 28.12 | 24.24 | -13.79% |
+| Cycling/gradient | 10,000 | 6.87 | 5.90 | -14.05% |
+| Cycling/gradient | 15,000 | 3.23 | 2.53 | -21.66% |
+
+Every candidate median minimum also regressed by 7.88-15.73%. All measurements reached their counts with active rAF and healthy WebGL; settings restored and browser errors were empty. The acceptance condition was already impossible, so an additional candidate CPU profile was not run. The production patch was fully reversed; the post-revert Stage 0 hash again matched `34d169441dd809f196a223d2a73cbb6668ebf04f3e4e8da02f3e05799c344b26`.
+
+### SoA conclusion — current engine
+
+**Decision:** reject the full SoA/index conversion for the current engine/runtime and stop before Stages 3-5. The final profile disproved the old sync-pass payoff: SoA physics plus object synchronization is below 0.4 ms/frame, while existing monomorphic object pair geometry/rendering is more than 91% of sampled engine time. Integer grid resolution added a costly lookup layer; mixing typed coordinates into the object pair path added index checks, pointer branches, and typed loads and regressed all six reportable rows. Both candidates were behavior-exact, so their losses are attributable to representation/access cost rather than correctness drift.
+
+A fully fused rewrite might avoid the mixed-representation penalties, but it cannot be reached through a successful independently benchmarkable stage from the current tree. It would simultaneously change grid storage, pair geometry, force precision, collision persistence, trails, settings appearance, BenchmarkSystem, object compatibility, creation, and teardown while targeting less than 0.4 ms/frame of measured synchronization work. That fails the project's risk and evidence gates and would be refactoring for its own sake.
+
+The useful outputs are retained: workload-selectable CPU profiling (`1b66fb1`), the exact multi-frame architecture contract (`5b24e7c`), the detailed consumer/precision map, and the staged plan. Revisit only if a browser/runtime change, new feature profile, or materially higher target count produces new evidence that typed access beats the current object path. Production remains the accepted pre-SoA application checkpoint `2cabf86`.
 
 ---
 
