@@ -965,24 +965,22 @@
             }
 
             // Interactions with neighboring cells
-            for (var offsetX = -1; offsetX <= 1; offsetX++) {
+            for (var offsetX = 0; offsetX <= 1; offsetX++) {
               var neighborX = x + offsetX;
-              if (neighborX < 0 || neighborX >= gridWidth) continue;
+              if (neighborX >= gridWidth) continue;
 
-              for (var offsetY = -1; offsetY <= 1; offsetY++) {
+              var firstOffsetY = offsetX === 0 ? 1 : -1;
+              for (var offsetY = firstOffsetY; offsetY <= 1; offsetY++) {
                 var neighborY = y + offsetY;
                 if (neighborY < 0 || neighborY >= gridHeight) continue;
-                if (offsetX === 0 && offsetY === 0) continue;
 
                 var neighborIndex = neighborX + neighborY * gridWidth;
                 var neighborParticles = grid[neighborIndex];
                 var numNeighborParticles = neighborParticles.length;
 
-              for (var k = 0; k < numNeighborParticles; k++) {
+                for (var k = 0; k < numNeighborParticles; k++) {
                   var particleB = neighborParticles[k];
-                   if (particleA.index < particleB.index) {
-                    interactParticles(this, particleA, particleB);
-                  }
+                  interactParticles(this, particleA, particleB);
                 }
               }
             }
