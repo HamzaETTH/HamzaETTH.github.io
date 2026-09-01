@@ -696,6 +696,38 @@ The frame loop already computes squared interaction, line-connection, and maximu
 
 **Old-audit premise to verify:** the engine runs motion in `Float32Array` buffers, copies every regular particle back into objects, then builds an object-reference grid, performs object-based pair/render work, and copies object velocities back to typed arrays. The old audit estimated a 1.3-2x full-conversion opportunity. The final P1-4 CPU samples already suggest the synchronization helpers themselves are small while `interactParticles` dominates, so the gain must be re-measured and attributed rather than assumed.
 
+### Final-engine profile — 2026-09-01
+
+**Tooling checkpoint:** `1b66fb1` adds current-only and workload selection to `scripts/profile-particle-network.js`; application code remains exact pre-SoA checkpoint `2cabf86`. Edge 152.0.4191.53 used the DevTools sampling profiler for three current-only 4-second trials per workload at 10,000 particles, 1280x720, DPR 1, on ANGLE D3D11 / RTX 5080. Every trial held exactly 10,000 particles with active rAF, healthy WebGL, and zero browser errors.
+
+| Workload | Engine self ms/frame | `interactParticles` ms/frame | Pair share | Main update body ms/frame | SoA physics ms/frame | Object sync ms/frame |
+|---|---:|---:|---:|---:|---:|---:|
+| Static | 115.18 | 106.03 | 92.05% | 8.67 | 0.09 | 0.21 |
+| Cycling/gradient | 116.81 | 107.39 | 91.93% | 9.05 | 0.17 | 0.16 |
+| Particle cycling | 120.01 | 110.20 | 91.82% | 9.31 | 0.18 | 0.15 |
+
+**Finding:** the old audit correctly identified dual storage and an object-based hot path, but its implied sync-pass payoff is stale. `_updateSoA` plus `_syncObjectsFromSoA` is below 0.4 ms/frame in every median profile; deleting those helpers alone cannot explain a 1.3-2x gain. Indexed pair geometry/rendering is the only measured high-payoff hypothesis. It must reduce `interactParticles` self-time rather than merely rearrange storage.
+
+### Current ownership and consumer map
+
+| Phase/consumer | Current authoritative data and coupling |
+|---|---|
+| Startup/resize rebuild | Creates regular particle objects in `pn.o`, then allocates/copies `posX`, `posY`, `velX`, `velY`, and `sizeA`; appends pointer object afterward so it is outside typed buffers. |
+| SoA physics | Reads/writes regular Float32 buffers for forces, drift, recovery, motion, boundaries, and finite recovery. |
+| Object sync | Copies five fields per regular particle from typed arrays into objects every frame. |
+| Grid/render/pairs | Grid cells store object references; point rendering, pair geometry/forces/colors/lines, jitter, and collision dereference/mutate objects. Pointer participates as another grid object. |
+| End-of-frame persistence | Copies regular object velocities back to Float32 buffers; collision position changes are not explicitly copied and are superseded by the next SoA-to-object sync. This observed behavior must be captured before migration. |
+| Count changes/benchmark | `adjustParticleCount`, resize, and `BenchmarkSystem.setParticleCount` create/copy objects, then rebuild typed arrays and grid. Benchmark discovers the particle constructor from `pn.o[0]`. |
+| Input/gather | Pointer events mutate the separate pointer object/force records. A-key gather writes typed positions/velocities and then duplicates the writes into every object for immediate display. |
+| Settings appearance | Iterates `pn.o` for size/color. Its intended typed-size update is unreachable because `Array.isArray(Float32Array)` is false; earlier stages must not silently alter this shipped behavior. |
+| Trails/2D fallback | Calls the particle object's `h()` method, which reads object position/size/options and emits Canvas calls. |
+| Renderer | Receives scalar endpoints/points and copies them into its own typed staging buffers; it does not own particle state. |
+| Lifecycle/tests | Teardown nulls both object and typed storage. Existing benchmark/regression tools read and mutate `pn.o`, while pair tests also inspect typed velocities. |
+
+### Staged decision
+
+The committed migration plan is `docs/plans/2026-09-01-soa-index-migration.md`. It defines Stage 0 deterministic architecture contracts; Stage 1 index grid storage; Stage 2 indexed position geometry/rendering; Stage 3 precision-preserving typed pair forces/collisions; Stage 4 removal of per-frame object synchronization and migration of trails/settings/benchmark consumers; Stage 5 direct typed creation/object removal; and a mandatory re-profile/stop decision. Each stage has an exact BEFORE commit, correctness and performance gates, a separate AFTER commit, and explicit rejection/revert rules.
+
 ---
 
 # P2 — Smaller / conditional
