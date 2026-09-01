@@ -734,6 +734,27 @@ The committed migration plan is `docs/plans/2026-09-01-soa-index-migration.md`. 
 
 The checkpoint covers four static-wrap frames; three curved-bounce, pair-repulsion, pair-attraction, and collision frames; two pointer/proximity, trails+jitter 2D, and particle-cycling frames; exact count 12 then halve to 6; and the current appearance contract. It explicitly captures the shipped typed-size quirk: appearance changes all object sizes to 3.5 while `sizeA` remains `[3,2,2,3,2,2,3,2]`. Stage 0 is complete; `5b24e7c` is the BEFORE point for Stage 1.
 
+### Stage 1 — index grid storage rejected
+
+**Exact baseline:** `90246c9` (`docs: record SoA state baseline`). The candidate changed only five grid sites: cells stored sequential `pn.o` indices instead of object references, and point/pair/collision traversal resolved each index back through the unchanged object array. Pointer sentinel order, pair order/math, rendering, collision, sync, and lifecycle were unchanged.
+
+**Correctness:** the complete Stage 0 snapshot retained exact hash `34d169441dd809f196a223d2a73cbb6668ebf04f3e4e8da02f3e05799c344b26`; both pure grid fixtures and three alternating live pair trials passed exactly with healthy WebGL and zero browser errors. The quick diagnostic showed no average regression: static changed +7.74% at 5,000 and +25.24% at the low-sample 15,000 row; cycling/gradient changed -0.32% and +6.19%.
+
+**Full three-trial result:** the quick signal did not survive the reportable alternating matrix.
+
+| Profile | Count | Object-grid avg | Index-grid avg | Change |
+|---|---:|---:|---:|---:|
+| Static | 5,000 | 27.56 | 25.40 | -7.85% |
+| Static | 10,000 | 7.06 | 5.94 | -15.84% |
+| Static | 15,000 | 2.61 | 2.60 | -0.74% |
+| Cycling/gradient | 5,000 | 29.39 | 24.57 | -16.42% |
+| Cycling/gradient | 10,000 | 7.37 | 5.86 | -20.48% |
+| Cycling/gradient | 15,000 | 3.18 | 2.57 | -19.27% |
+
+All measurements reached the requested count with active rAF and healthy WebGL; settings restored exactly and browser errors were empty. The candidate was fully reversed with `apply_patch`, and the post-revert Stage 0 hash again matched the exact baseline. No production commit exists for the rejected representation.
+
+**Decision:** reject Stage 1. Resolving integers back through `particles[index]` makes the still-object-based hot path substantially slower. Do not retain neutral scaffolding. Any next experiment must read typed coordinates directly from existing object indices or fuse storage/access so it eliminates object work rather than adding a lookup layer.
+
 ---
 
 # P2 — Smaller / conditional
