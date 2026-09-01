@@ -755,6 +755,10 @@ All measurements reached the requested count with active rAF and healthy WebGL; 
 
 **Decision:** reject Stage 1. Resolving integers back through `particles[index]` makes the still-object-based hot path substantially slower. Do not retain neutral scaffolding. Any next experiment must read typed coordinates directly from existing object indices or fuse storage/access so it eliminates object work rather than adding a lookup layer.
 
+### Stage 2 — indexed pair geometry plan
+
+**Exact baseline:** `230e626` (`docs: record rejected index grid`); production remains unchanged from `2cabf86`. Cycle 9 keeps object-reference grid cells and uses stable object indices only to read regular typed coordinates inside point/pair geometry, with a pointer-sentinel fallback. Force velocity precision, collision, trails, sync, pair order, and renderer order stay unchanged. The cycle plan and rejection thresholds are in `docs/plans/2026-09-01-soa-indexed-pair-geometry.md`.
+
 ---
 
 # P2 — Smaller / conditional
