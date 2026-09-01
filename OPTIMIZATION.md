@@ -21,7 +21,7 @@ This file is the permanent optimization record. Every optimization must be isola
 | 9 | P1-6 — unused Inter load | **COMPLETE** | Deterministic two-to-one font stylesheet request result below | Keep |
 | 10 | Missing `site.webmanifest` | **COMPLETE** | Explicit HTTP/JSON gate and full startup smoke below | Keep |
 | 11 | P1-9 — dead startup loads/code | **COMPLETE** | Three accepted subchanges and two documented benchmark rejections below | Keep accepted tree `5f52b88` |
-| 12 | P1-7 — deferred classic scripts | **IN PROGRESS** | 2026-09-01 lifecycle baseline below | Add ordered defer, repeat lifecycle/FPS gates |
+| 12 | P1-7 — deferred classic scripts | **COMPLETE** | Deterministic ready-state/lifecycle and quick FPS gates below | Keep |
 | 13 | P1-8 + lazy-build settings UI | **PENDING** | Existing pane is built during DCL and gates hotkeys on CDN | Couple load/build without restoring hidden polling |
 | 14 | Pause simulation while hidden | **PENDING** | No current visibility lifecycle | Isolate running/stopped/resume-state test |
 | 15 | Proper `destroy()` / teardown | **PENDING** | Current engine has no complete lifecycle cleanup | Listener/resource/recreation regression |
@@ -286,9 +286,11 @@ No uncapped average-FPS row regressed by more than 5%, so the focused confirmati
 
 ## P1-7. Startup: parser-blocking scripts + parse-time engine init
 
-**Status:** IN PROGRESS.
+**Status:** COMPLETE.
 
 **Application baseline:** `f2146c5` (`docs: plan deferred settings cycle`), recorded 2026-09-01. The tracked tree was otherwise clean, with the unrelated untracked `webgl-black-hole/` directory excluded.
+
+**Exact P1-7 baseline:** `92cb342` (`test: capture startup lifecycle baseline`). This adds only the lifecycle probe and baseline ledger entry to the same application tree.
 
 **Locations:**
 - `index.html:48-55` — 8 classic scripts (~136 KB unminified total), no `defer`/`async`
@@ -307,6 +309,18 @@ No uncapped average-FPS row regressed by more than 5%, so the focused confirmati
 **Method:** `scripts/test-startup-lifecycle.js` launched Edge 152.0.4191.53 headlessly at 1280×720/DPR 1, instrumented the `window.particleInstance` assignment before page code, inspected all classic script attributes, recorded navigation timings, and exercised the real C hotkey.
 
 **Result:** all eight classic scripts had `defer=false`/`async=false`, and the engine instance was assigned while `document.readyState` was `loading`. In this diagnostic load the instance appeared at 281.5 ms and DOMContentLoaded ended at 412.5 ms. The hidden pane was already built with controls and Tweakpane had already been requested; first C only revealed it in 19.0 ms. All seven hotkeys were registered, the shipped 185-particle loop and WebGL were healthy, and there were no browser errors. Timing values are single-load diagnostics; script attributes, ready state, request/build state, and runtime health are the deterministic gates.
+
+### Validation results — 2026-09-01
+
+**Change:** added ordered `defer` attributes to all eight classic scripts. Their source order and the engine's top-level constructor remain unchanged.
+
+**Deterministic result:** all eight scripts reported `defer=true`/`async=false`, and `window.particleInstance` moved from `document.readyState="loading"` to `"interactive"`, proving the engine now starts after parsing. The shipped 185-particle loop, WebGL context, all seven hotkeys, pre-existing settings pane, manifest, and settings restoration remained healthy with zero browser errors. Request counts and bodies were unchanged.
+
+**Timing note:** the paired diagnostic load's DOMContentLoaded value moved from 412.5 ms to 341.0 ms (−17.3%), while engine assignment moved from 281.5 ms to 299.1 ms because execution now waits for parsing. One networked load is not a reportable speed claim; the deterministic scheduling change is the accepted result.
+
+**Quick FPS gate:** no uncapped average row regressed beyond 5%. Static changed +28.4% at 5,000 and +10.3% at low-sample 15,000; cycling/gradient changed −3.7% and +13.7%. Refresh-capped 1,500 averages were unchanged/−0.7%; isolated minimum variation did not affect the gate.
+
+**Conclusion:** keep P1-7 and mark it complete.
 
 ## P1-8. Startup: tweakpane CDN gates DOMContentLoaded
 
