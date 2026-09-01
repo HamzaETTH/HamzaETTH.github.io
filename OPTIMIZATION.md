@@ -13,7 +13,7 @@ This file is the permanent optimization record. Every optimization must be isola
 | 1 | P0-1 — pair-loop allocations | **COMPLETE** | Full two-profile A/B matrix below | Keep |
 | 2 | P0-2 — redundant GL resize | **COMPLETE** | Resize regression plus full two-profile A/B matrix below | Keep |
 | 3 | P0-3 — unconditional UI rebuild | **REJECTED** | 2026-08-31 live rebuild-count validation below | Audit premise was stale; no production change |
-| 4 | P1-4 — duplicate neighbor scan | **IN PROGRESS** | Cycle 6 baseline `2908723`; deterministic fixture next | Exact pair-set/candidate-visit proof before hot-path edit |
+| 4 | P1-4 — duplicate neighbor scan | **COMPLETE** | Exact pair/live-frame equivalence, CPU profile, and full two-profile A/B below | Keep `2cabf86` |
 | 5 | P1-5 — permanent UI-sync rAF | **COMPLETE** | Five-trial UI instrumentation and quick FPS gate below | Keep |
 | 6 | P1-10 — per-particle color work | **COMPLETE** | Deterministic color-path test plus focused three-trial A/B matrix below | Keep |
 | 7 | P2-1 — repeated pair thresholds | **REJECTED** | Deterministic win, but focused FPS gate confirmed a regression | Production change removed |
@@ -185,7 +185,7 @@ Progress protocol:
 
 ## P1-4. 8-neighbor grid scan visits every pair twice
 
-**Status:** IN PROGRESS.
+**Status:** COMPLETE.
 
 **Cycle 6 application baseline:** `2908723` (`docs: complete configuration cleanup cycle`). The tracked tree is clean apart from the excluded user-owned `webgl-black-hole/` directory. The cycle plan is `docs/plans/2026-09-01-half-neighborhood.md`.
 
@@ -307,6 +307,29 @@ No uncapped average-FPS row regressed by more than 5%, so the focused confirmati
 **Validation:** Performance trace "Evaluate Script" blocks; FCP/DCL delta before/after.
 
 **Confidence:** high.
+
+### P1-4 validation and benchmark — 2026-09-01
+
+**Exact implementation baseline:** `7f349df` (`docs: record grid traversal baseline`). **Accepted implementation:** `2cabf86` (`perf: scan neighboring cells once`). The production diff changes only the cross-cell offset loops to `(0,1)`, `(1,-1)`, `(1,0)`, and `(1,1)` and removes the invalid cross-cell index guard. Same-cell traversal, grid construction, particle drawing, interaction math, collision traversal, and frame scheduling remain unchanged.
+
+**Correctness:** the pure fixture continued to match all unordered pairs without duplicates while halving cross-cell candidates. Three alternating live trials matched finite-scenario positions, velocities, every captured WebGL line value, threshold reads, and validation counts exactly. Deferred/lazy startup with Tweakpane blocked, hidden pause/resume and stopped state, two destroy/recreate cycles plus pending-build abort, deterministic frame colors/settings restoration, and P0-2 resize all passed. The shipped 185-particle state, rAF, WebGL/context health, seven hotkeys, and zero console/page/request errors were retained.
+
+**Quick diagnostic:** average FPS changed +0.05%, +25.81%, and +356.21% for static at 1,500/5,000/15,000 particles, and -0.01%, +22.32%, and +1.72% for cycling/gradient. The 15,000 static row sampled too few frames and is not treated as a claimed gain. Settings restored exactly, rAF remained active, and WebGL stayed healthy with no errors.
+
+**Full benchmark method:** Microsoft Edge 152.0.4191.53, headless, 1280x720, DPR 1, NVIDIA GeForce RTX 5080 through ANGLE D3D11. Three alternating trials compared the exact preceding tree and candidate at 5,000/10,000/15,000 particles for both static and cycling/gradient workloads. Values are medians; minimum is the median instantaneous minimum.
+
+| Profile | Count | Baseline avg | Optimized avg | Avg change | Baseline min | Optimized min | Min change |
+|---|---:|---:|---:|---:|---:|---:|---:|
+| Static | 5,000 | 20.55 | 24.39 | +18.65% | 16.64 | 18.66 | +12.13% |
+| Static | 10,000 | 5.84 | 6.72 | +15.11% | 5.22 | 5.89 | +12.65% |
+| Static | 15,000 | 2.33 | 3.00 | +28.58% | 2.50 | 2.92 | +16.86% |
+| Cycling/gradient | 5,000 | 23.89 | 26.24 | +9.83% | 19.53 | 18.69 | -4.30% |
+| Cycling/gradient | 10,000 | 5.92 | 6.27 | +5.85% | 4.87 | 6.03 | +23.76% |
+| Cycling/gradient | 15,000 | 2.50 | 2.71 | +8.36% | 2.77 | 2.76 | -0.39% |
+
+**CPU profile:** `scripts/profile-particle-network.js` used the DevTools sampling profiler for three alternating 4-second static trials at 10,000 particles. Median sampled `ParticleNetwork.js` self-time fell from 134.77 to 116.87 ms/frame (-13.28%); baseline trials completed 24-27 profiled frames and optimized trials 29-31. All six profiles held exactly 10,000 particles with active rAF, healthy WebGL, and no browser errors. This corroborates the FPS result; the pair-count proof remains the deterministic evidence.
+
+**Decision:** keep `2cabf86` and mark P1-4 complete. Every median average-FPS row improved, neither small minimum-FPS regression crossed 5%, deterministic behavior stayed exact, and the profiler independently confirmed lower per-frame engine self-time.
 
 ### Lifecycle baseline — 2026-09-01
 
