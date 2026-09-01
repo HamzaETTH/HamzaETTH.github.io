@@ -24,7 +24,7 @@ This file is the permanent optimization record. Every optimization must be isola
 | 12 | P1-7 — deferred classic scripts | **COMPLETE** | Deterministic ready-state/lifecycle and quick FPS gates below | Keep |
 | 13 | P1-8 + lazy-build settings UI | **COMPLETE** | Lifecycle, blocked-CDN, UI-sync, deterministic color, and quick FPS gates below | Keep |
 | 14 | Pause simulation while hidden | **COMPLETE** | Deterministic visibility lifecycle plus focused five-trial 10k gate below | Keep `b47c8f1` |
-| 15 | Proper `destroy()` / teardown | **IN PROGRESS** | Exact application baseline `3bbe80c`; Cycle 4 plan below | Commit instrumented recreation baseline before production edits |
+| 15 | Proper `destroy()` / teardown | **IN PROGRESS** | Exact test checkpoint `8dd8c84`; leak baseline below | Implement leaf-to-root ownership and integrated recreation |
 | 16 | Configuration cleanup | **PENDING** | Shipped string types and duplicated maps require equivalence fixture | Preserve exact runtime option values/types |
 | 17 | Full SoA/index architecture | **DEFERRED** | Start only after the requested cumulative milestone | Re-profile and write a staged plan |
 
@@ -365,6 +365,18 @@ The HTML body changed from 35,847 bytes to 2,625 bytes and the extracted local m
 **Cumulative smoke:** startup retained all seven bootstrap hotkeys, deferred scripts, no initial Tweakpane request/pane, exactly one pane after repeated C toggles, and a healthy active engine. The deterministic particle-frame-color contract passed all static/cycling/trail checks and restored all 185 settings values.
 
 **Decision:** keep the event-driven implementation. It eliminates all tested hidden simulation frames and resume jumps without adding work to the visible frame loop or changing stopped/running semantics.
+
+## Proper `destroy()` / teardown
+
+**Status:** IN PROGRESS.
+
+**Application baseline:** `3bbe80c` (`docs: complete hidden simulation cycle`). **Exact test checkpoint:** `8dd8c84` (`test: capture teardown leak baseline`) on top of the Cycle 4 plan. The tracked tree was otherwise clean apart from excluded untracked `webgl-black-hole/`.
+
+**Current ownership audit:** a live engine owns one window resize listener; document contextmenu/keydown/keyup listeners; ten canvas mouse/pointer/wheel listeners; one rAF chain; resize and gather timeouts; a container plus 2D canvas; the GL renderer canvas, two programs, five buffers, and staging arrays; particle/grid/SoA storage; and a performance monitor. The hotkey singleton owns window keydown/keyup listeners plus guide/toast DOM/timeouts. The settings bootstrap owns its DOMContentLoaded and document visibility listeners, pane sync/toggle timers, lazy Tweakpane instance/container, hotkey closures/context, and benchmark runner global. None currently has a `destroy()` contract.
+
+**Baseline reproduction:** after building then hiding the real pane, the test created a second engine in a temporary target. Active tracked listeners increased from 699 to 712 (the 13 engine listeners duplicated) and active rAF chains from one to two. Detaching the target changed neither count. The detached 47-particle engine remained rAF-active, retained both disconnected canvases and a healthy—not released—WebGL context. Engine, renderer, monitor, hotkey manager, integrated destroy, and integrated create APIs were all absent. No browser error occurred.
+
+**Gate:** implement idempotent leaf-to-root cleanup and prove two integrated create-destroy cycles followed by one healthy live instance, with stale callbacks silent, old rAF/timers/listeners released, old GL contexts intentionally lost, old DOM/globals removed, one final owner for each singleton/resource, settings/hotkeys/visibility behavior preserved, and no visible performance regression.
 
 ## P1-9. Dead loads: ~30 KB waste + dead code
 
