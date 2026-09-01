@@ -18,6 +18,15 @@ This file is the permanent optimization record. Every optimization must be isola
 | 6 | P1-10 — per-particle color work | **COMPLETE** | Deterministic color-path test plus focused three-trial A/B matrix below | Keep |
 | 7 | P2-1 — repeated pair thresholds | **REJECTED** | Deterministic win, but focused FPS gate confirmed a regression | Production change removed |
 | 8 | P2-2 — per-pair velocity validation | **REJECTED** | Deterministic win, but focused FPS gate confirmed a regression | Production change removed |
+| 9 | P1-6 — unused Inter load | **IN PROGRESS** | 2026-09-01 startup baseline below | Remove load, repeat startup probe |
+| 10 | Missing `site.webmanifest` | **BASELINED** | Explicit fetch is HTTP 404 and the only baseline console error | Fix after P1-6 in an isolated commit |
+| 11 | P1-9 — dead startup loads/code | **PENDING** | Current-reference audit reconfirmed the documented entry loads | Split into reversible cleanup commits |
+| 12 | P1-7/P1-8 — deferred startup and Tweakpane | **PENDING** | Coupled to settings-UI construction | Plan after low-risk startup cleanup |
+| 13 | Lazy-build settings UI | **PENDING** | Existing pane is still built during `DOMContentLoaded` | Couple with P1-8 without restoring hidden polling |
+| 14 | Pause simulation while hidden | **PENDING** | No current visibility lifecycle | Isolate running/stopped/resume-state test |
+| 15 | Proper `destroy()` / teardown | **PENDING** | Current engine has no complete lifecycle cleanup | Listener/resource/recreation regression |
+| 16 | Configuration cleanup | **PENDING** | Shipped string types and duplicated maps require equivalence fixture | Preserve exact runtime option values/types |
+| 17 | Full SoA/index architecture | **DEFERRED** | Start only after the requested cumulative milestone | Re-profile and write a staged plan |
 
 Progress protocol:
 
@@ -243,6 +252,10 @@ No uncapped average-FPS row regressed by more than 5%, so the focused confirmati
 
 ## P1-6. Startup: unused Inter font @import (render-blocking chain)
 
+**Status:** IN PROGRESS.
+
+**Application baseline:** `c19f747` (`docs: plan startup cleanup cycle`), recorded 2026-09-01. The tracked tree was otherwise clean; the unrelated untracked `webgl-black-hole/` directory remains excluded.
+
 **Locations:** `css/style.css:1` — `@import url(https://fonts.googleapis.com/css?family=Inter:400,500,600,700,800&display=swap)`; separate Fira Code link at `index.html:15`.
 
 **Why expensive:** `@import` inside the main stylesheet creates a serial render-blocking chain (HTML → style.css → fonts.googleapis.com). Inter — 5 weights, 5 font files — is **never used**: the entire CSS and body use `"Fira code"` (`style.css:16`, `HotkeyManager.js:203`). Two separate Google Fonts CSS requests instead of one; no `preconnect` to fonts.gstatic.com means font file downloads start late.
@@ -252,6 +265,14 @@ No uncapped average-FPS row regressed by more than 5%, so the focused confirmati
 **Validation:** network waterfall shows two fonts.googleapis.com CSS requests before, one after; Lighthouse render-blocking resources audit.
 
 **Confidence:** high (Inter usage verified absent by full CSS read).
+
+### Startup baseline — 2026-09-01
+
+**Method:** `scripts/test-startup-loads.js` launched Microsoft Edge 152.0.4191.53 headlessly at 1280×720 and DPR 1 against the unchanged local site. It captured response/resource entries, console/page errors, explicit manifest fetch results, the live particle/WebGL state, and a real `C`-hotkey settings-pane open. Timing values are diagnostic only; request counts and response status are the deterministic gates for this startup batch.
+
+**Result:** the page requested two Google Fonts stylesheets: Fira Code plus the unused Inter family. The local startup path loaded ten scripts, including `ParticleRenderer.js` and `Benchmark.js`, and transferred 165,563 encoded local resource bytes under the uncompressed local server. The particle network was active with 185 particles, WebGL was present and not lost, the settings pane opened with populated controls, and `BenchmarkSystem` was already loaded. The explicit `/site.webmanifest` fetch returned HTTP 404 with HTML rather than JSON; that missing resource produced the only console error. There were no request failures or page errors.
+
+**Decision:** keep the harness as the startup regression gate. Remove only the unused Inter request for P1-6, then fix the manifest and dead loads in their own commits.
 
 ## P1-7. Startup: parser-blocking scripts + parse-time engine init
 
