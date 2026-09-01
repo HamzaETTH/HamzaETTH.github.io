@@ -25,7 +25,7 @@ This file is the permanent optimization record. Every optimization must be isola
 | 13 | P1-8 + lazy-build settings UI | **COMPLETE** | Lifecycle, blocked-CDN, UI-sync, deterministic color, and quick FPS gates below | Keep |
 | 14 | Pause simulation while hidden | **COMPLETE** | Deterministic visibility lifecycle plus focused five-trial 10k gate below | Keep `b47c8f1` |
 | 15 | Proper `destroy()` / teardown | **COMPLETE** | Two destroy/recreate cycles, pending-build abort, resource release, UI-sync, and FPS gates below | Keep `5da077d` |
-| 16 | Configuration cleanup | **PENDING** | Shipped string types and duplicated maps require equivalence fixture | Preserve exact runtime option values/types |
+| 16 | Configuration cleanup | **IN PROGRESS** | Exact application baseline `4d024f9`; Cycle 5 plan below | Commit value/type equivalence fixture before production edit |
 | 17 | Full SoA/index architecture | **DEFERRED** | Start only after the requested cumulative milestone | Re-profile and write a staged plan |
 
 Progress protocol:
