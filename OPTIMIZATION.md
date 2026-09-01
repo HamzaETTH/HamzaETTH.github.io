@@ -20,7 +20,7 @@ This file is the permanent optimization record. Every optimization must be isola
 | 8 | P2-2 — per-pair velocity validation | **REJECTED** | Deterministic win, but focused FPS gate confirmed a regression | Production change removed |
 | 9 | P1-6 — unused Inter load | **COMPLETE** | Deterministic two-to-one font stylesheet request result below | Keep |
 | 10 | Missing `site.webmanifest` | **COMPLETE** | Explicit HTTP/JSON gate and full startup smoke below | Keep |
-| 11 | P1-9 — dead startup loads/code | **PENDING** | Current-reference audit reconfirmed the documented entry loads | Split into reversible cleanup commits |
+| 11 | P1-9 — dead startup loads/code | **IN PROGRESS** | Current-reference audit reconfirmed the documented entry loads | Split into reversible cleanup commits |
 | 12 | P1-7/P1-8 — deferred startup and Tweakpane | **PENDING** | Coupled to settings-UI construction | Plan after low-risk startup cleanup |
 | 13 | Lazy-build settings UI | **PENDING** | Existing pane is still built during `DOMContentLoaded` | Couple with P1-8 without restoring hidden polling |
 | 14 | Pause simulation while hidden | **PENDING** | No current visibility lifecycle | Isolate running/stopped/resume-state test |
@@ -312,9 +312,13 @@ No uncapped average-FPS row regressed by more than 5%, so the focused confirmati
 
 ## P1-9. Dead loads: ~30 KB waste + dead code
 
+**Status:** IN PROGRESS.
+
+**P1-9a baseline:** `537df2b` (`fix: add site web manifest`), recorded 2026-09-01. A tracked-reference check across the deployed HTML, alternate HTML, CSS, `js/`, and `scripts/` found only the `index.html` load of `ParticleRenderer.js`; `ParticleCore.js` and `ParticlePhysics.js` had no consumers, and the live engine refers only to the distinct `ParticleNetworkRendererGL` global. The tracked tree was clean apart from the excluded untracked `webgl-black-hole/` directory.
+
 | Item | Location | Detail | Fix |
 |---|---|---|---|
-| `ParticleRenderer.js` loaded, never used | `index.html:51`; 10.5 KB; exports `window.ParticleNetworkRenderer` at `:310` | Only consumer is `ParticleCore.js:116`, itself never loaded. ~100% unused bytes | Remove script tag (and file) |
+| `ParticleRenderer.js` loaded, never used | `index.html:51`; 10.5 KB; exports `window.ParticleNetworkRenderer` at `:310` | Only consumer is `ParticleCore.js:116`, itself never loaded. ~100% unused bytes | **REJECTED:** removal crossed the focused FPS gate; keep load/file |
 | `Benchmark.js` ships to all visitors | `index.html:54`; 16 KB | Dev-only; used solely by 'b' hotkey (`index.html:688-697`) which lazily constructs `BenchmarkSystem` | Lazy `import('./js/Benchmark.js')` inside the hotkey handler |
 | Dead `buildDefaultParams()` | `index.html:151-225` | Defined, never called (~2.5 KB); third copy of the default-parameter map | Delete |
 | Unused imports | `index.html:58` | `normalizeHex`, `toCssColor` never used | Trim import to `rgbArrayToHex, randInt, rand01, randBool, randHex` |
@@ -325,6 +329,16 @@ No uncapped average-FPS row regressed by more than 5%, so the focused confirmati
 **Validation:** DevTools Coverage tab.
 
 **Confidence:** high for all rows.
+
+### P1-9a rejected experiment — orphaned modules and renderer load, 2026-09-01
+
+**Candidate:** remove the deployed `ParticleRenderer.js` script tag and delete the unreferenced `ParticleRenderer.js`, `ParticleCore.js`, and `ParticlePhysics.js` files. The candidate startup probe reduced local script requests from ten to nine and encoded local resource bytes from 165,469 to 155,014 (−10,455 bytes). Particle/WebGL/settings/manifest smoke checks passed with no browser errors.
+
+**Quick gate:** the 12-measurement diagnostic was highly variable and crossed the 5% confirmation threshold at static 5,000 (−10.2%) and cycling/gradient 15,000 (−6.6%), while other uncapped rows ranged from +12.5% to +167.6%.
+
+**Focused result:** a three-trial alternating 5,000/15,000 matrix remained contradictory. Static 5,000 improved 6.5% and cycling 5,000 changed −0.6%, but static 15,000 changed −25.6% and cycling 15,000 changed −8.9%. The 15,000 measurements sampled very few frames, so a five-trial alternating 10,000-particle confirmation was run: static median average FPS changed from 6.69 to 6.34 (−5.24%) and cycling/gradient from 6.11 to 6.08 (−0.54%). Static minimum changed −3.4%; cycling minimum changed −3.8%.
+
+**Decision:** reject and fully revert P1-9a because the higher-sample static confirmation still crossed the predeclared 5% average-FPS rejection rule. The source-reference evidence remains valid, but measured behavior takes precedence. No application, README, or file-removal change from this experiment is retained.
 
 ## Missing `site.webmanifest`
 
