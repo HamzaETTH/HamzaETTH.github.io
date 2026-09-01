@@ -24,7 +24,7 @@ This file is the permanent optimization record. Every optimization must be isola
 | 12 | P1-7 — deferred classic scripts | **COMPLETE** | Deterministic ready-state/lifecycle and quick FPS gates below | Keep |
 | 13 | P1-8 + lazy-build settings UI | **COMPLETE** | Lifecycle, blocked-CDN, UI-sync, deterministic color, and quick FPS gates below | Keep |
 | 14 | Pause simulation while hidden | **COMPLETE** | Deterministic visibility lifecycle plus focused five-trial 10k gate below | Keep `b47c8f1` |
-| 15 | Proper `destroy()` / teardown | **IN PROGRESS** | Exact test checkpoint `8dd8c84`; leak baseline below | Implement leaf-to-root ownership and integrated recreation |
+| 15 | Proper `destroy()` / teardown | **COMPLETE** | Two destroy/recreate cycles, pending-build abort, resource release, UI-sync, and FPS gates below | Keep `5da077d` |
 | 16 | Configuration cleanup | **PENDING** | Shipped string types and duplicated maps require equivalence fixture | Preserve exact runtime option values/types |
 | 17 | Full SoA/index architecture | **DEFERRED** | Start only after the requested cumulative milestone | Re-profile and write a staged plan |
 
@@ -368,7 +368,7 @@ The HTML body changed from 35,847 bytes to 2,625 bytes and the extracted local m
 
 ## Proper `destroy()` / teardown
 
-**Status:** IN PROGRESS.
+**Status:** COMPLETE.
 
 **Application baseline:** `3bbe80c` (`docs: complete hidden simulation cycle`). **Exact test checkpoint:** `8dd8c84` (`test: capture teardown leak baseline`) on top of the Cycle 4 plan. The tracked tree was otherwise clean apart from excluded untracked `webgl-black-hole/`.
 
@@ -377,6 +377,22 @@ The HTML body changed from 35,847 bytes to 2,625 bytes and the extracted local m
 **Baseline reproduction:** after building then hiding the real pane, the test created a second engine in a temporary target. Active tracked listeners increased from 699 to 712 (the 13 engine listeners duplicated) and active rAF chains from one to two. Detaching the target changed neither count. The detached 47-particle engine remained rAF-active, retained both disconnected canvases and a healthy—not released—WebGL context. Engine, renderer, monitor, hotkey manager, integrated destroy, and integrated create APIs were all absent. No browser error occurred.
 
 **Gate:** implement idempotent leaf-to-root cleanup and prove two integrated create-destroy cycles followed by one healthy live instance, with stale callbacks silent, old rAF/timers/listeners released, old GL contexts intentionally lost, old DOM/globals removed, one final owner for each singleton/resource, settings/hotkeys/visibility behavior preserved, and no visible performance regression.
+
+**Accepted change:** `5da077d` (`feat: add particle lifecycle teardown`) adds leaf `destroy()` contracts for the GL renderer, performance monitor, hotkey manager, and benchmark runner; generation-safe pane disposal; and integrated `destroyParticleExperience()` / `createParticleExperience()` APIs. `ParticleLifecycle.js` captures the engine's existing anonymous listeners and any timeouts they create without rewriting the simulation hot path, then installs the engine teardown externally. The factory also restores the particle container's original fixed positioning before recreation, avoiding the zero-height second-instance failure found during development.
+
+The accepted tree adds one 4,788-byte deferred local lifecycle script plus disposal code in the existing owners. This is an intentional startup/resource tradeoff, not claimed as a load-path optimization. The lifecycle startup probe now expects nine ordered classic scripts; all remain deferred, and Tweakpane remains absent from initial startup.
+
+**Rejected internal design:** the first implementation rewrote all 13 engine listener registrations and placed the 65-line destroy method inside `ParticleNetwork.js`. The quick gate triggered at cycling/gradient 5,000 (-6.15%). Three alternating confirmation trials then measured 5,000 at +4.20%, but 10,000 median average FPS at -20.98% and minimum at -40.34%; every 10,000 candidate average was lower. That design was discarded. The accepted external owner leaves the complete simulation/update implementation unchanged and changes only the file's final construction/factory hook.
+
+**Repeated lifecycle result:** two consecutive integrated destroy calls were each followed by recreation, then a third live instance was retained. Every destroyed engine was idempotently marked destroyed, had zero queued rAF ids, zero stale post-destroy frames, zero tracked timeouts, zero app-owned window/document listeners, disconnected DOM, cleared pointer/force state, nulled particle/grid/SoA storage, cleared singleton globals, and an intentionally lost old WebGL context. Help/performance/gather timers were active before teardown and still cleared. The final instance had 185 particles, one active rAF chain, one engine container, two canvases, one performance overlay, seven unique hotkeys, and a fresh non-lost WebGL context.
+
+**Async/UI/benchmark result:** destroying during simultaneous lazy-pane import and a running benchmark left no pane, benchmark overlay, canvas, active monitor, hotkey manager, or particle global after one second; the delayed import did not resurrect UI. A subsequent normal recreation lazily built exactly one populated pane. Tweakpane's detached-node listeners remain visible only inside the test's deliberately retaining listener registry; all app-owned global listeners are removed, the pane is disposed and detached, and no production reference remains. No browser/page error occurred.
+
+**Correctness and interaction gates:** startup/lazy-pane lifecycle, hidden simulation pause/resume, P0-2 resize, deterministic frame-color/settings restoration, and three alternating pair-equivalence trials all passed. Pair positions, velocities, GL line values, threshold reads, and validation counts matched exactly. The five-trial P1-5 instrumentation also passed: hidden/running and both stopped states performed zero binding refreshes; visible/running retained 20 refreshes; all five immediate catch-up checks passed; visible refresh work changed from 8.5 to 8.8 ms median with no errors.
+
+**Final performance gate:** the accepted external-owner quick run had no uncapped average regression beyond 5%. At 5,000 particles, static changed +3.22% and cycling/gradient +0.60%; refresh-capped 1,500 changed +12.38%/+0.70% because the baseline static sample contained a large startup hitch. Low-sample 15,000 rows were positive. These diagnostic numbers are not claimed gains; the result is that the prior repeatable regression disappeared while settings restored, rAF stayed active, and WebGL remained healthy.
+
+**Decision:** keep the external lifecycle architecture and mark teardown complete. It provides deterministic, repeatable leaf-to-root release without changing the simulation hot path that failed the focused benchmark.
 
 ## P1-9. Dead loads: ~30 KB waste + dead code
 
