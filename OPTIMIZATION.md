@@ -25,7 +25,7 @@ This file is the permanent optimization record. Every optimization must be isola
 | 13 | P1-8 + lazy-build settings UI | **COMPLETE** | Lifecycle, blocked-CDN, UI-sync, deterministic color, and quick FPS gates below | Keep |
 | 14 | Pause simulation while hidden | **COMPLETE** | Deterministic visibility lifecycle plus focused five-trial 10k gate below | Keep `b47c8f1` |
 | 15 | Proper `destroy()` / teardown | **COMPLETE** | Two destroy/recreate cycles, pending-build abort, resource release, UI-sync, and FPS gates below | Keep `5da077d` |
-| 16 | Configuration cleanup | **IN PROGRESS** | Exact test checkpoint `11afb23`; deterministic contract below | Delegate assembly to Config.js and prove exact equivalence |
+| 16 | Configuration cleanup | **COMPLETE** | Exact configuration contract, lifecycle suite, pair equivalence, and focused FPS confirmation below | Keep `9e51979` |
 | 17 | Full SoA/index architecture | **DEFERRED** | Start only after the requested cumulative milestone | Re-profile and write a staged plan |
 
 Progress protocol:
@@ -396,13 +396,23 @@ The accepted tree adds one 4,788-byte deferred local lifecycle script plus dispo
 
 ## Configuration cleanup
 
-**Status:** IN PROGRESS.
+**Status:** COMPLETE.
 
 **Application baseline:** `4d024f9` (`docs: complete lifecycle teardown cycle`). **Exact test checkpoint:** `11afb23` (`test: capture configuration contract`) on top of the Cycle 5 plan. The tracked tree was otherwise clean apart from excluded untracked `webgl-black-hole/`.
 
 **Baseline contract:** `scripts/test-config-contract.js` fixes the page's random source before scripts load and records ordered key/value/type entries rather than relying on numeric-looking equality. It captures the 35-key public `DEFAULT_CONFIG`, all five presets, four `createConfig()` merge/falsy cases, the shipped raw input, the shipped 48-key runtime options object, and four constructor cases covering defaults, shipped inputs, zeros/false/string types, null fallbacks, clamps, and ignored unknown keys. Baseline-to-baseline snapshots matched exactly; both retained 185 particles, healthy WebGL, and zero browser errors.
 
 **Required change:** Config.js should own the existing runtime assembly contract while leaving its public defaults, presets, and merge behavior unchanged. `ParticleNetwork.js` may delegate construction, but it must retain exact runtime property order, fallback operators, string density behavior, velocity mapping, clamps, randomized method selection, and unknown-key filtering. A cleaner-looking but type-different result is a failure.
+
+**Exact implementation baseline:** `1cb241f` (`docs: record configuration baseline`). **Accepted implementation:** `9e51979` (`refactor: centralize runtime configuration`). `Config.js` now owns `createRuntimeConfig()`, while the engine constructor delegates only the assembly step. The existing public 35-key defaults, five presets, `createConfig()` merge behavior, all fallback operators, property order, string density, velocity mapping, clamps, random-method fallback, and unknown-key filtering are unchanged. Across `Config.js` and `ParticleNetwork.js`, the served source fell from 74,850 to 73,729 bytes (-1,121 bytes); this is recorded as code consolidation, not a performance claim.
+
+**Deterministic result:** the fixed-PRNG configuration contract matched the exact baseline for every ordered key, value, and JavaScript type across public defaults, presets, four merge/falsy cases, the shipped raw input, the shipped 48-key runtime object, and four direct-constructor cases. Both trees retained 185 particles, healthy WebGL, and zero browser errors. Three alternating pair trials also matched positions, velocities, every captured GL line value, threshold reads, and validation counts exactly.
+
+**Lifecycle and rendering result:** deferred/lazy startup passed with Tweakpane blocked and no startup request for it; all seven hotkeys, the running loop, and WebGL remained healthy. Hidden pause/resume and stopped-state behavior passed. Two destroy/recreate cycles plus the pending-pane/benchmark abort case left no stale instances or resources. The deterministic frame-color/settings test, P0-2 resize test, settings restoration, context-health checks, and console/page-error gates all passed.
+
+**Performance gate:** the quick 12-measurement diagnostic changed static average FPS by +0.05%, +30.94%, and -27.39% at 1,500/5,000/15,000 particles, and cycling/gradient by -0.72%, +6.65%, and -0.16%. The contradictory low-sample 15,000 result triggered the established 10,000-particle confirmation. Five alternating trials measured static +1.05% average and -1.34% minimum; cycling/gradient measured +6.02% average and +0.06% minimum, narrowly crossing the 5% threshold amid high trial variance. A second seven-trial cycling-only confirmation measured -0.18% average and +2.52% minimum. Both focused runs restored settings, retained active rAF and healthy WebGL, and reported no browser errors.
+
+**Decision:** keep `9e51979` and mark configuration cleanup complete. Exact shipped behavior is preserved, the runtime assembly contract now has one owner, and the marginal first focused signal did not reproduce in the larger confirmation.
 
 ## P1-9. Dead loads: ~30 KB waste + dead code
 
