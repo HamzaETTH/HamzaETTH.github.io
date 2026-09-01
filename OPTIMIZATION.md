@@ -350,6 +350,16 @@ No uncapped average-FPS row regressed by more than 5%, so the focused confirmati
 
 **Decision:** keep P1-9b. It removes a verified-unreachable configuration copy without changing runtime behavior or crossing the quick regression gate.
 
+### P1-9c — duplicated ColorUtils declaration block
+
+**Baseline:** `c57852d` (`perf: remove dead inline settings defaults`), recorded 2026-09-01. `ColorUtils.js` declares the same global function and `var` names twice. Classic-script global `var` assignment makes the second, larger `ColorUtils` object the shipped `window.ColorUtils`; a live snapshot confirmed its LAB/WCAG methods are present and the first block's `interpolateRgb` helper is absent. This subchange must preserve the exact exported keys, enum, and deterministic method results.
+
+**Change and deterministic result:** removed the first 102-line declaration/export block and added `scripts/test-color-utils-contract.js`. Against the exact baseline and candidate, the test matched all 11 exported keys, all six `ColorDiffMethod` values, deterministic results for converters and every differentiation method, the shipped 185-particle count, and WebGL health. Both variants had zero console/page errors. The served `ColorUtils.js` body fell from 11,220 to 7,190 bytes (−4,030 bytes).
+
+**Performance gate:** the quick diagnostic's static 5,000 row showed a −23.0% outlier and triggered focused confirmation. Three alternating static 5,000 trials did not reproduce it: median average FPS changed from 26.34 to 28.23 (+7.18%) and minimum from 20.04 to 23.26 (+16.05%). The startup and benchmark smokes restored settings, retained the active loop and healthy WebGL, and reported no browser errors.
+
+**Decision:** keep P1-9c. Exact contract equivalence passed and the required focused gate rejected the quick-run regression signal.
+
 ## Missing `site.webmanifest`
 
 **Status:** COMPLETE.
