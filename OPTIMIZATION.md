@@ -20,7 +20,7 @@ This file is the permanent optimization record. Every optimization must be isola
 | 8 | P2-2 — per-pair velocity validation | **REJECTED** | Deterministic win, but focused FPS gate confirmed a regression | Production change removed |
 | 9 | P1-6 — unused Inter load | **COMPLETE** | Deterministic two-to-one font stylesheet request result below | Keep |
 | 10 | Missing `site.webmanifest` | **COMPLETE** | Explicit HTTP/JSON gate and full startup smoke below | Keep |
-| 11 | P1-9 — dead startup loads/code | **IN PROGRESS** | Current-reference audit reconfirmed the documented entry loads | Split into reversible cleanup commits |
+| 11 | P1-9 — dead startup loads/code | **COMPLETE** | Three accepted subchanges and two documented benchmark rejections below | Keep accepted tree `5f52b88` |
 | 12 | P1-7/P1-8 — deferred startup and Tweakpane | **PENDING** | Coupled to settings-UI construction | Plan after low-risk startup cleanup |
 | 13 | Lazy-build settings UI | **PENDING** | Existing pane is still built during `DOMContentLoaded` | Couple with P1-8 without restoring hidden polling |
 | 14 | Pause simulation while hidden | **PENDING** | No current visibility lifecycle | Isolate running/stopped/resume-state test |
@@ -319,12 +319,12 @@ No uncapped average-FPS row regressed by more than 5%, so the focused confirmati
 | Item | Location | Detail | Fix |
 |---|---|---|---|
 | `ParticleRenderer.js` loaded, never used | `index.html:51`; 10.5 KB; exports `window.ParticleNetworkRenderer` at `:310` | Only consumer is `ParticleCore.js:116`, itself never loaded. ~100% unused bytes | **REJECTED:** removal crossed the focused FPS gate; keep load/file |
-| `Benchmark.js` ships to all visitors | `index.html:54`; 16 KB | Dev-only; used solely by 'b' hotkey (`index.html:688-697`) which lazily constructs `BenchmarkSystem` | Lazy `import('./js/Benchmark.js')` inside the hotkey handler |
+| `Benchmark.js` ships to all visitors | `index.html:54`; 16 KB | Dev-only; used solely by 'b' hotkey (`index.html:688-697`) which lazily constructs `BenchmarkSystem` | **REJECTED:** lazy import crossed the focused 15k FPS gate |
 | Dead `buildDefaultParams()` | `index.html:151-225` | Defined, never called (~2.5 KB); third copy of the default-parameter map | Delete |
 | Unused imports | `index.html:58` | `normalizeHex`, `toCssColor` never used | Trim import to `rgbArrayToHex, randInt, rand01, randBool, randHex` |
 | `ColorUtils.js` duplicated first half | `js/ColorUtils.js:7-102` vs `:104-347` | Both top-level function declarations; hoisting makes the second copy (the superset, adds `rgbToLab`, `deltaE`, `contrastRatio`) win; first block ~5 KB dead | Delete lines 1-102 |
 | Dead velocity-persist loops | `js/ParticleNetwork.js:416-439` | Two byte-identical loops copying `this.o[i].velocity` into `this.velX/velY`; guard `if (this.velX && this.velY && Array.isArray(this.o))` is always false at that point (`this.o` created `:509`, `velX` at `:517`) | Delete both blocks |
-| Orphaned engine files | `js/ParticleCore.js` (18.8 KB), `js/ParticlePhysics.js` (11.6 KB) | Referenced by no HTML or JS anywhere (verified index.html, grid.html, full-repo search); features reimplemented inside `ParticleNetwork.js` | Delete |
+| Orphaned engine files | `js/ParticleCore.js` (18.8 KB), `js/ParticlePhysics.js` (11.6 KB) | Referenced by no HTML or JS anywhere (verified index.html, grid.html, full-repo search); features reimplemented inside `ParticleNetwork.js` | **REJECTED with P1-9a:** combined cleanup reverted after FPS gate |
 
 **Validation:** DevTools Coverage tab.
 
@@ -369,6 +369,28 @@ No uncapped average-FPS row regressed by more than 5%, so the focused confirmati
 **Quick FPS gate:** no uncapped average row regressed by more than 5%. Static changed +0.2% at 5,000 and +20.9% at low-sample 15,000; cycling/gradient changed −2.4% and +17.1%. The refresh-capped 1,500 average changes were below 1.5%; its minimum variation was an isolated load hitch and not a gate failure.
 
 **Decision:** keep P1-9d. The removed branches were provably unreachable, deterministic pair behavior is identical, and the quick gate passed.
+
+### P1-9e — lazy benchmark loading
+
+**Baseline:** `5f52b88` (`perf: remove unreachable velocity syncs`), recorded 2026-09-01. `Benchmark.js` is an eager classic script used only by the B hotkey and automated validation. The baseline startup probe reports `BenchmarkSystem` present before interaction and a 16,167-byte local `Benchmark.js` body on every page load. The B handler, main benchmark runner, pair-path test, and particle-color test are the complete current consumer set.
+
+**Candidate and functional result:** removed the eager script, dynamically imported it from the async B handler, and made all three automated consumers import it explicitly. A dedicated hotkey test proved the optimized page made no initial request and exposed no initial global, then made exactly one request, created one runner, and invoked it once on B without changing particle count or WebGL health. The real particle-color test and startup smoke passed with zero browser errors; the initial local script count fell from ten to nine and 16,167 encoded bytes left the initial load path.
+
+**Performance result:** the quick diagnostic triggered confirmation because cycling/gradient at 15,000 changed −12.9%. A focused three-trial cycling/gradient run then measured 10,000 improving from 6.23 to 7.05 average FPS (+13.05%), but 15,000 regressing from 2.63 to 2.28 (−13.33%); minimum changed −14.87%. All three paired 15,000 trials were lower for the candidate.
+
+**Decision:** reject and fully revert P1-9e. The functional lazy-load behavior and 16 KB startup reduction were real, but the repeatable 15,000-particle regression crossed the stated gate. The eager script and original automated-runner bootstrap remain shipped.
+
+### P1-9 cumulative result — 2026-09-01
+
+**Accepted commits:** `c57852d` removed the dead inline default map/imports, `165425c` removed the duplicate ColorUtils declaration block with an exact contract test, and `5f52b88` removed unreachable constructor velocity-sync loops with deterministic pair equivalence. P1-9a renderer/orphan removal and P1-9e lazy benchmark loading were both fully reverted after their focused gates confirmed regressions.
+
+**Cumulative startup comparison:** against exact pre-P1-9 application baseline `537df2b`, the accepted tree reduced the served HTML body from 39,876 to 35,847 bytes and the local resource-entry bodies from 167,008 to 161,098 bytes under the uncompressed local server. Request counts intentionally remain ten local scripts and one font stylesheet because both request-removal experiments were rejected. Both variants retained the shipped 185-particle state, healthy WebGL, populated settings pane, valid manifest, eager benchmark availability, and zero browser errors. Network timings were dominated by a roughly three-second CDN response in this pass and are not used as a speed claim.
+
+**Cumulative correctness:** ColorUtils keys, enum values, and deterministic results were exact across the baseline/accepted trees. Three alternating pair-path trials matched positions, velocities, rendered line data, option-read counts, and validation counts exactly with healthy WebGL and no errors.
+
+**Cumulative quick FPS gate:** no uncapped average row regressed. At 5,000 particles, static changed +17.4% and cycling/gradient +3.3%; at the low-sample 15,000 rows they changed +174.4% and +9.6%. Refresh-capped 1,500 averages changed −0.7%/−1.8%; isolated minimum hitches are not treated as a performance claim. These are diagnostic gate results, not attributed gains from dead-code deletion.
+
+**Conclusion:** mark P1-9 complete with the accepted dead-code reductions retained and both failed request-removal experiments preserved as rejected evidence.
 
 ## Missing `site.webmanifest`
 
