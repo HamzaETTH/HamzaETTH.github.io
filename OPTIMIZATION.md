@@ -360,6 +360,16 @@ No uncapped average-FPS row regressed by more than 5%, so the focused confirmati
 
 **Decision:** keep P1-9c. Exact contract equivalence passed and the required focused gate rejected the quick-run regression signal.
 
+### P1-9d — unreachable velocity-persist loops
+
+**Baseline:** `165425c` (`perf: remove duplicate color utilities`), recorded 2026-09-01. Both constructor loops are guarded by `this.velX && this.velY && Array.isArray(this.o)` before `this.o` or the SoA arrays are initialized, so neither can execute. The live per-frame object-to-SoA velocity persistence later in `update()` remains out of scope and must stay unchanged.
+
+**Change and deterministic result:** removed both unreachable constructor loops and extended `scripts/test-pair-hot-path.js` with a generic equivalence mode. Three alternating trials matched finite-scenario positions, velocities, every captured WebGL line value, threshold-read counts, and `isNaN` counts exactly. WebGL stayed healthy and no browser error occurred. The served `ParticleNetwork.js` body fell by 998 bytes.
+
+**Quick FPS gate:** no uncapped average row regressed by more than 5%. Static changed +0.2% at 5,000 and +20.9% at low-sample 15,000; cycling/gradient changed −2.4% and +17.1%. The refresh-capped 1,500 average changes were below 1.5%; its minimum variation was an isolated load hitch and not a gate failure.
+
+**Decision:** keep P1-9d. The removed branches were provably unreachable, deterministic pair behavior is identical, and the quick gate passed.
+
 ## Missing `site.webmanifest`
 
 **Status:** COMPLETE.

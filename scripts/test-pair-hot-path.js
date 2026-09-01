@@ -7,7 +7,7 @@ function usage() {
   rtk node scripts/test-pair-hot-path.js \\
     --baseline http://127.0.0.1:8123/ \\
     --optimized http://127.0.0.1:8124/ \\
-    --expect <thresholds|velocity> [--trials 3] [--headless]`);
+    --expect <equivalence|thresholds|velocity> [--trials 3] [--headless]`);
 }
 
 function parseArgs(argv) {
@@ -239,9 +239,9 @@ async function main() {
     usage();
     return;
   }
-  if (!options.baseline || !options.optimized || !['thresholds', 'velocity'].includes(options.expect)) {
+  if (!options.baseline || !options.optimized || !['equivalence', 'thresholds', 'velocity'].includes(options.expect)) {
     usage();
-    throw new Error('--baseline, --optimized, and --expect thresholds|velocity are required');
+    throw new Error('--baseline, --optimized, and --expect equivalence|thresholds|velocity are required');
   }
   if (!Number.isInteger(options.trials) || options.trials < 1) {
     throw new Error('--trials must be a positive integer');
@@ -318,7 +318,7 @@ async function main() {
       assertions.thresholdReadsReduced = thresholdReadsReduced;
       assertions.optimizedThresholdReadsConstant = optimizedThresholdsConstant;
       assertions.invalidForceRecovered = optimizedInvalidFinite;
-    } else {
+    } else if (options.expect === 'velocity') {
       assertions.isNaNCallsReduced = isNaNCallsReduced;
       assertions.invalidVelocityRecovered = optimizedInvalidFinite;
     }

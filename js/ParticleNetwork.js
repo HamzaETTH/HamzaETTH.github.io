@@ -495,31 +495,6 @@
         }
       }
 
-      // Persist object-level interaction velocity changes back into SoA buffers
-      if (this.velX && this.velY && Array.isArray(this.o)) {
-        var nn = Math.min(this.numParticles|0, this.o.length);
-        for (var si = 0; si < nn; si++) {
-          var po = this.o[si];
-          if (po && po.velocity) {
-            this.velX[si] = po.velocity.x;
-            this.velY[si] = po.velocity.y;
-          }
-        }
-      }
-
-      // Persist object-level interaction velocity changes back into SoA buffers
-      // Pairwise interactions update object velocities; carry them into next frame's SoA update
-      if (this.velX && this.velY && Array.isArray(this.o)) {
-        var nn2 = Math.min(this.numParticles | 0, this.o.length);
-        for (var ssi = 0; ssi < nn2; ssi++) {
-          var pso = this.o[ssi];
-          if (pso && pso.velocity) {
-            this.velX[ssi] = pso.velocity.x;
-            this.velY[ssi] = pso.velocity.y;
-          }
-        }
-      }
-
       // Resize event listener
       // Unified resize helper
       this._rebuildOnResize = function() {
