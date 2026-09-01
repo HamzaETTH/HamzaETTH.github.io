@@ -728,6 +728,12 @@ The frame loop already computes squared interaction, line-connection, and maximu
 
 The committed migration plan is `docs/plans/2026-09-01-soa-index-migration.md`. It defines Stage 0 deterministic architecture contracts; Stage 1 index grid storage; Stage 2 indexed position geometry/rendering; Stage 3 precision-preserving typed pair forces/collisions; Stage 4 removal of per-frame object synchronization and migration of trails/settings/benchmark consumers; Stage 5 direct typed creation/object removal; and a mandatory re-profile/stop decision. Each stage has an exact BEFORE commit, correctness and performance gates, a separate AFTER commit, and explicit rejection/revert rules.
 
+### Stage 0 — deterministic architecture checkpoint
+
+**Exact test checkpoint:** `5b24e7c` (`test: capture SoA state contract`). `scripts/test-soa-state-contract.js` fixes the PRNG and clock, controls manual frames, and records ordered object state, typed-array state/types, normalized grid contents, GL point/line calls, 2D Canvas calls, rAF state, appearance behavior, and count/buffer rebuilds. Baseline-to-baseline runs produced identical SHA-256 `34d169441dd809f196a223d2a73cbb6668ebf04f3e4e8da02f3e05799c344b26` with healthy WebGL and zero browser errors.
+
+The checkpoint covers four static-wrap frames; three curved-bounce, pair-repulsion, pair-attraction, and collision frames; two pointer/proximity, trails+jitter 2D, and particle-cycling frames; exact count 12 then halve to 6; and the current appearance contract. It explicitly captures the shipped typed-size quirk: appearance changes all object sizes to 3.5 while `sizeA` remains `[3,2,2,3,2,2,3,2]`. Stage 0 is complete; `5b24e7c` is the BEFORE point for Stage 1.
+
 ---
 
 # P2 — Smaller / conditional
