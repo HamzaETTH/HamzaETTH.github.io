@@ -13,7 +13,7 @@ This file is the permanent optimization record. Every optimization must be isola
 | 1 | P0-1 — pair-loop allocations | **COMPLETE** | Full two-profile A/B matrix below | Keep |
 | 2 | P0-2 — redundant GL resize | **COMPLETE** | Resize regression plus full two-profile A/B matrix below | Keep |
 | 3 | P0-3 — unconditional UI rebuild | **REJECTED** | 2026-08-31 live rebuild-count validation below | Audit premise was stale; no production change |
-| 4 | P1-4 — duplicate neighbor scan | **PENDING** | Rationale corrected after index-guard review | Isolate after lifecycle work; deterministic pair-set equivalence then full A/B |
+| 4 | P1-4 — duplicate neighbor scan | **IN PROGRESS** | Cycle 6 baseline `2908723`; deterministic fixture next | Exact pair-set/candidate-visit proof before hot-path edit |
 | 5 | P1-5 — permanent UI-sync rAF | **COMPLETE** | Five-trial UI instrumentation and quick FPS gate below | Keep |
 | 6 | P1-10 — per-particle color work | **COMPLETE** | Deterministic color-path test plus focused three-trial A/B matrix below | Keep |
 | 7 | P2-1 — repeated pair thresholds | **REJECTED** | Deterministic win, but focused FPS gate confirmed a regression | Production change removed |
@@ -185,13 +185,15 @@ Progress protocol:
 
 ## P1-4. 8-neighbor grid scan visits every pair twice
 
-**Status:** NEXT.
+**Status:** IN PROGRESS.
+
+**Cycle 6 application baseline:** `2908723` (`docs: complete configuration cleanup cycle`). The tracked tree is clean apart from the excluded user-owned `webgl-black-hole/` directory. The cycle plan is `docs/plans/2026-09-01-half-neighborhood.md`.
 
 **Locations:** `js/ParticleNetwork.js:1029-1050` — 3×3 neighbor loop visits all 8 offsets; dedup guard `particleA.index < particleB.index` at `:1045` runs *after* visiting; same-cell pairs handled at `:1024-1027`.
 
 **Why expensive:** ~half of the neighboring-cell traversal and pair-index comparisons are redundant: the pair (A,B) is reached from A's cell and again from B's cell, but the existing `particleA.index < particleB.index` guard skips the second visit before interaction and distance calculations run. A half-neighborhood scan would remove the duplicate traversal and comparisons, not duplicate distance math, so the expected gain is smaller than originally documented.
 
-**Fix:** replace the 8-offset loop with the 4 half-neighborhood offsets `(0,1), (1,-1), (1,0), (1,1)` — same-cell already covered. Existing index guard keeps it correct and deduped. Identical math, zero visual change.
+**Fix:** replace the 8-offset loop with the 4 half-neighborhood offsets `(0,1), (1,-1), (1,0), (1,1)` — same-cell is already covered. The cross-cell particle-index guard must be removed: the half-neighborhood visits each unordered cell pair once, and retaining an index-order condition would omit valid pairs whose indices oppose the chosen cell direction. Pair-set and live-frame equivalence are mandatory before benchmarking.
 
 **Validation:** Benchmark.js at 5000/10000/15000 before/after; DevTools self-time of update loop.
 
