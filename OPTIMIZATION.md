@@ -23,7 +23,7 @@ This file is the permanent optimization record. Every optimization must be isola
 | 11 | P1-9 — dead startup loads/code | **COMPLETE** | Three accepted subchanges and two documented benchmark rejections below | Keep accepted tree `5f52b88` |
 | 12 | P1-7 — deferred classic scripts | **COMPLETE** | Deterministic ready-state/lifecycle and quick FPS gates below | Keep |
 | 13 | P1-8 + lazy-build settings UI | **COMPLETE** | Lifecycle, blocked-CDN, UI-sync, deterministic color, and quick FPS gates below | Keep |
-| 14 | Pause simulation while hidden | **IN PROGRESS** | Exact implementation baseline `95f1593`; deterministic defect reproduced below | Implement stored visibility lifecycle and run gates |
+| 14 | Pause simulation while hidden | **COMPLETE** | Deterministic visibility lifecycle plus focused five-trial 10k gate below | Keep `b47c8f1` |
 | 15 | Proper `destroy()` / teardown | **PENDING** | Current engine has no complete lifecycle cleanup | Listener/resource/recreation regression |
 | 16 | Configuration cleanup | **PENDING** | Shipped string types and duplicated maps require equivalence fixture | Preserve exact runtime option values/types |
 | 17 | Full SoA/index architecture | **DEFERRED** | Start only after the requested cumulative milestone | Re-profile and write a staged plan |
@@ -346,13 +346,25 @@ The HTML body changed from 35,847 bytes to 2,625 bytes and the extracted local m
 
 ## Pause simulation while the document is hidden
 
-**Status:** IN PROGRESS.
+**Status:** COMPLETE.
 
 **Application baseline:** `efd8d1f` (`perf: lazy-build settings controls`). **Exact implementation baseline:** `95f1593` (`test: capture hidden loop baseline`), which adds only `scripts/test-visibility-lifecycle.js` on top of the Cycle 3 plan/checkpoint. The tracked tree was otherwise clean apart from excluded untracked `webgl-black-hole/`.
 
 **Baseline method and result:** the headless Edge lifecycle probe overrides the document visibility properties, dispatches the real `visibilitychange` event, and counts calls through the live bound update chain. A visible/running 250 ms sample ran 36 frames. The hidden/running sample still ran 37 frames with `_rafActive=true` and an rAF id. After a stopped velocity was changed back to non-zero while hidden, the synchronous restart plus queued loop ran 23 frames in 150 ms and its first `dt` hit the 0.1 s clamp. A zero-velocity hide/show round trip correctly remained stopped. The shipped 185-particle state and WebGL context stayed healthy with no browser errors.
 
 **Required change:** one stored visibility handler must cancel and clear the active frame while hidden, remember only valid running intent, reset the timebase on visible resume, and schedule at most one frame chain. Direct restart attempts while hidden must record resume intent without simulating a frame. A loop stopped by zero velocity must remain stopped across hide/show.
+
+**Accepted change:** `b47c8f1` (`perf: pause hidden simulation`) installs the stored visibility lifecycle from the already-loaded bootstrap module and teaches the parameter-application restart path to defer while hidden. Hide cancels the queued frame and records running intent; show resets `_lastUpdateTime` and schedules only when that intent and non-zero velocity agree. Keeping this lifecycle outside `ParticleNetwork.js` leaves the visible per-frame engine byte-for-byte unchanged.
+
+**Deterministic result:** over 250 ms, visible/running produced 36 frames, hidden/running produced zero with `_rafActive=false` and no rAF id, and visible resume produced one normal 36-37-frame chain. Repeated visible events did not duplicate it. The first resumed `dt` was 0-6.8 ms rather than the baseline's 100 ms clamp. A zero-velocity hide/show remained stopped with zero frames. Applying non-zero velocity while hidden also produced zero hidden frames, then resumed one chain on show. The 185-particle scene and WebGL context stayed healthy with no browser errors.
+
+**Rejected internal placement:** the first candidate put a `document.hidden` guard directly at the top of `ParticleNetwork.update()`. It passed lifecycle and exact pair/color checks, but its required focused three-trial 10k/15k cycling test measured the 15k median average -10.33%. Removing the per-frame check and retaining only constructor/event handling still produced a five-trial 10k regression (static -5.40%, cycling/gradient -9.02%). Both engine-file variants were discarded, not hidden from the record.
+
+**Final performance gate:** the event-driven implementation's quick gate crossed only the one-frame cycling/gradient 15k row (-9.24%), so the prescribed five-trial alternating 10k confirmation was run for both profiles. Static median average changed from 6.52 to 6.95 FPS (+6.45%) and median minimum from 5.85 to 6.18 (+5.50%). Cycling/gradient median average changed from 6.07 to 6.66 (+9.78%) and minimum from 5.80 to 5.82 (+0.35%). These noisy confirmation values are not claimed gains; they show the repeatable regression disappeared. Every run reached 10,000 particles with active rAF, healthy WebGL, exact settings restoration, and no browser errors.
+
+**Cumulative smoke:** startup retained all seven bootstrap hotkeys, deferred scripts, no initial Tweakpane request/pane, exactly one pane after repeated C toggles, and a healthy active engine. The deterministic particle-frame-color contract passed all static/cycling/trail checks and restored all 185 settings values.
+
+**Decision:** keep the event-driven implementation. It eliminates all tested hidden simulation frames and resume jumps without adding work to the visible frame loop or changing stopped/running semantics.
 
 ## P1-9. Dead loads: ~30 KB waste + dead code
 
