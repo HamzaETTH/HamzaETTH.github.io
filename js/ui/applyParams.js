@@ -86,7 +86,11 @@ function applyVelocityAndDensity(pn, o, p) {
   
   // If the loop was stopped (velocity 0) and we now have non-zero velocity, restart it
   if ((!pn._rafActive || pn._rafId == null) && o.velocity !== 0 && typeof pn.update === 'function') {
-    pn.update();
+    if (document.hidden) {
+      pn._resumeOnVisible = true;
+    } else {
+      pn.update();
+    }
   }
 
   // Density: rebuild particle arrays based on new density

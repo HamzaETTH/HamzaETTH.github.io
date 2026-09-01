@@ -651,6 +651,33 @@ async function invokePaneAction(action) {
   }
 }
 
+function installVisibilityLifecycle(pn) {
+  if (pn._handleVisibilityChange) return;
+
+  pn._resumeOnVisible = false;
+  pn._handleVisibilityChange = function () {
+    if (document.hidden) {
+      pn._resumeOnVisible = pn.options.velocity !== 0 &&
+        (pn._resumeOnVisible || pn._rafActive || pn._rafId != null);
+      if (pn._rafId != null) cancelAnimationFrame(pn._rafId);
+      pn._rafActive = false;
+      pn._rafId = null;
+      return;
+    }
+
+    const shouldResume = pn._resumeOnVisible && pn.options.velocity !== 0;
+    pn._resumeOnVisible = false;
+    if (shouldResume && !pn._rafActive && pn._rafId == null) {
+      pn._lastUpdateTime = performance.now();
+      pn._rafActive = true;
+      pn._rafId = requestAnimationFrame(pn.update);
+    }
+  };
+  document.addEventListener('visibilitychange', pn._handleVisibilityChange);
+
+  if (document.hidden) pn._handleVisibilityChange();
+}
+
 function registerBootstrapHotkeys() {
   const pn = window.particleInstance;
   const manager = window.hotkeyManager;
@@ -659,6 +686,7 @@ function registerBootstrapHotkeys() {
     return;
   }
 
+  installVisibilityLifecycle(pn);
   const params = buildParamsFromNetwork(pn);
   manager.setContext({
     particleInstance: pn,

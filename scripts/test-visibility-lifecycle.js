@@ -33,6 +33,10 @@ async function main() {
 
     await page.goto(options.url, { waitUntil: 'load' });
     await page.waitForFunction(() => window.particleInstance && window.particleInstance._rafActive);
+    await page.evaluate(async () => {
+      const module = await import('./js/ui/applyParams.js');
+      window.__applyVisibilityTestParams = module.applyParamsToNetwork;
+    });
 
     const lifecycle = await page.evaluate(async () => {
       const pn = window.particleInstance;
@@ -99,8 +103,10 @@ async function main() {
       const stoppedRoundTrip = { ...resetSample(), state: state() };
 
       setHidden(true);
-      pn.options.velocity = originalVelocity || 1;
-      pn.update();
+      window.__applyVisibilityTestParams(pn, {
+        ...pn.options,
+        velocity: originalVelocity || 1
+      });
       await wait(150);
       const restartedWhileHidden = { ...resetSample(), state: state() };
 
@@ -142,7 +148,7 @@ async function main() {
       resumeTimebaseReset: firstFiniteDt(lifecycle.resumedRunning) < 0.05,
       stoppedStatePreserved: lifecycle.stoppedRoundTrip.frames === 0 &&
         !lifecycle.stoppedRoundTrip.state.rafActive && !lifecycle.stoppedRoundTrip.state.rafIdPresent,
-      hiddenRestartDeferred: lifecycle.restartedWhileHidden.frames === 1 &&
+      hiddenRestartDeferred: lifecycle.restartedWhileHidden.frames === 0 &&
         !lifecycle.restartedWhileHidden.state.rafActive && !lifecycle.restartedWhileHidden.state.rafIdPresent,
       hiddenRestartResumedOnce: lifecycle.resumedAfterHiddenRestart.frames >= 10 &&
         lifecycle.resumedAfterHiddenRestart.frames <= lifecycle.visibleRunning.frames * 1.5 + 2 &&
