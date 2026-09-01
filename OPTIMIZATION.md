@@ -189,6 +189,8 @@ Progress protocol:
 
 **Cycle 6 application baseline:** `2908723` (`docs: complete configuration cleanup cycle`). The tracked tree is clean apart from the excluded user-owned `webgl-black-hole/` directory. The cycle plan is `docs/plans/2026-09-01-half-neighborhood.md`.
 
+**Exact implementation checkpoint:** `a6a49e3` (`test: capture grid traversal contract`). The test-only fixture covers full and sparse grids, same-cell pairs, every neighboring direction, boundaries, empty cells, and particle indices deliberately opposed to cell traversal. Before any production edit, the proposed half-neighborhood matched all 29 and 17 unordered pairs with no duplicates, preserved 1 and 2 same-cell candidates, and halved cross-cell candidate visits from 56 to 28 and 30 to 15. Retaining the old index guard would incorrectly lose 20 and 10 pairs, confirming that it must be removed.
+
 **Locations:** `js/ParticleNetwork.js:1029-1050` — 3×3 neighbor loop visits all 8 offsets; dedup guard `particleA.index < particleB.index` at `:1045` runs *after* visiting; same-cell pairs handled at `:1024-1027`.
 
 **Why expensive:** ~half of the neighboring-cell traversal and pair-index comparisons are redundant: the pair (A,B) is reached from A's cell and again from B's cell, but the existing `particleA.index < particleB.index` guard skips the second visit before interaction and distance calculations run. A half-neighborhood scan would remove the duplicate traversal and comparisons, not duplicate distance math, so the expected gain is smaller than originally documented.
