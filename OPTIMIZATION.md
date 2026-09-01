@@ -22,7 +22,7 @@ This file is the permanent optimization record. Every optimization must be isola
 | 10 | Missing `site.webmanifest` | **COMPLETE** | Explicit HTTP/JSON gate and full startup smoke below | Keep |
 | 11 | P1-9 — dead startup loads/code | **COMPLETE** | Three accepted subchanges and two documented benchmark rejections below | Keep accepted tree `5f52b88` |
 | 12 | P1-7 — deferred classic scripts | **COMPLETE** | Deterministic ready-state/lifecycle and quick FPS gates below | Keep |
-| 13 | P1-8 + lazy-build settings UI | **PENDING** | Existing pane is built during DCL and gates hotkeys on CDN | Couple load/build without restoring hidden polling |
+| 13 | P1-8 + lazy-build settings UI | **COMPLETE** | Lifecycle, blocked-CDN, UI-sync, deterministic color, and quick FPS gates below | Keep |
 | 14 | Pause simulation while hidden | **PENDING** | No current visibility lifecycle | Isolate running/stopped/resume-state test |
 | 15 | Proper `destroy()` / teardown | **PENDING** | Current engine has no complete lifecycle cleanup | Listener/resource/recreation regression |
 | 16 | Configuration cleanup | **PENDING** | Shipped string types and duplicated maps require equivalence fixture | Preserve exact runtime option values/types |
@@ -324,15 +324,25 @@ No uncapped average-FPS row regressed by more than 5%, so the focused confirmati
 
 ## P1-8. Startup: tweakpane CDN gates DOMContentLoaded
 
+**Status:** COMPLETE.
+
+**Baseline:** `1385205` (`perf: defer ordered startup scripts`), recorded 2026-09-01. Its lifecycle probe shows Tweakpane requested and one fully populated hidden pane built before first C; all seven hotkeys are registered only inside that Tweakpane-dependent module path. The tracked tree was otherwise clean, excluding untracked `webgl-black-hole/`.
+
 **Location:** `index.html:57` — `import {Pane} from 'https://cdn.jsdelivr.net/npm/tweakpane@4.0.5/dist/tweakpane.min.js'` (measured: 152,084 bytes, ~0.26s on a good connection).
 
 **Why expensive:** the single largest JS payload on the page — larger than all local JS combined. Because it's a static import of a deferred module, DOMContentLoaded is delayed until the import graph resolves — so the whole pane build (`index.html:231`) and hotkey registration (`:701`) wait on cross-origin DNS+TCP+TLS+download. If the CDN is down or blocked, the page silently loses the controls pane and all hotkeys (the animation still runs).
 
-**Fix:** vendor tweakpane locally (~152 KB minified), or lazy-load: dynamic `import()` inside a user gesture / `requestIdleCallback` so the animation is never gated on it.
+**Change:** extracted the inline settings module to cacheable `js/ui/pane.js`, replaced the static cross-origin import with one shared dynamic-import/build promise, and installed lightweight bootstrap hotkeys at DOMContentLoaded. C builds and shows the pane on first use; R/D/M build it before their pane-dependent actions; P/H/B remain immediately usable without Tweakpane. Repeated C actions reuse one pane. The full settings code and `applyParams()` contract are otherwise unchanged.
 
-**Validation:** devtools request blocking of `cdn.jsdelivr.net`; Network tab DCL timestamp tied to the tweakpane response.
+The HTML body changed from 35,847 bytes to 2,625 bytes and the extracted local module is 32,295 bytes under the uncompressed server (34,920 combined, 927 bytes smaller before transfer overhead). More importantly, initial startup makes no Tweakpane request and creates no `#tp-container`; the 152,084-byte CDN dependency and all control construction move behind the first pane-dependent action. One observed first C build took 146.8 ms and produced one populated visible pane.
 
-**Confidence:** high.
+**Deterministic lifecycle gate:** all seven hotkeys were available before pane construction; the shipped 185-particle loop and WebGL context were healthy; first C loaded Tweakpane and built the controls; two further open/close cycles retained exactly one hidden pane and one CDN request. With the CDN explicitly blocked, initial startup still registered all hotkeys, created no pane, made no Tweakpane request, and kept the engine/WebGL healthy. The startup, color contract, and particle-frame-color probes reported no console/page/request errors; settings restoration returned all 185 values.
+
+**P1-5 interaction gate:** five focused alternating trials retained the intended state machine in both trees: hidden/running had 159 median rAF callbacks and zero binding refreshes; visible/running had 159 callbacks and 20 refreshes; both stopped states had zero callbacks/refreshes; every visible catch-up check passed. Visible refresh work changed from 9.0 ms to 8.6 ms median. No browser errors occurred, so lazy construction did not reintroduce permanent hidden-pane polling.
+
+**Quick FPS gate:** no uncapped average row regressed beyond 5%. At 5,000 particles, static changed -3.82% and cycling/gradient -0.42%; refresh-capped 1,500 averages changed +0.03%/-1.39%. The very low-sample 15,000 rows improved and are not treated as claimed gains. WebGL stayed healthy, the loop remained active, and settings restored exactly.
+
+**Decision:** keep P1-8 and the lazy-built settings UI. It removes the guaranteed cross-origin startup gate while preserving startup hotkeys, settings behavior, P1-5 refresh semantics, and the performance gate.
 
 ## P1-9. Dead loads: ~30 KB waste + dead code
 

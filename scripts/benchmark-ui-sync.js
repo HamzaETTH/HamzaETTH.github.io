@@ -176,8 +176,22 @@ async function loadVariant(page, url) {
   await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 30000 });
   await page.waitForFunction(() => {
     const manager = window.hotkeyManager;
-    return window.particleInstance && manager && manager.context && manager.context.pane && manager.context.params;
+    return window.particleInstance && manager && manager.context && manager.context.params && manager.handlers.has('c');
   }, null, { timeout: 30000 });
+  const paneBuilt = await page.evaluate(() => Boolean(window.hotkeyManager.context.pane));
+  if (!paneBuilt) {
+    await page.evaluate(dispatchControlToggle);
+    await page.waitForFunction(() => {
+      const manager = window.hotkeyManager;
+      const container = document.getElementById('tp-container');
+      return manager.context.pane && container && getComputedStyle(container).display !== 'none';
+    }, null, { timeout: 30000 });
+    await page.evaluate(dispatchControlToggle);
+    await page.waitForFunction(() => {
+      const container = document.getElementById('tp-container');
+      return container && getComputedStyle(container).display === 'none';
+    }, null, { timeout: 5000 });
+  }
   await page.evaluate(installUiSyncInstrumentation);
   await page.waitForTimeout(100);
 }

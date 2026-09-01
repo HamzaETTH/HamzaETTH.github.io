@@ -94,6 +94,7 @@ async function main() {
     initial.tweakpaneRequested = responses.some(isTweakpaneUrl);
 
     let afterFirstOpen = null;
+    let afterRepeatToggle = null;
     if (!options.blockTweakpane && initial.hotkeys.includes('c')) {
       const startedAt = performance.now();
       await page.keyboard.press('c');
@@ -117,6 +118,21 @@ async function main() {
         const container = document.getElementById('tp-container');
         return container && getComputedStyle(container).display === 'none';
       }, null, { timeout: 5000 });
+      await page.keyboard.press('c');
+      await page.waitForFunction(() => {
+        const container = document.getElementById('tp-container');
+        return container && getComputedStyle(container).display !== 'none';
+      }, null, { timeout: 5000 });
+      await page.keyboard.press('c');
+      await page.waitForFunction(() => {
+        const container = document.getElementById('tp-container');
+        return container && getComputedStyle(container).display === 'none';
+      }, null, { timeout: 5000 });
+      afterRepeatToggle = await page.evaluate(() => ({
+        paneContainerCount: document.querySelectorAll('#tp-container').length,
+        paneVisible: getComputedStyle(document.getElementById('tp-container')).display !== 'none'
+      }));
+      afterRepeatToggle.tweakpaneRequestCount = responses.filter(isTweakpaneUrl).length;
     }
 
     const expectedHotkeys = ['b', 'c', 'd', 'h', 'm', 'p', 'r'];
@@ -131,6 +147,10 @@ async function main() {
         afterFirstOpen && afterFirstOpen.paneVisible && afterFirstOpen.paneHasControls &&
         afterFirstOpen.paneContainerCount === 1
       );
+      assertions.repeatToggleReusesPane = Boolean(
+        afterRepeatToggle && !afterRepeatToggle.paneVisible &&
+        afterRepeatToggle.paneContainerCount === 1 && afterRepeatToggle.tweakpaneRequestCount === 1
+      );
       assertions.noBrowserErrors = browserErrors.length === 0 && failedRequests.length === 0;
     }
     if (options.expectDeferred) {
@@ -139,7 +159,9 @@ async function main() {
     }
     if (options.expectLazy) {
       assertions.paneSkippedInitially = !initial.paneExists && !initial.tweakpaneRequested;
-      assertions.tweakpaneLoadedOnOpen = Boolean(afterFirstOpen && afterFirstOpen.tweakpaneRequested);
+      if (!options.blockTweakpane) {
+        assertions.tweakpaneLoadedOnOpen = Boolean(afterFirstOpen && afterFirstOpen.tweakpaneRequested);
+      }
     }
     if (options.blockTweakpane && options.expectLazy) {
       assertions.blockedCdnDidNotAffectStartup = JSON.stringify(initial.hotkeys) === JSON.stringify(expectedHotkeys) &&
@@ -152,6 +174,7 @@ async function main() {
       assertions,
       initial,
       afterFirstOpen,
+      afterRepeatToggle,
       browserErrors,
       failedRequests
     };
