@@ -139,7 +139,7 @@ async function main() {
     const assertions = {
       particleRuntimeHealthy: initial.particleCount > 0 && initial.rafActive &&
         initial.hasWebGl && !initial.webGlContextLost,
-      expectedClassicScriptCount: initial.classicScripts.length === 8
+      expectedClassicScriptCount: initial.classicScripts.length === 9
     };
     if (!options.blockTweakpane) {
       assertions.hotkeysAvailable = JSON.stringify(initial.hotkeys) === JSON.stringify(expectedHotkeys);

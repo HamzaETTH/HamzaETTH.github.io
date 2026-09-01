@@ -180,10 +180,26 @@
     }
   };
 
+  PerformanceMonitor.prototype.destroy = function() {
+    if (this._destroyed) return;
+    this._destroyed = true;
+    this.stop();
+    if (window.__PN_ACTIVE_MONITOR__ === this) {
+      window.__PN_ACTIVE_MONITOR__ = null;
+      if (this.performanceDiv && this.performanceDiv.parentNode) {
+        this.performanceDiv.parentNode.removeChild(this.performanceDiv);
+      }
+    }
+    this._isActive = false;
+    this.performanceDiv = null;
+    this._textEl = null;
+    this.metrics = null;
+  };
+
   // Export as module or global
   if (typeof module !== 'undefined' && typeof module.exports !== 'undefined') {
     module.exports = PerformanceMonitor;
   } else {
     window.ParticleNetworkPerformanceMonitor = PerformanceMonitor;
   }
-})(window); 
+})(window);

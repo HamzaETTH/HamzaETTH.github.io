@@ -166,6 +166,8 @@ async function main() {
         };
       });
     } else {
+      await page.keyboard.press('h');
+      await page.keyboard.press('p');
       evidence = await page.evaluate(async () => {
         if (typeof window.destroyParticleExperience !== 'function' ||
             typeof window.createParticleExperience !== 'function') return null;
@@ -173,8 +175,19 @@ async function main() {
         for (let cycle = 0; cycle < 2; cycle++) {
           const old = window.particleInstance;
           const oldGl = old.glRenderer && old.glRenderer.gl;
-          window.destroyParticleExperience();
+          let staleFrames = 0;
+          const oldUpdate = old.update;
+          old.update = function () {
+            staleFrames++;
+            return oldUpdate.apply(old, arguments);
+          };
           await new Promise(resolve => setTimeout(resolve, 50));
+          document.dispatchEvent(new KeyboardEvent('keydown', { key: 'a', bubbles: true }));
+          window.destroyParticleExperience();
+          window.destroyParticleExperience();
+          const framesAtDestroy = staleFrames;
+          await new Promise(resolve => setTimeout(resolve, 100));
+          const snapshot = window.__lifecycleProbe.snapshot();
           cycles.push({
             destroyed: old._destroyed === true,
             rafActive: old._rafActive,
@@ -182,7 +195,14 @@ async function main() {
             containerConnected: Boolean(old.k && old.k.isConnected),
             canvasConnected: Boolean(old.canvas && old.canvas.isConnected),
             glContextLost: oldGl ? oldGl.isContextLost() : true,
-            snapshot: window.__lifecycleProbe.snapshot()
+            staleFramesAfterDestroy: staleFrames - framesAtDestroy,
+            storageReleased: old.o === null && old.grid === null && old.posX === null &&
+              old.posY === null && old.velX === null && old.velY === null && old.sizeA === null,
+            listenersReleased: old.__lifecycleListeners.length === 0,
+            globalsReleased: window.particleInstance === null && window.hotkeyManager === null &&
+              window.__PN_ACTIVE_MONITOR__ === null && window._benchmarkRunner == null &&
+              document.querySelectorAll('#tp-container').length === 0,
+            snapshot
           });
           window.createParticleExperience();
           await new Promise(resolve => setTimeout(resolve, 100));
@@ -192,6 +212,9 @@ async function main() {
           cycles,
           final: {
             particleCount: live.o.length,
+            containerOffset: [live.i.offsetWidth, live.i.offsetHeight],
+            containerSize: [live.i.size.width, live.i.size.height],
+            density: live.options.density,
             rafActive: live._rafActive,
             rafIdPresent: live._rafId != null,
             canvases: document.querySelectorAll('#particle-canvas canvas').length,
@@ -206,7 +229,50 @@ async function main() {
       });
     }
 
+    if (options.expect === 'optimized' && evidence) {
+      await page.keyboard.press('c');
+      await page.waitForFunction(() => {
+        const container = document.getElementById('tp-container');
+        return container && getComputedStyle(container).display !== 'none';
+      }, null, { timeout: 30000 });
+      evidence.recreatedUi = await page.evaluate(() => {
+        const container = document.getElementById('tp-container');
+        return {
+          paneContainers: document.querySelectorAll('#tp-container').length,
+          populated: Boolean(container && container.querySelector('.tp-dfwv, .tp-rotv')),
+          visible: Boolean(container && getComputedStyle(container).display !== 'none'),
+          hotkeys: Array.from(window.hotkeyManager.handlers.keys()).sort()
+        };
+      });
+      await page.keyboard.press('c');
+
+      const racePage = await context.newPage();
+      racePage.on('console', message => {
+        if (message.type() === 'error') browserErrors.push({ type: 'console', text: message.text() });
+      });
+      racePage.on('pageerror', error => browserErrors.push({ type: 'pageerror', text: String(error) }));
+      await racePage.goto(options.url, { waitUntil: 'load' });
+      await racePage.waitForFunction(() => window.hotkeyManager && window.hotkeyManager.handlers.has('c'));
+      await racePage.keyboard.press('b');
+      await racePage.keyboard.press('c');
+      await racePage.evaluate(() => window.destroyParticleExperience());
+      await racePage.waitForTimeout(1000);
+      evidence.pendingBuild = await racePage.evaluate(() => ({
+        particleInstance: window.particleInstance,
+        hotkeyManager: window.hotkeyManager,
+        activeMonitor: window.__PN_ACTIVE_MONITOR__,
+        paneContainers: document.querySelectorAll('#tp-container').length,
+        canvases: document.querySelectorAll('#particle-canvas canvas').length,
+        benchmarkOverlays: document.querySelectorAll('#bench-overlay').length
+      }));
+      await racePage.close();
+    }
+
     const missingContracts = evidence && Object.values(evidence.contracts || {}).every(value => value === 'undefined');
+    const ownedGlobalListenerKeys = [
+      'window:resize', 'window:keydown', 'window:keyup',
+      'document:contextmenu', 'document:keydown', 'document:keyup', 'document:visibilitychange'
+    ];
     const assertions = options.expect === 'baseline' ? {
       teardownContractsMissing: missingContracts,
       detachedEngineStayedRetained: Boolean(evidence &&
@@ -222,14 +288,26 @@ async function main() {
       lifecycleApiPresent: Boolean(evidence),
       twoCleanDestroyCycles: Boolean(evidence && evidence.cycles.length === 2 && evidence.cycles.every(cycle =>
         cycle.destroyed && !cycle.rafActive && !cycle.rafIdPresent &&
-        !cycle.containerConnected && !cycle.canvasConnected && cycle.glContextLost)),
+        !cycle.containerConnected && !cycle.canvasConnected && cycle.glContextLost &&
+        cycle.staleFramesAfterDestroy === 0 && cycle.storageReleased &&
+        cycle.listenersReleased && cycle.globalsReleased &&
+        cycle.snapshot.activeRafCount === 0 && cycle.snapshot.activeTimeoutCount === 0 &&
+        ownedGlobalListenerKeys.every(key => !cycle.snapshot.byTargetType[key]))),
       oneHealthyLiveInstance: Boolean(evidence && evidence.final.particleCount > 0 &&
         evidence.final.rafActive && evidence.final.rafIdPresent &&
         evidence.final.canvases === 2 && evidence.final.containers === 1 &&
         evidence.final.overlays === 1 && evidence.final.paneContainers === 0 &&
         !evidence.final.webGlContextLost),
       hotkeysRecreatedOnce: Boolean(evidence &&
-        JSON.stringify(evidence.final.hotkeys) === JSON.stringify(['b', 'c', 'd', 'h', 'm', 'p', 'r']))
+        JSON.stringify(evidence.final.hotkeys) === JSON.stringify(['b', 'c', 'd', 'h', 'm', 'p', 'r'])),
+      lazyPaneRecreatedOnce: Boolean(evidence && evidence.recreatedUi &&
+        evidence.recreatedUi.paneContainers === 1 && evidence.recreatedUi.populated &&
+        evidence.recreatedUi.visible &&
+        JSON.stringify(evidence.recreatedUi.hotkeys) === JSON.stringify(['b', 'c', 'd', 'h', 'm', 'p', 'r'])),
+      pendingPaneBuildStayedDestroyed: Boolean(evidence && evidence.pendingBuild &&
+        evidence.pendingBuild.particleInstance === null && evidence.pendingBuild.hotkeyManager === null &&
+        evidence.pendingBuild.activeMonitor === null && evidence.pendingBuild.paneContainers === 0 &&
+        evidence.pendingBuild.canvases === 0 && evidence.pendingBuild.benchmarkOverlays === 0)
     };
     assertions.noBrowserErrors = browserErrors.length === 0;
     const result = {

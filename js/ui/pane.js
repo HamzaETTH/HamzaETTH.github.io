@@ -3,6 +3,8 @@ import { applyParamsToNetwork } from './applyParams.js';
 
 const TWEAKPANE_URL = 'https://cdn.jsdelivr.net/npm/tweakpane@4.0.5/dist/tweakpane.min.js';
 let paneBuildPromise = null;
+let activeUi = null;
+let lifecycleGeneration = 0;
 
 // Utility: create container for pane we can show/hide
 function ensurePaneContainer() {
@@ -98,9 +100,11 @@ function buildParamsFromNetwork(pn) {
 window.applyParamsToNetwork = applyParamsToNetwork;
 
 async function buildPane() {
-  const { Pane } = await import(TWEAKPANE_URL);
   const pn = window.particleInstance;
-  if (!pn) return;
+  const generation = lifecycleGeneration;
+  if (!pn || pn._destroyed) return null;
+  const { Pane } = await import(TWEAKPANE_URL);
+  if (generation !== lifecycleGeneration || pn !== window.particleInstance || pn._destroyed) return null;
 
   // Color methods array (shared by hotkey handler and randomize function)
   const colorMethods = ['hueDistance','complementary','triadic','analogous','labPerceptual','wcagContrast'];
@@ -347,6 +351,8 @@ async function buildPane() {
 
   const syncIntervalMs = 100;
   let syncTimerId = null;
+  let featureHideTimerId = null;
+  let featureRestore = null;
 
   function syncColorBinding(key, color, binding) {
     if (PARAMS[key] === color) return;
@@ -476,10 +482,18 @@ async function buildPane() {
       // Fade away the features-tiles section once controls are shown
       const features = document.querySelector('.features-tiles.section');
       if (features && !features.dataset.hidden) {
+        featureRestore = {
+          transition: features.style.transition,
+          opacity: features.style.opacity,
+          pointerEvents: features.style.pointerEvents,
+          display: features.style.display,
+          hidden: features.dataset.hidden
+        };
         features.style.transition = features.style.transition || 'opacity 400ms ease';
         features.style.opacity = '0';
         features.style.pointerEvents = 'none';
-        setTimeout(() => {
+        featureHideTimerId = setTimeout(() => {
+          featureHideTimerId = null;
           features.style.display = 'none';
           features.dataset.hidden = '1';
         }, 420);
@@ -621,15 +635,36 @@ async function buildPane() {
     console.error('HotkeyManager not available - hotkeys will not work');
   }
 
-  return {
+  const ui = {
     pane,
     container,
     params: PARAMS,
     doReset,
     randomizeVisualParams,
     togglePane,
-    hotkeyHandlers
+    hotkeyHandlers,
+    destroy() {
+      stopRuntimeSync();
+      if (featureHideTimerId !== null) clearTimeout(featureHideTimerId);
+      featureHideTimerId = null;
+      if (featureRestore) {
+        const features = document.querySelector('.features-tiles.section');
+        if (features) {
+          features.style.transition = featureRestore.transition;
+          features.style.opacity = featureRestore.opacity;
+          features.style.pointerEvents = featureRestore.pointerEvents;
+          features.style.display = featureRestore.display;
+          if (typeof featureRestore.hidden === 'undefined') delete features.dataset.hidden;
+          else features.dataset.hidden = featureRestore.hidden;
+        }
+        featureRestore = null;
+      }
+      if (pane && typeof pane.dispose === 'function') pane.dispose();
+      if (container.parentNode) container.parentNode.removeChild(container);
+    }
   };
+  activeUi = ui;
+  return ui;
 }
 
 function ensurePaneBuilt() {
@@ -679,6 +714,7 @@ function installVisibilityLifecycle(pn) {
 }
 
 function registerBootstrapHotkeys() {
+  window.removeEventListener('DOMContentLoaded', registerBootstrapHotkeys);
   const pn = window.particleInstance;
   const manager = window.hotkeyManager;
   if (!pn || !manager) {
@@ -726,5 +762,42 @@ function registerBootstrapHotkeys() {
 
   console.log('HotkeyManager: Bootstrap hotkeys registered', Array.from(manager.handlers.keys()));
 }
+
+function destroySettingsOwnership() {
+  lifecycleGeneration++;
+  if (activeUi) activeUi.destroy();
+  activeUi = null;
+  paneBuildPromise = null;
+  const strayContainer = document.getElementById('tp-container');
+  if (strayContainer && strayContainer.parentNode) strayContainer.parentNode.removeChild(strayContainer);
+}
+
+window.destroyParticleExperience = function () {
+  const pn = window.particleInstance;
+  destroySettingsOwnership();
+  if (pn && pn._handleVisibilityChange) {
+    document.removeEventListener('visibilitychange', pn._handleVisibilityChange);
+    pn._handleVisibilityChange = null;
+  }
+  if (window._benchmarkRunner) {
+    if (typeof window._benchmarkRunner.destroy === 'function') window._benchmarkRunner.destroy();
+    window._benchmarkRunner = null;
+  }
+  if (window.hotkeyManager && typeof window.hotkeyManager.destroy === 'function') {
+    window.hotkeyManager.destroy();
+  }
+  if (pn && typeof pn.destroy === 'function') pn.destroy();
+  window.particleInstance = null;
+};
+
+window.createParticleExperience = function () {
+  if (window.particleInstance && !window.particleInstance._destroyed) return window.particleInstance;
+  if (!window.hotkeyManager || window.hotkeyManager._destroyed) {
+    window.hotkeyManager = new window.HotkeyManager();
+  }
+  const pn = window.createParticleNetwork();
+  if (pn) registerBootstrapHotkeys();
+  return pn;
+};
 
 window.addEventListener('DOMContentLoaded', registerBootstrapHotkeys);

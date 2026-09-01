@@ -26,13 +26,16 @@
       // UI Elements
       this.overlay = null;
       this.statusEl = null;
+      this._destroyed = false;
+      this._rafIds = new Set();
+      this._waits = new Set();
     }
 
     /**
      * Starts the benchmark process
      */
     async start() {
-      if (this.isRunning) return;
+      if (this.isRunning || this._destroyed) return;
       if (!this.pn) {
         console.error("Benchmark: No ParticleNetwork instance found.");
         return;
@@ -69,6 +72,7 @@
 
       // 3. Run Steps
       for (let i = 0; i < this.steps.length; i++) {
+        if (this._destroyed) return;
         const step = this.steps[i];
         this.updateStatus(`Testing: ${step.count} particles...`);
         
@@ -77,9 +81,11 @@
         
         // Warmup (let GC settle) - 500ms
         await this.wait(500);
+        if (this._destroyed) return;
         
         // Measure
         const metrics = await this.measure(step.duration);
+        if (this._destroyed) return;
         
         this.results.push({
           count: step.count,
@@ -280,8 +286,31 @@
         let minFps = Infinity;
         const startTime = performance.now();
         let lastFrameTime = startTime;
+        let settled = false;
+        const finish = metrics => {
+          if (settled) return;
+          settled = true;
+          this._measureFinishers.delete(cancel);
+          resolve(metrics);
+        };
+        const cancel = () => finish({ avg: 0, min: 0 });
+        if (!this._measureFinishers) this._measureFinishers = new Set();
+        this._measureFinishers.add(cancel);
+
+        const schedule = callback => {
+          let id = null;
+          id = requestAnimationFrame(timestamp => {
+            this._rafIds.delete(id);
+            callback(timestamp);
+          });
+          this._rafIds.add(id);
+        };
 
         const loop = () => {
+          if (this._destroyed) {
+            cancel();
+            return;
+          }
           const now = performance.now();
           const dt = now - lastFrameTime;
           
@@ -295,20 +324,27 @@
           lastFrameTime = now;
 
           if (now - startTime < duration) {
-            requestAnimationFrame(loop);
+            schedule(loop);
           } else {
             // Done
             const totalTime = now - startTime;
             const avg = (frames / totalTime) * 1000;
-            resolve({ avg, min: minFps === Infinity ? avg : minFps });
+            finish({ avg, min: minFps === Infinity ? avg : minFps });
           }
         };
-        requestAnimationFrame(loop);
+        schedule(loop);
       });
     }
 
     wait(ms) {
-      return new Promise(resolve => setTimeout(resolve, ms));
+      return new Promise(resolve => {
+        const entry = { id: null, resolve };
+        entry.id = setTimeout(() => {
+          this._waits.delete(entry);
+          resolve();
+        }, ms);
+        this._waits.add(entry);
+      });
     }
 
     restoreSettings() {
@@ -439,6 +475,27 @@
       container.appendChild(btnContainer);
 
       this.overlay.appendChild(container);
+    }
+
+    destroy() {
+      if (this._destroyed) return;
+      this._destroyed = true;
+      this.isRunning = false;
+      this._rafIds.forEach(id => cancelAnimationFrame(id));
+      this._rafIds.clear();
+      this._waits.forEach(entry => {
+        clearTimeout(entry.id);
+        entry.resolve();
+      });
+      this._waits.clear();
+      if (this._measureFinishers) {
+        this._measureFinishers.forEach(finish => finish());
+        this._measureFinishers.clear();
+      }
+      if (this.overlay && this.overlay.parentNode) this.overlay.parentNode.removeChild(this.overlay);
+      this.overlay = null;
+      this.statusEl = null;
+      this.pn = null;
     }
   }
 

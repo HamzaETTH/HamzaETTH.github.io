@@ -1548,9 +1548,21 @@ var options = {
   lineConnectionDistance: 120,
 };
 
-// Restore the auto-initialization to keep mouse interaction working
-var canvasDiv = document.getElementById("particle-canvas");
-var particleCanvas = new ParticleNetwork(canvasDiv, options);
+window.particleNetworkOptions = options;
+window.ParticleNetworkLifecycle.install(ParticleNetwork);
+window.createParticleNetwork = function () {
+  if (window.particleInstance && !window.particleInstance._destroyed) {
+    return window.particleInstance;
+  }
+  var canvasDiv = document.getElementById("particle-canvas");
+  if (!canvasDiv) return null;
+  window.particleInstance = window.ParticleNetworkLifecycle.create(
+    ParticleNetwork,
+    canvasDiv,
+    window.particleNetworkOptions
+  );
+  return window.particleInstance;
+};
 
-// Export the instance for external access
-window.particleInstance = particleCanvas;
+// Auto-initialize the first instance; the same factory supports tested recreation.
+var particleCanvas = window.createParticleNetwork();

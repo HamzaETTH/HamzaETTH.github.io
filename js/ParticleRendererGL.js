@@ -257,10 +257,49 @@
     }
   };
 
+  ParticleRendererGL.prototype.destroy = function() {
+    if (this._destroyed) return;
+    this._destroyed = true;
+
+    var gl = this.gl;
+    if (gl) {
+      [this.positionBuffer, this.colorBuffer, this.pointPositionBuffer,
+        this.pointColorBuffer, this.pointSizeBuffer].forEach(function(buffer) {
+        if (buffer) gl.deleteBuffer(buffer);
+      });
+      [this.programLines, this.programPoints].forEach(function(program) {
+        if (!program) return;
+        var shaders = gl.getAttachedShaders(program) || [];
+        shaders.forEach(function(shader) {
+          gl.detachShader(program, shader);
+          gl.deleteShader(shader);
+        });
+        gl.deleteProgram(program);
+      });
+      var loseContext = gl.getExtension('WEBGL_lose_context');
+      if (loseContext) loseContext.loseContext();
+    }
+
+    if (this.canvas && this.canvas.parentNode) this.canvas.parentNode.removeChild(this.canvas);
+    this.positions = null;
+    this.colors = null;
+    this.pointPositions = null;
+    this.pointColors = null;
+    this.pointSizes = null;
+    this.positionBuffer = null;
+    this.colorBuffer = null;
+    this.pointPositionBuffer = null;
+    this.pointColorBuffer = null;
+    this.pointSizeBuffer = null;
+    this.programLines = null;
+    this.programPoints = null;
+    this.gl = null;
+    this.canvas = null;
+  };
+
   if (typeof module !== 'undefined' && typeof module.exports !== 'undefined') {
     module.exports = ParticleRendererGL;
   } else {
     window.ParticleNetworkRendererGL = ParticleRendererGL;
   }
 })(window);
-

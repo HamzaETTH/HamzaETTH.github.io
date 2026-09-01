@@ -14,6 +14,9 @@
   function HotkeyManager() {
     this.handlers = new Map(); // key -> {down, up, description, options}
     this.context = null;
+    this._timerIds = new Set();
+    this._transientNodes = new Set();
+    this._destroyed = false;
     this.setupListeners();
   }
 
@@ -140,13 +143,20 @@
    * Setup global event listeners
    */
   HotkeyManager.prototype.setupListeners = function() {
-    const self = this;
-    window.addEventListener('keydown', function(event) {
-      self.handleKeyDown(event);
-    });
-    window.addEventListener('keyup', function(event) {
-      self.handleKeyUp(event);
-    });
+    this._onKeyDown = event => this.handleKeyDown(event);
+    this._onKeyUp = event => this.handleKeyUp(event);
+    window.addEventListener('keydown', this._onKeyDown);
+    window.addEventListener('keyup', this._onKeyUp);
+  };
+
+  HotkeyManager.prototype.removeLater = function(node, duration) {
+    this._transientNodes.add(node);
+    const timerId = setTimeout(() => {
+      this._timerIds.delete(timerId);
+      this._transientNodes.delete(node);
+      if (node.parentNode) node.parentNode.removeChild(node);
+    }, duration);
+    this._timerIds.add(timerId);
   };
 
   /**
@@ -208,11 +218,7 @@
     document.body.appendChild(guide);
 
     // Auto-remove after duration
-    setTimeout(() => {
-      if (guide.parentNode) {
-        guide.parentNode.removeChild(guide);
-      }
-    }, duration);
+    this.removeLater(guide, duration);
   };
 
   /**
@@ -240,11 +246,27 @@
     `;
 
     document.body.appendChild(toast);
-    setTimeout(() => {
-      if (toast.parentNode) {
-        toast.parentNode.removeChild(toast);
-      }
-    }, duration);
+    this.removeLater(toast, duration);
+  };
+
+  HotkeyManager.prototype.destroy = function() {
+    if (this._destroyed) return;
+    this._destroyed = true;
+    window.removeEventListener('keydown', this._onKeyDown);
+    window.removeEventListener('keyup', this._onKeyUp);
+    this._timerIds.forEach(timerId => clearTimeout(timerId));
+    this._timerIds.clear();
+    this._transientNodes.forEach(node => {
+      if (node.parentNode) node.parentNode.removeChild(node);
+    });
+    this._transientNodes.clear();
+    const guide = document.getElementById('hotkey-guide');
+    if (guide && guide.parentNode) guide.parentNode.removeChild(guide);
+    this.handlers.clear();
+    this.context = null;
+    this._onKeyDown = null;
+    this._onKeyUp = null;
+    if (window.hotkeyManager === this) window.hotkeyManager = null;
   };
 
   // Export to window
