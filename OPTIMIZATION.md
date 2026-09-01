@@ -26,7 +26,7 @@ This file is the permanent optimization record. Every optimization must be isola
 | 14 | Pause simulation while hidden | **COMPLETE** | Deterministic visibility lifecycle plus focused five-trial 10k gate below | Keep `b47c8f1` |
 | 15 | Proper `destroy()` / teardown | **COMPLETE** | Two destroy/recreate cycles, pending-build abort, resource release, UI-sync, and FPS gates below | Keep `5da077d` |
 | 16 | Configuration cleanup | **COMPLETE** | Exact configuration contract, lifecycle suite, pair equivalence, and focused FPS confirmation below | Keep `9e51979` |
-| 17 | Requested-scope cumulative milestone | **IN PROGRESS** | Baseline `5d017c4`; final application checkpoint `2cabf86` | Full regression and three-profile A/B |
+| 17 | Requested-scope cumulative milestone | **COMPLETE** | Final regression suite and 54-measurement three-profile A/B below | Keep application checkpoint `2cabf86` |
 | 18 | Full SoA/index architecture | **DEFERRED** | Start only after the requested cumulative milestone | Re-profile and write a staged plan |
 
 Progress protocol:
@@ -659,6 +659,34 @@ The frame loop already computes squared interaction, line-connection, and maximu
 **Duration and smoke:** the cumulative quick diagnostic completed 18 measurements in 0:43; the reportable matrix completed 54 measurements in 3:20, followed by the restoration smoke. All 72 measurements reached the requested particle count with rAF active, WebGL available, and no context loss or browser errors. At the shipped 185-particle state, the page remained refresh-rate capped; the settings pane opened with the `C` hotkey, displayed current runtime values, and a 1280×720 visual inspection showed intact particles, gradient lines, controls, and canvas coverage.
 
 **Overall conclusion:** the accepted optimization series improves median high-count average FPS by 53.7% to 89.3% across every tested workload. The ordinary shipped scene is already display-refresh capped, so its benefit is lower CPU/background overhead and more headroom rather than a visible FPS-number increase. P1-4 remains the next candidate, but it is expected to be smaller because it removes duplicate traversal and index comparisons rather than distance calculations.
+
+## Requested-scope cumulative milestone — 2026-09-01
+
+**Status:** COMPLETE.
+
+**Comparison:** exact requested-scope baseline `5d017c4` (`perf: integrate particle optimizations`) versus final application checkpoint `2cabf86` (`perf: scan neighboring cells once`). Ledger-only planning/completion commits do not change either served application. This comparison includes accepted P1-4, P1-6, P1-7, P1-8/lazy settings construction, P1-9b/c/d, hidden-document pausing, lifecycle teardown, the manifest fix, and configuration consolidation. Rejected P1-9a renderer/orphan removal, P1-9e lazy benchmark loading, and the rejected in-engine hidden/teardown placements remain excluded and documented in their individual sections.
+
+**Method:** Microsoft Edge 152.0.4191.53 ran headlessly at 1280x720 and DPR 1 on the NVIDIA GeForce RTX 5080 through ANGLE D3D11. The quick diagnostic used one alternating trial at 1,500/5,000/15,000 particles for static and cycling/gradient. The reportable matrix used three alternating trials per variant at 5,000/10,000/15,000 particles for static, cycling/gradient, and particle-cycling workloads. Values below are medians.
+
+| Profile | Count | Baseline avg | Final avg | Cumulative change |
+|---|---:|---:|---:|---:|
+| Static | 5,000 | 24.43 | 27.98 | +14.51% |
+| Static | 10,000 | 6.56 | 6.46 | -1.53% |
+| Static | 15,000 | 2.53 | 3.11 | +23.13% |
+| Cycling/gradient | 5,000 | 25.69 | 27.82 | +8.29% |
+| Cycling/gradient | 10,000 | 6.65 | 7.12 | +7.07% |
+| Cycling/gradient | 15,000 | 2.60 | 3.24 | +24.83% |
+| Particle cycling | 5,000 | 24.50 | 28.13 | +14.83% |
+| Particle cycling | 10,000 | 6.36 | 6.58 | +3.53% |
+| Particle cycling | 15,000 | 2.55 | 3.11 | +22.05% |
+
+**Benchmark result:** eight of nine average-FPS rows improved; static 10,000 changed -1.53%, below the 5% rejection gate. Median instantaneous minimum FPS changed -21.12% in static 10,000 and -10.17% in particle-cycling 10,000 because of isolated hitches, while their average medians remained inside the gate; all other minimum rows were between -0.99% and +24.94%. The quick diagnostic changed static average FPS -0.35%/+72.75%/+94.79% and cycling/gradient -1.29%/+2.60%/+14.02% at 1,500/5,000/15,000. Refresh-capped and one-frame rows are diagnostic only. Every one of the 66 cumulative measurements reached its requested particle count with active rAF, WebGL present and not lost, exact settings restoration, and zero browser errors.
+
+**Final correctness/regression pass:** the initial page has nine ordered deferred classic scripts, all seven hotkeys, no settings pane or Tweakpane request, 185 particles, and healthy WebGL. First settings open built one populated pane and made one CDN request; repeated toggles reused it. The manifest returned HTTP 200 as `application/manifest+json`, parsed successfully, and referenced both tracked Android icons. Startup/load checks retained one Fira Code stylesheet and reported no failed request or browser error. Exact configuration key order/value/type equivalence passed against its dedicated `1cb241f` BEFORE checkpoint; the older cumulative baseline predates the contract harness globals and is therefore not a valid config-harness target. Pure grid and three alternating live pair trials matched exact pair/state/render data. Frame colors, settings restoration, hidden pause/resume without duplicate loops or large `dt`, two destroy/recreate cycles plus pending-build abort, resize, canvas/context health, and source checks for the accepted dead-code removals all passed.
+
+**Visual smoke:** the restored 1280x720 capture showed full canvas coverage, expected colored particles and gradient connections, intact centered page content, and no blank frame or layout artifact.
+
+**Decision:** accept the cumulative requested-scope milestone at application checkpoint `2cabf86`. All requested pre-SoA areas are implemented or legitimately rejected with preserved evidence, every final regression gate passes, and no repeatable average-FPS regression crosses 5%. Full SoA/index work may now begin as a new measured project.
 
 ---
 
