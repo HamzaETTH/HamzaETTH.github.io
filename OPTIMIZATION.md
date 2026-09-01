@@ -340,6 +340,16 @@ No uncapped average-FPS row regressed by more than 5%, so the focused confirmati
 
 **Decision:** reject and fully revert P1-9a because the higher-sample static confirmation still crossed the predeclared 5% average-FPS rejection rule. The source-reference evidence remains valid, but measured behavior takes precedence. No application, README, or file-removal change from this experiment is retained.
 
+### P1-9b — dead inline settings defaults and imports
+
+**Baseline:** `8ccded5` (`docs: record rejected renderer cleanup`), recorded 2026-09-01. Current-reference checks found `buildDefaultParams()` only at its definition and found the inline module's `normalizeHex` and `toCssColor` names only in its import list. The separate `applyParams.js` import of `toCssColor` is live and remains untouched.
+
+**Change and deterministic result:** removed the uncalled 75-line default map and trimmed only the two unused inline imports. The served HTML body fell from 39,876 to 35,845 bytes (−4,031 bytes). Reference checks found no remaining `buildDefaultParams` definition or old import shape. The startup probe retained ten local script loads, one font stylesheet, an active 185-particle loop, healthy WebGL, eager benchmark availability, a populated settings pane, a valid manifest, and zero browser errors.
+
+**Quick FPS gate:** one alternating trial at 1,500/5,000/15,000 particles showed no uncapped average-FPS regression beyond 5%. Static changed −2.6% at 5,000 and +140.8% at the low-sample 15,000 row; cycling/gradient changed +3.7% and +18.1%. Refresh-capped 1,500 averages were effectively unchanged. The large 15,000 swings are treated as diagnostic noise, not claimed gains.
+
+**Decision:** keep P1-9b. It removes a verified-unreachable configuration copy without changing runtime behavior or crossing the quick regression gate.
+
 ## Missing `site.webmanifest`
 
 **Status:** COMPLETE.

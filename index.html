@@ -56,7 +56,7 @@
     <script src="./js/HotkeyManager.js"></script>
     <script type="module">
       import {Pane} from 'https://cdn.jsdelivr.net/npm/tweakpane@4.0.5/dist/tweakpane.min.js';
-      import { normalizeHex, toCssColor, rgbArrayToHex, randInt, rand01, randBool, randHex } from './js/ui/utils.js';
+      import { rgbArrayToHex, randInt, rand01, randBool, randHex } from './js/ui/utils.js';
       import { applyParamsToNetwork } from './js/ui/applyParams.js';
 
       // Utility: create container for pane we can show/hide
@@ -148,83 +148,6 @@
           gatherRadius: o.gatherRadius != null ? o.gatherRadius : 100,
         };
       }
-
-      function buildDefaultParams() {
-        const D = (window.ParticleNetworkConfig && window.ParticleNetworkConfig.DEFAULT_CONFIG) || {};
-        return {
-          // Background
-          background: D.background || '#000000',
-
-          // Particles
-          particleColor: D.particleColor || '#fff',
-          particleSize: D.particleSize != null ? D.particleSize : 2,
-          particleColorCycling: !!D.particleColorCycling,
-          particleCyclingSpeed: D.particleCyclingSpeed != null ? D.particleCyclingSpeed : 10,
-          particleRepulsion: !!D.particleRepulsion,
-          particleAttraction: !!D.particleAttraction,
-          particleAttractionForce: D.particleAttractionForce != null ? D.particleAttractionForce : 5,
-          particleCollision: !!D.particleCollision,
-
-          // Lines
-          gradientEffect: D.gradientEffect !== false,
-          gradientColor1: D.gradientColor1 || '#00bfff',
-          gradientColor2: D.gradientColor2 || '#ff4500',
-          lineColorCycling: D.lineColorCycling !== false,
-          lineCyclingSpeed: D.lineCyclingSpeed != null ? D.lineCyclingSpeed : 50,
-          randomizeDistanceColors: !!D.randomizeDistanceColors,
-          colorDifferentiationMethod: (D.colorDifferentiationMethod || (() => {
-            const methods = ['hueDistance', 'complementary', 'triadic', 'analogous', 'labPerceptual', 'wcagContrast'];
-            return methods[Math.floor(Math.random() * methods.length)];
-          })()),
-          distanceColorCyclingSpeed: D.distanceColorCyclingSpeed != null ? D.distanceColorCyclingSpeed : (D.lineCyclingSpeed != null ? D.lineCyclingSpeed : 50),
-
-          // Interaction
-          interactive: D.interactive !== false,
-          proximityEffectColor: D.proximityEffectColor || '#ff0000',
-          proximityEffectDistance: D.proximityEffectDistance != null ? D.proximityEffectDistance : 100,
-          // UI shows radius in px; internal stores units (px/10)
-          attractionRange: D.attractionRange != null ? (D.attractionRange * 10) : 10,
-          attractionIntensity: D.attractionIntensity != null ? D.attractionIntensity : 1,
-          repulsionRange: D.repulsionRange != null ? (D.repulsionRange * 10) : 10,
-          repulsionIntensity: D.repulsionIntensity != null ? D.repulsionIntensity : 1,
-
-          // Physics (Config has no explicit defaults for these)
-          speed: 0.66,
-          density: 10000,
-          boundaryMode: D.boundaryMode || 'bounce',
-
-          // Effects
-          opacity: D.opacity != null ? D.opacity : 0.7,
-          useDistanceEffect: !!D.useDistanceEffect,
-          maxColorChangeDistance: D.maxColorChangeDistance != null ? D.maxColorChangeDistance : 120,
-          startColor: D.startColor || '#0BDA51',
-          endColor: D.endColor || '#BF00FF',
-          lineConnectionDistance: D.lineConnectionDistance != null ? D.lineConnectionDistance : 120,
-          particleInteractionDistance: D.particleInteractionDistance != null ? D.particleInteractionDistance : 50,
-          particleRepulsionForce: D.particleRepulsionForce != null ? D.particleRepulsionForce : 5,
-
-          // Perf
-          performanceOverlay: !!D.performanceOverlay,
-
-          // Trails
-          trails: !!D.trails,
-          trailFade: D.trailFade != null ? D.trailFade : 0.08,
-
-          // Electric lines
-          lineJitter: !!D.lineJitter,
-          lineJitterSegments: D.lineJitterSegments != null ? D.lineJitterSegments : 6,
-          lineJitterAmplitude: D.lineJitterAmplitude != null ? D.lineJitterAmplitude : 0.12,
-
-          // Curved drift motion
-          curvedDrift: !!D.curvedDrift,
-          curvedDriftCurvature: D.curvedDriftCurvature != null ? Math.round(D.curvedDriftCurvature * 500) : 60,
-          curvedDriftNoiseSpeed: D.curvedDriftNoiseSpeed != null ? D.curvedDriftNoiseSpeed : 1.5,
-
-          // Gather
-          gatherRadius: D.gatherRadius != null ? D.gatherRadius : 100,
-        };
-      }
-
 
       // Ensure global access for scripted tweaks
       window.applyParamsToNetwork = applyParamsToNetwork;
