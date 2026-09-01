@@ -18,7 +18,7 @@ This file is the permanent optimization record. Every optimization must be isola
 | 6 | P1-10 — per-particle color work | **COMPLETE** | Deterministic color-path test plus focused three-trial A/B matrix below | Keep |
 | 7 | P2-1 — repeated pair thresholds | **REJECTED** | Deterministic win, but focused FPS gate confirmed a regression | Production change removed |
 | 8 | P2-2 — per-pair velocity validation | **REJECTED** | Deterministic win, but focused FPS gate confirmed a regression | Production change removed |
-| 9 | P1-6 — unused Inter load | **IN PROGRESS** | 2026-09-01 startup baseline below | Remove load, repeat startup probe |
+| 9 | P1-6 — unused Inter load | **COMPLETE** | Deterministic two-to-one font stylesheet request result below | Keep |
 | 10 | Missing `site.webmanifest` | **BASELINED** | Explicit fetch is HTTP 404 and the only baseline console error | Fix after P1-6 in an isolated commit |
 | 11 | P1-9 — dead startup loads/code | **PENDING** | Current-reference audit reconfirmed the documented entry loads | Split into reversible cleanup commits |
 | 12 | P1-7/P1-8 — deferred startup and Tweakpane | **PENDING** | Coupled to settings-UI construction | Plan after low-risk startup cleanup |
@@ -252,9 +252,9 @@ No uncapped average-FPS row regressed by more than 5%, so the focused confirmati
 
 ## P1-6. Startup: unused Inter font @import (render-blocking chain)
 
-**Status:** IN PROGRESS.
+**Status:** COMPLETE.
 
-**Application baseline:** `c19f747` (`docs: plan startup cleanup cycle`), recorded 2026-09-01. The tracked tree was otherwise clean; the unrelated untracked `webgl-black-hole/` directory remains excluded.
+**Baseline:** `e2b6218` (`test: capture startup load baseline`), recorded 2026-09-01. Its application code matches plan checkpoint `c19f747`; the tracked tree was otherwise clean, and the unrelated untracked `webgl-black-hole/` directory remains excluded.
 
 **Locations:** `css/style.css:1` — `@import url(https://fonts.googleapis.com/css?family=Inter:400,500,600,700,800&display=swap)`; separate Fira Code link at `index.html:15`.
 
@@ -273,6 +273,16 @@ No uncapped average-FPS row regressed by more than 5%, so the focused confirmati
 **Result:** the page requested two Google Fonts stylesheets: Fira Code plus the unused Inter family. The local startup path loaded ten scripts, including `ParticleRenderer.js` and `Benchmark.js`, and transferred 165,563 encoded local resource bytes under the uncompressed local server. The particle network was active with 185 particles, WebGL was present and not lost, the settings pane opened with populated controls, and `BenchmarkSystem` was already loaded. The explicit `/site.webmanifest` fetch returned HTTP 404 with HTML rather than JSON; that missing resource produced the only console error. There were no request failures or page errors.
 
 **Decision:** keep the harness as the startup regression gate. Remove only the unused Inter request for P1-6, then fix the manifest and dead loads in their own commits.
+
+### Validation results — 2026-09-01
+
+**Change:** removed the unused Inter `@import` from `css/style.css` and added a cross-origin preconnect for the retained Fira Code font files. No font-family declarations or shipped font weights changed.
+
+**Deterministic result:** the startup probe's Google Fonts stylesheet count fell from two to one, and the Inter URL disappeared. The local stylesheet body fell by 94 bytes. The page remained active at the shipped 185-particle state, WebGL was present and not lost, `BenchmarkSystem` remained available, and the `C` hotkey opened a populated settings pane. There were no request failures or page errors. The known manifest 404 remained the only console error and is deliberately isolated as the next change.
+
+**Timing note:** single-load DOMContentLoaded moved from 420.4 ms to 410.6 ms, but one networked trial is not treated as a performance claim. P1-6 is accepted from the deterministic removal of an unused serial CSS/font request chain plus the unchanged runtime smoke.
+
+**Conclusion:** keep P1-6 and mark it complete.
 
 ## P1-7. Startup: parser-blocking scripts + parse-time engine init
 
