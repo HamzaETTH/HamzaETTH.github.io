@@ -278,82 +278,11 @@
         (this.i.size = { width: this.i.offsetWidth, height: this.i.offsetHeight }),
         (b = void 0 !== b ? b : {});
 
-      // Unify config: prefer Config.js defaults and presets, then apply explicit overrides
-      var cfg = (window.ParticleNetworkConfig && window.ParticleNetworkConfig.createConfig)
-        ? window.ParticleNetworkConfig.createConfig(b)
-        : {};
-
-      this.options = {
-        // pull from cfg or fallback to sensible defaults
-        background: cfg.background || "#000000",
-        particleColor: cfg.particleColor || "#fff",
-        particleSize: cfg.particleSize != null ? cfg.particleSize : 2,
-        particleColorCycling: !!cfg.particleColorCycling,
-        particleCyclingSpeed: cfg.particleCyclingSpeed != null ? cfg.particleCyclingSpeed : 10,
-        gradientEffect: cfg.gradientEffect != null ? cfg.gradientEffect : true,
-        gradientColor1: cfg.gradientColor1 || "#00bfff",
-        gradientColor2: cfg.gradientColor2 || "#ff4500",
-        lineColorCycling: cfg.lineColorCycling != null ? cfg.lineColorCycling : true,
-        lineCyclingSpeed: cfg.lineCyclingSpeed != null ? cfg.lineCyclingSpeed : 50,
-        colorDifferentiationMethod: cfg.colorDifferentiationMethod || (() => {
-          const methods = ['hueDistance', 'complementary', 'triadic', 'analogous', 'labPerceptual', 'wcagContrast'];
-          return methods[Math.floor(Math.random() * methods.length)];
-        })(),
-        colorDifferentiationOptions: cfg.colorDifferentiationOptions || {},
-        interactive: cfg.interactive != null ? cfg.interactive : true,
-        proximityEffectColor: cfg.proximityEffectColor || "#ff0000",
-        proximityEffectDistance: cfg.proximityEffectDistance != null ? cfg.proximityEffectDistance : 100,
-        attractionRange: cfg.attractionRange != null ? cfg.attractionRange : 1,
-        attractionIntensity: cfg.attractionIntensity != null ? cfg.attractionIntensity : 1,
-        repulsionRange: cfg.repulsionRange != null ? cfg.repulsionRange : 1,
-        repulsionIntensity: cfg.repulsionIntensity != null ? cfg.repulsionIntensity : 1,
-        // Velocity/density: from cfg if present, else from provided b
-        velocity: this.setVelocity(cfg.speed != null ? cfg.speed : b.speed),
-        density: this.j(cfg.density != null ? cfg.density : b.density),
-        opacity: cfg.opacity != null ? cfg.opacity : 0.7,
-        useDistanceEffect: cfg.useDistanceEffect != null ? cfg.useDistanceEffect : false,
-        maxColorChangeDistance: cfg.maxColorChangeDistance != null ? cfg.maxColorChangeDistance : 120,
-        startColor: cfg.startColor || "#0BDA51",
-        endColor: cfg.endColor || "#BF00FF",
-        particleInteractionDistance: cfg.particleInteractionDistance != null ? cfg.particleInteractionDistance : 50,
-        particleRepulsion: cfg.particleRepulsion != null ? cfg.particleRepulsion : false,
-        particleAttraction: cfg.particleAttraction != null ? cfg.particleAttraction : false,
-        // Simple circular collision toggle
-        particleCollision: cfg.particleCollision != null ? cfg.particleCollision : false,
-        particleRepulsionForce: cfg.particleRepulsionForce != null ? cfg.particleRepulsionForce : 5,
-        particleAttractionForce: cfg.particleAttractionForce != null ? cfg.particleAttractionForce : 5,
-        lineConnectionDistance: cfg.lineConnectionDistance != null ? cfg.lineConnectionDistance : 120,
-        performanceOverlay: cfg.performanceOverlay != null ? cfg.performanceOverlay : false,
-        // New feature flags
-        randomizeDistanceColors: cfg.randomizeDistanceColors != null ? cfg.randomizeDistanceColors : false,
-        // Dedicated speed for distance color randomization (UI 0..100 like lineCyclingSpeed)
-        distanceColorCyclingSpeed: cfg.distanceColorCyclingSpeed != null
-          ? cfg.distanceColorCyclingSpeed
-          : (cfg.lineCyclingSpeed != null ? cfg.lineCyclingSpeed : 50),
-
-        boundaryMode: cfg.boundaryMode || 'bounce',
-
-        // Trails effect
-        trails: cfg.trails != null ? cfg.trails : false,
-        // 0.01..0.3 typical; lower = longer trails
-        trailFade: (typeof cfg.trailFade === 'number') ? cfg.trailFade : 0.08,
-
-        // Line jitter effect (electric lines)
-        lineJitter: cfg.lineJitter != null ? cfg.lineJitter : false,
-        lineJitterSegments: (typeof cfg.lineJitterSegments === 'number') ? Math.max(2, Math.floor(cfg.lineJitterSegments)) : 6,
-        // amplitude as fraction of segment length (0..1); 0.12 is subtle
-        lineJitterAmplitude: (typeof cfg.lineJitterAmplitude === 'number') ? cfg.lineJitterAmplitude : 0.12,
-
-        // Curved drift particle motion (curving paths)
-        curvedDrift: cfg.curvedDrift != null ? cfg.curvedDrift : false,
-        // curvature as fraction of current speed added perpendicular per frame
-        curvedDriftCurvature: (typeof cfg.curvedDriftCurvature === 'number') ? cfg.curvedDriftCurvature : 0.12,
-        // radians/sec phase advance (scaled internally)
-        curvedDriftNoiseSpeed: (typeof cfg.curvedDriftNoiseSpeed === 'number') ? cfg.curvedDriftNoiseSpeed : 1.5,
-
-        // Attraction radius (used when holding 'A' to pull particles)
-        gatherRadius: (typeof cfg.gatherRadius === 'number') ? cfg.gatherRadius : 100
-      };
+      this.options = window.ParticleNetworkConfig.createRuntimeConfig(
+        b,
+        this.setVelocity,
+        this.j
+      );
 
       this.init();
     }),
