@@ -25,7 +25,7 @@ This file is the permanent optimization record. Every optimization must be isola
 | 13 | P1-8 + lazy-build settings UI | **COMPLETE** | Lifecycle, blocked-CDN, UI-sync, deterministic color, and quick FPS gates below | Keep |
 | 14 | Pause simulation while hidden | **COMPLETE** | Deterministic visibility lifecycle plus focused five-trial 10k gate below | Keep `b47c8f1` |
 | 15 | Proper `destroy()` / teardown | **COMPLETE** | Two destroy/recreate cycles, pending-build abort, resource release, UI-sync, and FPS gates below | Keep `5da077d` |
-| 16 | Configuration cleanup | **IN PROGRESS** | Exact application baseline `4d024f9`; Cycle 5 plan below | Commit value/type equivalence fixture before production edit |
+| 16 | Configuration cleanup | **IN PROGRESS** | Exact test checkpoint `11afb23`; deterministic contract below | Delegate assembly to Config.js and prove exact equivalence |
 | 17 | Full SoA/index architecture | **DEFERRED** | Start only after the requested cumulative milestone | Re-profile and write a staged plan |
 
 Progress protocol:
@@ -393,6 +393,16 @@ The accepted tree adds one 4,788-byte deferred local lifecycle script plus dispo
 **Final performance gate:** the accepted external-owner quick run had no uncapped average regression beyond 5%. At 5,000 particles, static changed +3.22% and cycling/gradient +0.60%; refresh-capped 1,500 changed +12.38%/+0.70% because the baseline static sample contained a large startup hitch. Low-sample 15,000 rows were positive. These diagnostic numbers are not claimed gains; the result is that the prior repeatable regression disappeared while settings restored, rAF stayed active, and WebGL remained healthy.
 
 **Decision:** keep the external lifecycle architecture and mark teardown complete. It provides deterministic, repeatable leaf-to-root release without changing the simulation hot path that failed the focused benchmark.
+
+## Configuration cleanup
+
+**Status:** IN PROGRESS.
+
+**Application baseline:** `4d024f9` (`docs: complete lifecycle teardown cycle`). **Exact test checkpoint:** `11afb23` (`test: capture configuration contract`) on top of the Cycle 5 plan. The tracked tree was otherwise clean apart from excluded untracked `webgl-black-hole/`.
+
+**Baseline contract:** `scripts/test-config-contract.js` fixes the page's random source before scripts load and records ordered key/value/type entries rather than relying on numeric-looking equality. It captures the 35-key public `DEFAULT_CONFIG`, all five presets, four `createConfig()` merge/falsy cases, the shipped raw input, the shipped 48-key runtime options object, and four constructor cases covering defaults, shipped inputs, zeros/false/string types, null fallbacks, clamps, and ignored unknown keys. Baseline-to-baseline snapshots matched exactly; both retained 185 particles, healthy WebGL, and zero browser errors.
+
+**Required change:** Config.js should own the existing runtime assembly contract while leaving its public defaults, presets, and merge behavior unchanged. `ParticleNetwork.js` may delegate construction, but it must retain exact runtime property order, fallback operators, string density behavior, velocity mapping, clamps, randomized method selection, and unknown-key filtering. A cleaner-looking but type-different result is a failure.
 
 ## P1-9. Dead loads: ~30 KB waste + dead code
 
