@@ -27,7 +27,7 @@ This file is the permanent optimization record. Every optimization must be isola
 | 15 | Proper `destroy()` / teardown | **COMPLETE** | Two destroy/recreate cycles, pending-build abort, resource release, UI-sync, and FPS gates below | Keep `5da077d` |
 | 16 | Configuration cleanup | **COMPLETE** | Exact configuration contract, lifecycle suite, pair equivalence, and focused FPS confirmation below | Keep `9e51979` |
 | 17 | Requested-scope cumulative milestone | **COMPLETE** | Final regression suite and 54-measurement three-profile A/B below | Keep application checkpoint `2cabf86` |
-| 18 | Full SoA/index architecture | **DEFERRED** | Start only after the requested cumulative milestone | Re-profile and write a staged plan |
+| 18 | Full SoA/index architecture | **IN PROGRESS** | Investigation baseline `bc3ba54`; final-engine profile and consumer map next | Commit staged plan before production migration |
 
 Progress protocol:
 
@@ -687,6 +687,14 @@ The frame loop already computes squared interaction, line-connection, and maximu
 **Visual smoke:** the restored 1280x720 capture showed full canvas coverage, expected colored particles and gradient connections, intact centered page content, and no blank frame or layout artifact.
 
 **Decision:** accept the cumulative requested-scope milestone at application checkpoint `2cabf86`. All requested pre-SoA areas are implemented or legitimately rejected with preserved evidence, every final regression gate passes, and no repeatable average-FPS regression crosses 5%. Full SoA/index work may now begin as a new measured project.
+
+## Full SoA / index architecture — investigation
+
+**Status:** PLANNING.
+
+**Pre-SoA milestone baseline:** `bc3ba54` (`docs: record cumulative optimization milestone`), whose application tree is exact checkpoint `2cabf86`. The tracked tree is clean apart from the excluded user-owned `webgl-black-hole/` directory. Cycle 8 is tooling/profiling/design only; its plan is `docs/plans/2026-09-01-soa-investigation.md`.
+
+**Old-audit premise to verify:** the engine runs motion in `Float32Array` buffers, copies every regular particle back into objects, then builds an object-reference grid, performs object-based pair/render work, and copies object velocities back to typed arrays. The old audit estimated a 1.3-2x full-conversion opportunity. The final P1-4 CPU samples already suggest the synchronization helpers themselves are small while `interactParticles` dominates, so the gain must be re-measured and attributed rather than assumed.
 
 ---
 
