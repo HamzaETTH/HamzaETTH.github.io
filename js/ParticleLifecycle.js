@@ -80,6 +80,8 @@
       this._resumeOnVisible = false;
       if (this.m != null) clearTimeout(this.m);
       this.m = null;
+      if (this._resizeObserver) this._resizeObserver.disconnect();
+      this._resizeObserver = null;
       if (this.__lifecycleTimeouts) {
         this.__lifecycleTimeouts.forEach(function (id) { clearTimeout(id); });
         this.__lifecycleTimeouts.clear();

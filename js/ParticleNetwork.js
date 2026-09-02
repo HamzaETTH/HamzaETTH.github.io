@@ -303,6 +303,18 @@
     }),
     // Map DOM client coordinates to CSS-logical simulation coordinates.
     (b.prototype._mapToLogicalCanvas = function(evt) {
+      // A pointer event can arrive in the same turn as a window resize. Keep
+      // the simulation/canvases current before translating the coordinates.
+      if (this._rebuildOnResize && this.i) {
+        var currentWidth = this.i.offsetWidth || 0;
+        var currentHeight = this.i.offsetHeight || 0;
+        var currentDpr = window.devicePixelRatio || 1;
+        if ((currentWidth && currentWidth !== this.i.size.width) ||
+            (currentHeight && currentHeight !== this.i.size.height) ||
+            currentDpr !== this.dpr) {
+          this._rebuildOnResize();
+        }
+      }
       var rect = this.canvas.getBoundingClientRect();
       var width = this.i.size.width;
       var height = this.i.size.height;
@@ -901,11 +913,22 @@
         }
       }.bind(this);
 
+      if (typeof ResizeObserver !== 'undefined') {
+        this._resizeObserver = new ResizeObserver(function() {
+          if (!this._destroyed && this._rebuildOnResize) this._rebuildOnResize();
+        }.bind(this));
+        this._resizeObserver.observe(this.i);
+      }
+
       window.addEventListener(
         "resize",
         function () {
           clearTimeout(this.m);
-          this.m = setTimeout(this._rebuildOnResize, 500);
+          this._rebuildOnResize();
+          // Some layout changes settle just after the resize event. The
+          // leading sync fixes interaction immediately; this trailing sync
+          // catches the final container dimensions without a 500 ms gap.
+          this.m = setTimeout(this._rebuildOnResize, 100);
         }.bind(this)
       );
 
@@ -930,9 +953,7 @@
         this.p.index = this.o.length; // not part of SoA buffers
 
         // Mouse events
-        this.canvas.addEventListener(
-          "mousemove",
-          function (a) {
+        var updateMousePosition = function (a) {
             var pos = this._mapToCanvas(a);
             var x = pos.x, y = pos.y;
             if (this.attractionForce) { this.attractionForce.x = x; this.attractionForce.y = y; }
@@ -947,8 +968,13 @@
               if ((a.buttons & 4) === 0) this._stopMiddleMouseSpawn();
               else this._middleSpawnPointer = { x: x, y: y };
             }
-          }.bind(this)
-        );
+          }.bind(this);
+
+        this.canvas.addEventListener("mousemove", updateMousePosition);
+        window.addEventListener("mousemove", function(a) {
+          if (!this.repulsionForce && !this.attractionForce && !this._middleSpawnActive) return;
+          updateMousePosition(a);
+        }.bind(this));
 
         document.addEventListener("contextmenu", function (a) {
           a.preventDefault();
@@ -989,13 +1015,19 @@
           this._stopMiddleMouseSpawn();
         }.bind(this));
         document.addEventListener('mouseup', function(a) {
-          if (a.button === 1) this._stopMiddleMouseSpawn();
+          if (a.button === 0) this.repulsionForce = null;
+          else if (a.button === 2) this.attractionForce = null;
+          else if (a.button === 1) this._stopMiddleMouseSpawn();
         }.bind(this));
         window.addEventListener('blur', function() {
           this._stopMiddleMouseSpawn();
+          this._clearInteractivePointerForces();
         }.bind(this));
         document.addEventListener('visibilitychange', function() {
-          if (document.hidden) this._stopMiddleMouseSpawn();
+          if (document.hidden) {
+            this._stopMiddleMouseSpawn();
+            this._clearInteractivePointerForces();
+          }
         }.bind(this));
 
         // Pointer/touch events (unified). Behavior:
