@@ -299,11 +299,11 @@ async function main() {
         evidence.final.overlays === 1 && evidence.final.paneContainers === 0 &&
         !evidence.final.webGlContextLost),
       hotkeysRecreatedOnce: Boolean(evidence &&
-        JSON.stringify(evidence.final.hotkeys) === JSON.stringify(['b', 'c', 'd', 'h', 'm', 'p', 'r'])),
+        JSON.stringify(evidence.final.hotkeys) === JSON.stringify(['b', 'c', 'd', 'escape', 'h', 'm', 'p', 'r', 'w'])),
       lazyPaneRecreatedOnce: Boolean(evidence && evidence.recreatedUi &&
         evidence.recreatedUi.paneContainers === 1 && evidence.recreatedUi.populated &&
         evidence.recreatedUi.visible &&
-        JSON.stringify(evidence.recreatedUi.hotkeys) === JSON.stringify(['b', 'c', 'd', 'h', 'm', 'p', 'r'])),
+        JSON.stringify(evidence.recreatedUi.hotkeys) === JSON.stringify(['b', 'c', 'd', 'escape', 'h', 'm', 'p', 'r', 'w'])),
       pendingPaneBuildStayedDestroyed: Boolean(evidence && evidence.pendingBuild &&
         evidence.pendingBuild.particleInstance === null && evidence.pendingBuild.hotkeyManager === null &&
         evidence.pendingBuild.activeMonitor === null && evidence.pendingBuild.paneContainers === 0 &&

@@ -284,14 +284,431 @@
         this.j
       );
 
+      this.gravityWells = [];
+      this.selectedGravityWellId = null;
+      this.gravityWellDraft = null;
+      this._nextGravityWellId = 1;
+      this._gravityPointer = null;
+      this._gravityPointerId = null;
+      this._gravityWellOverlay = null;
+      this._middleSpawnActive = false;
+      this._middleSpawnPointer = null;
+      this._middleSpawnAccumulator = 0;
+
       this.init();
     }),
-    // Map DOM event client coordinates to canvas coordinates accounting for CSS scaling
+    // Compatibility alias for the CSS-logical coordinates used by simulation physics.
     (b.prototype._mapToCanvas = function(evt) {
+      return this._mapToLogicalCanvas(evt);
+    }),
+    // Map DOM client coordinates to CSS-logical simulation coordinates.
+    (b.prototype._mapToLogicalCanvas = function(evt) {
       var rect = this.canvas.getBoundingClientRect();
-      var x = (evt.clientX - rect.left) * (this.canvas.width / rect.width);
-      var y = (evt.clientY - rect.top) * (this.canvas.height / rect.height);
-      return { x: x, y: y };
+      var width = this.i.size.width;
+      var height = this.i.size.height;
+      var scaleX = width / (rect.width || width || 1);
+      var scaleY = height / (rect.height || height || 1);
+      return {
+        x: Math.max(0, Math.min(width, (evt.clientX - rect.left) * scaleX)),
+        y: Math.max(0, Math.min(height, (evt.clientY - rect.top) * scaleY))
+      };
+    }),
+    (b.prototype._gravityWellDefaults = function(type) {
+      var white = type === 'white';
+      return {
+        radius: this.options.gravityWellRadius || 120,
+        strength: this.options.gravityWellStrength || 12,
+        innerColor: white ? this.options.whiteHoleInnerColor : this.options.blackHoleInnerColor,
+        outerColor: white ? this.options.whiteHoleOuterColor : this.options.blackHoleOuterColor
+      };
+    }),
+    (b.prototype._clampGravityWellRadius = function(radius) {
+      var min = this.options.gravityWellMinRadius || 24;
+      var max = this.options.gravityWellMaxRadius || 500;
+      return Math.max(min, Math.min(max, Number.isFinite(radius) ? radius : this.options.gravityWellRadius || 120));
+    }),
+    (b.prototype._emitGravityWellsChange = function() {
+      var detail = {
+        wells: this.gravityWells.map(function(well) { return Object.assign({}, well); }),
+        selectedId: this.selectedGravityWellId,
+        draft: this.gravityWellDraft ? Object.assign({}, this.gravityWellDraft) : null,
+        enabled: this.options.gravityWellsEnabled !== false
+      };
+      window.dispatchEvent(new CustomEvent('particle-gravity-wells-change', { detail: detail }));
+    }),
+    (b.prototype._shouldAnimate = function() {
+      return !!(this.options && (
+        this.options.velocity !== 0 ||
+        this._middleSpawnActive ||
+        (this.options.gravityWellsEnabled !== false && (this.gravityWells.length > 0 || this.gravityWellDraft))
+      ));
+    }),
+	    (b.prototype._ensureAnimationLoop = function() {
+	      if (this._destroyed || this._rafActive || this._rafId != null || typeof this.update !== 'function') return;
+	      if (document.hidden) {
+	        this._resumeOnVisible = true;
+	        return;
+	      }
+	      this._lastUpdateTime = performance.now();
+	      this._rafActive = true;
+	      this._rafId = requestAnimationFrame(this.update);
+	    }),
+	    (b.prototype._clearInteractivePointerForces = function() {
+	      this.attractionForce = null;
+	      this.repulsionForce = null;
+	      if (this._activePointers) this._activePointers.clear();
+	    }),
+	    (b.prototype.getGravityWell = function(id) {
+      for (var i = 0; i < this.gravityWells.length; i++) {
+        if (this.gravityWells[i].id === id) return this.gravityWells[i];
+      }
+      return null;
+    }),
+    (b.prototype.getSelectedGravityWell = function() {
+      return this.getGravityWell(this.selectedGravityWellId);
+    }),
+    (b.prototype.addGravityWell = function(type, x, y, radius) {
+      type = type === 'white' ? 'white' : 'black';
+      var defaults = this._gravityWellDefaults(type);
+      var well = {
+        id: 'gravity-well-' + this._nextGravityWellId++,
+        type: type,
+        x: Math.max(0, Math.min(this.i.size.width, Number.isFinite(x) ? x : this.i.size.width / 2)),
+        y: Math.max(0, Math.min(this.i.size.height, Number.isFinite(y) ? y : this.i.size.height / 2)),
+        radius: this._clampGravityWellRadius(radius),
+        strength: defaults.strength,
+        innerColor: defaults.innerColor,
+        outerColor: defaults.outerColor
+      };
+      this.gravityWells.push(well);
+      this.selectedGravityWellId = well.id;
+      this.gravityWellDraft = null;
+      this._emitGravityWellsChange();
+      this._ensureAnimationLoop();
+      return well;
+    }),
+    (b.prototype.selectGravityWell = function(id) {
+      this.selectedGravityWellId = this.getGravityWell(id) ? id : null;
+      this._emitGravityWellsChange();
+      return this.getSelectedGravityWell();
+    }),
+    (b.prototype.updateGravityWell = function(id, patch) {
+      var well = this.getGravityWell(id);
+      if (!well || !patch) return null;
+      if (Number.isFinite(patch.x)) well.x = Math.max(0, Math.min(this.i.size.width, patch.x));
+      if (Number.isFinite(patch.y)) well.y = Math.max(0, Math.min(this.i.size.height, patch.y));
+      if (Number.isFinite(patch.radius)) well.radius = this._clampGravityWellRadius(patch.radius);
+      if (Number.isFinite(patch.strength)) well.strength = Math.max(0, Math.min(40, patch.strength));
+      if (typeof patch.innerColor === 'string') well.innerColor = patch.innerColor;
+      if (typeof patch.outerColor === 'string') well.outerColor = patch.outerColor;
+      this._emitGravityWellsChange();
+      this._ensureAnimationLoop();
+      return well;
+    }),
+    (b.prototype.updateSelectedGravityWell = function(patch) {
+      return this.updateGravityWell(this.selectedGravityWellId, patch);
+    }),
+    (b.prototype.removeGravityWell = function(id) {
+      var index = -1;
+      for (var i = 0; i < this.gravityWells.length; i++) {
+        if (this.gravityWells[i].id === id) { index = i; break; }
+      }
+      if (index < 0) return false;
+      this.gravityWells.splice(index, 1);
+      if (this.selectedGravityWellId === id) this.selectedGravityWellId = null;
+      if (this.gravityWellDraft && this.gravityWellDraft.editId === id) this.gravityWellDraft = null;
+      this._emitGravityWellsChange();
+      return true;
+    }),
+    (b.prototype.removeSelectedGravityWell = function() {
+      return this.removeGravityWell(this.selectedGravityWellId);
+    }),
+    (b.prototype.clearGravityWells = function() {
+      this.gravityWells.length = 0;
+      this.selectedGravityWellId = null;
+      this.gravityWellDraft = null;
+      this._gravityPointerId = null;
+      this._clearGravityWellOverlay();
+      this._emitGravityWellsChange();
+    }),
+    (b.prototype.setGravityWellsEnabled = function(enabled) {
+      this.options.gravityWellsEnabled = !!enabled;
+      this._emitGravityWellsChange();
+      if (enabled) this._ensureAnimationLoop();
+      else this._clearGravityWellOverlay();
+    }),
+	    (b.prototype.beginGravityWellPlacement = function(type, keyboardPlacement) {
+	      type = type === 'white' ? 'white' : 'black';
+	      var defaults = this._gravityWellDefaults(type);
+	      var pointer = this._gravityPointer || { x: this.i.size.width / 2, y: this.i.size.height / 2 };
+	      this._clearInteractivePointerForces();
+	      this.options.gravityWellsEnabled = true;
+	      this.selectedGravityWellId = null;
+      this.gravityWellDraft = {
+        type: type,
+        x: keyboardPlacement ? pointer.x : null,
+        y: keyboardPlacement ? pointer.y : null,
+        radius: defaults.radius,
+        strength: defaults.strength,
+        innerColor: defaults.innerColor,
+        outerColor: defaults.outerColor,
+        phase: keyboardPlacement ? 'sizing' : 'awaiting',
+        dragging: false,
+        editId: null
+      };
+      this._emitGravityWellsChange();
+      this._ensureAnimationLoop();
+      return this.gravityWellDraft;
+    }),
+    (b.prototype.beginSelectedGravityWellPlacement = function() {
+      var selected = this.getSelectedGravityWell();
+      if (!selected) return null;
+      this.gravityWellDraft = Object.assign({}, selected, {
+        phase: 'awaiting',
+        dragging: false,
+        editId: selected.id
+      });
+      delete this.gravityWellDraft.id;
+      this._emitGravityWellsChange();
+      this._ensureAnimationLoop();
+      return this.gravityWellDraft;
+    }),
+    (b.prototype.cancelGravityWellPlacement = function() {
+      if (this.gravityWellDraft) {
+        this.gravityWellDraft = null;
+        this._gravityPointerId = null;
+        this._emitGravityWellsChange();
+        return true;
+      }
+      if (this.selectedGravityWellId) {
+        this.selectedGravityWellId = null;
+        this._emitGravityWellsChange();
+        return true;
+      }
+      return false;
+    }),
+    (b.prototype._commitGravityWellPlacement = function() {
+      var draft = this.gravityWellDraft;
+      if (!draft || !Number.isFinite(draft.x) || !Number.isFinite(draft.y)) return null;
+      this.gravityWellDraft = null;
+      this._gravityPointerId = null;
+      if (draft.editId) {
+        this.selectedGravityWellId = draft.editId;
+        return this.updateGravityWell(draft.editId, draft);
+      }
+      var well = this.addGravityWell(draft.type, draft.x, draft.y, draft.radius);
+      well.strength = draft.strength;
+      well.innerColor = draft.innerColor;
+      well.outerColor = draft.outerColor;
+      this._emitGravityWellsChange();
+      return well;
+    }),
+    (b.prototype._hitTestGravityWell = function(x, y) {
+      if (this.options.gravityWellsEnabled === false) return null;
+      for (var i = this.gravityWells.length - 1; i >= 0; i--) {
+        var well = this.gravityWells[i];
+        var dx = x - well.x;
+        var dy = y - well.y;
+        var coreRadius = Math.max(10, well.radius * 0.18);
+        if (dx * dx + dy * dy <= coreRadius * coreRadius) return well;
+      }
+      return null;
+    }),
+    (b.prototype._hitTestGravityWellVisual = function(x, y) {
+      if (this.options.gravityWellsEnabled === false) return null;
+      for (var i = this.gravityWells.length - 1; i >= 0; i--) {
+        var well = this.gravityWells[i];
+        var radius = Math.max(1, well.radius);
+        var normalizedX = (x - well.x) / (radius * 1.5);
+        var normalizedY = (y - well.y) / (radius * 0.48);
+        if (normalizedX * normalizedX + normalizedY * normalizedY <= 1) return well;
+      }
+      return null;
+    }),
+    (b.prototype._handleGravityWellPointerMove = function(x, y) {
+      this._gravityPointer = { x: x, y: y };
+      var draft = this.gravityWellDraft;
+      if (!draft || draft.phase !== 'sizing' || !Number.isFinite(draft.x) || !Number.isFinite(draft.y)) return false;
+      var dx = x - draft.x;
+      var dy = y - draft.y;
+      draft.radius = this._clampGravityWellRadius(Math.sqrt(dx * dx + dy * dy));
+      this._emitGravityWellsChange();
+      return true;
+    }),
+    (b.prototype._handleGravityWellPointerDown = function(x, y, pointerId) {
+      var draft = this.gravityWellDraft;
+	      if (draft) {
+	        this._clearInteractivePointerForces();
+	        if (draft.phase === 'awaiting') {
+          draft.x = x;
+          draft.y = y;
+          draft.radius = this._clampGravityWellRadius(draft.radius);
+          draft.phase = 'sizing';
+          draft.dragging = true;
+          this._gravityPointerId = pointerId;
+          this._emitGravityWellsChange();
+        } else if (!draft.dragging) {
+          this._handleGravityWellPointerMove(x, y);
+          this._commitGravityWellPlacement();
+        }
+        return true;
+      }
+	      var hit = this._hitTestGravityWell(x, y);
+	      if (hit) {
+	        this._clearInteractivePointerForces();
+	        this.selectedGravityWellId = hit.id;
+        this._emitGravityWellsChange();
+        return true;
+      }
+      return false;
+    }),
+    (b.prototype._handleGravityWellPointerUp = function(x, y, pointerId) {
+      var draft = this.gravityWellDraft;
+      if (!draft || !draft.dragging || this._gravityPointerId !== pointerId) return false;
+      this._handleGravityWellPointerMove(x, y);
+      this._commitGravityWellPlacement();
+      return true;
+    }),
+    (b.prototype._getVisibleGravityWells = function() {
+      if (this.options.gravityWellsEnabled === false) return [];
+      var selectedId = this.selectedGravityWellId;
+      var draft = this.gravityWellDraft;
+      var visible = [];
+      for (var i = 0; i < this.gravityWells.length; i++) {
+        var well = this.gravityWells[i];
+        if (draft && draft.editId === well.id) continue;
+        visible.push(Object.assign({}, well, { selected: well.id === selectedId }));
+      }
+      if (draft && Number.isFinite(draft.x) && Number.isFinite(draft.y)) {
+        visible.push(Object.assign({}, draft, { draft: true, selected: true }));
+      }
+      return visible;
+    }),
+    (b.prototype._prepareGravityWellFrame = function() {
+      this._frameGravityWells = this._getVisibleGravityWells();
+      var reducedMotion = !!(window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches);
+      if (this.glRenderer && this.glRenderer.setGravityWells) {
+        this.glRenderer.setGravityWells(this._frameGravityWells, {
+          reducedMotion: reducedMotion,
+          trails: !!this.options.trails
+        });
+      }
+      if (!this._frameGravityWells.length) this._clearGravityWellOverlay();
+    }),
+    (b.prototype._ensureGravityWellOverlay = function() {
+      if (!this._gravityWellOverlay) {
+        var canvas = document.createElement('canvas');
+        canvas.className = 'gravity-well-overlay';
+        canvas.style.position = 'absolute';
+        canvas.style.top = '0';
+        canvas.style.left = '0';
+        canvas.style.zIndex = '21';
+        canvas.style.pointerEvents = 'none';
+        this.i.appendChild(canvas);
+        this._gravityWellOverlay = canvas;
+        this._gravityWellOverlayContext = canvas.getContext('2d');
+      }
+      var dpr = window.devicePixelRatio || 1;
+      var width = this.i.size.width;
+      var height = this.i.size.height;
+      var backingWidth = Math.max(1, Math.floor(width * dpr));
+      var backingHeight = Math.max(1, Math.floor(height * dpr));
+      var overlay = this._gravityWellOverlay;
+      if (overlay.width !== backingWidth || overlay.height !== backingHeight) {
+        overlay.width = backingWidth;
+        overlay.height = backingHeight;
+        overlay.style.width = width + 'px';
+        overlay.style.height = height + 'px';
+      }
+      overlay.style.display = 'block';
+      var context = this._gravityWellOverlayContext;
+      context.setTransform(dpr, 0, 0, dpr, 0, 0);
+      context.clearRect(0, 0, width, height);
+      return context;
+    }),
+    (b.prototype._clearGravityWellOverlay = function() {
+      if (!this._gravityWellOverlay || !this._gravityWellOverlayContext || !this.i) return;
+      var dpr = window.devicePixelRatio || 1;
+      this._gravityWellOverlayContext.setTransform(dpr, 0, 0, dpr, 0, 0);
+      this._gravityWellOverlayContext.clearRect(0, 0, this.i.size.width, this.i.size.height);
+      this._gravityWellOverlay.style.display = 'none';
+    }),
+    (b.prototype._drawGravityWellFallback = function(wells) {
+      var context = this._ensureGravityWellOverlay();
+      for (var i = 0; i < wells.length; i++) {
+        var well = wells[i];
+        var radius = well.radius;
+        context.save();
+        context.translate(well.x, well.y);
+        context.scale(1, 0.24);
+        context.globalCompositeOperation = 'lighter';
+        var disc = context.createRadialGradient(0, 0, radius * 0.18, 0, 0, radius * 1.35);
+        disc.addColorStop(0, well.innerColor);
+        disc.addColorStop(0.42, well.innerColor);
+        disc.addColorStop(0.72, well.outerColor);
+        disc.addColorStop(1, 'rgba(0,0,0,0)');
+        context.strokeStyle = disc;
+        context.lineWidth = Math.max(8, radius * 0.18);
+        context.beginPath();
+        context.arc(0, 0, radius * 0.78, 0, Math.PI * 2);
+        context.stroke();
+        context.restore();
+
+        context.save();
+        context.globalCompositeOperation = 'source-over';
+        var coreRadius = radius * 0.18;
+        if (well.type === 'white') {
+          var coreGlow = context.createRadialGradient(well.x, well.y, 0, well.x, well.y, coreRadius * 1.8);
+          coreGlow.addColorStop(0, '#ffffff');
+          coreGlow.addColorStop(0.55, well.innerColor);
+          coreGlow.addColorStop(1, 'rgba(223,252,255,0)');
+          context.fillStyle = coreGlow;
+        } else {
+          context.fillStyle = '#000000';
+        }
+        context.beginPath();
+        context.arc(well.x, well.y, well.type === 'white' ? coreRadius * 1.8 : coreRadius, 0, Math.PI * 2);
+        context.fill();
+        if (well.selected || well.draft) {
+          context.globalCompositeOperation = 'lighter';
+          context.globalAlpha = 0.2;
+          var selectionAura = context.createRadialGradient(
+            well.x, well.y, coreRadius * 0.9,
+            well.x, well.y, radius * 1.5
+          );
+          selectionAura.addColorStop(0, 'rgba(0,0,0,0)');
+          selectionAura.addColorStop(0.38, well.innerColor);
+          selectionAura.addColorStop(0.72, well.outerColor);
+          selectionAura.addColorStop(1, 'rgba(0,0,0,0)');
+          context.fillStyle = selectionAura;
+          context.beginPath();
+          context.arc(well.x, well.y, radius * 1.5, 0, Math.PI * 2);
+          context.fill();
+        }
+        context.restore();
+      }
+    }),
+    (b.prototype._finishGravityWellFrame = function() {
+      var wells = this._frameGravityWells || [];
+      if (!wells.length) {
+        this._clearGravityWellOverlay();
+        return;
+      }
+      var renderer = this.glRenderer;
+      var webglRendered = !!(renderer && renderer.gl && renderer.gravityWellRenderer &&
+        !renderer.gravityWellCompositionFailed && !renderer.gravityWellRenderer.failed);
+      if (webglRendered && this.options.trails) {
+        var context = this._ensureGravityWellOverlay();
+        context.drawImage(
+          renderer.canvas,
+          0, 0, renderer.canvas.width, renderer.canvas.height,
+          0, 0, this.i.size.width, this.i.size.height
+        );
+      } else if (!webglRendered) {
+        this._drawGravityWellFallback(wells);
+      } else {
+        this._clearGravityWellOverlay();
+      }
     }),
     (b.prototype.init = function () {
       if (
@@ -327,7 +744,6 @@
       this.i.appendChild(this.canvas);
       this.g = this.canvas.getContext("2d");
       this.dpr = window.devicePixelRatio || 1;
-      this.l(this.i, { position: "relative" });
       this.l(this.canvas, { "z-index": "20", position: "absolute", top: 0, left: 0 });
       // CSS size
       this.canvas.style.width = this.i.size.width + 'px';
@@ -437,12 +853,17 @@
           return;
         }
 
+        const nextDpr = window.devicePixelRatio || 1;
+        if (w === this.i.size.width && h === this.i.size.height && nextDpr === this.dpr) {
+          return;
+        }
+
         // Update container size
         this.i.size.width = w;
         this.i.size.height = h;
 
         // Update DPR-aware canvas sizing
-        this.dpr = window.devicePixelRatio || 1;
+        this.dpr = nextDpr;
         this.canvas.style.width = w + 'px';
         this.canvas.style.height = h + 'px';
         this.canvas.width = Math.max(1, Math.floor(w * this.dpr));
@@ -483,9 +904,6 @@
       window.addEventListener(
         "resize",
         function () {
-          if (this.i.offsetWidth === this.i.size.width && this.i.offsetHeight === this.i.size.height) {
-            return false;
-          }
           clearTimeout(this.m);
           this.m = setTimeout(this._rebuildOnResize, 500);
         }.bind(this)
@@ -525,6 +943,10 @@
               if (!this.repulsionForce) this.repulsionForce = { x: x, y: y };
               this.repulsionForce.x = x; this.repulsionForce.y = y;
             }
+            if (this._middleSpawnActive) {
+              if ((a.buttons & 4) === 0) this._stopMiddleMouseSpawn();
+              else this._middleSpawnPointer = { x: x, y: y };
+            }
           }.bind(this)
         );
 
@@ -539,6 +961,10 @@
             var x = pos.x, y = pos.y;
             if (a.button === 0) { this.repulsionForce = { x: x, y: y }; }
             else if (a.button === 2) { this.attractionForce = { x: x, y: y }; }
+            else if (a.button === 1) {
+              this._startMiddleMouseSpawn(x, y);
+              a.preventDefault();
+            }
           }.bind(this)
         );
 
@@ -549,9 +975,28 @@
               this.repulsionForce = null;
             } else if (a.button === 2) {
               this.attractionForce = null;
+            } else if (a.button === 1) {
+              this._stopMiddleMouseSpawn();
+              a.preventDefault();
             }
           }.bind(this)
         );
+
+        this.canvas.addEventListener('auxclick', function(a) {
+          if (a.button === 1) a.preventDefault();
+        });
+        this.canvas.addEventListener('mouseleave', function() {
+          this._stopMiddleMouseSpawn();
+        }.bind(this));
+        document.addEventListener('mouseup', function(a) {
+          if (a.button === 1) this._stopMiddleMouseSpawn();
+        }.bind(this));
+        window.addEventListener('blur', function() {
+          this._stopMiddleMouseSpawn();
+        }.bind(this));
+        document.addEventListener('visibilitychange', function() {
+          if (document.hidden) this._stopMiddleMouseSpawn();
+        }.bind(this));
 
         // Pointer/touch events (unified). Behavior:
         // - 1 finger: attract toward finger
@@ -616,6 +1061,60 @@
         this.canvas.addEventListener('pointerleave', clearPointer, { passive: false });
       }
 
+      // Gravity-well placement and core selection take precedence over normal forces.
+      this.canvas.addEventListener('mousemove', function(evt) {
+        var pos = this._mapToLogicalCanvas(evt);
+        this._handleGravityWellPointerMove(pos.x, pos.y);
+      }.bind(this), true);
+
+      this.canvas.addEventListener('mousedown', function(evt) {
+        if (evt.button === 1) return;
+        var pos = this._mapToLogicalCanvas(evt);
+        if (!this._handleGravityWellPointerDown(pos.x, pos.y, 'mouse')) return;
+        evt.preventDefault();
+        evt.stopImmediatePropagation();
+      }.bind(this), true);
+
+      this.canvas.addEventListener('mouseup', function(evt) {
+        if (evt.button === 1) return;
+        var pos = this._mapToLogicalCanvas(evt);
+        if (!this._handleGravityWellPointerUp(pos.x, pos.y, 'mouse')) return;
+        evt.preventDefault();
+        evt.stopImmediatePropagation();
+      }.bind(this), true);
+
+      this.canvas.addEventListener('pointerdown', function(evt) {
+        if (evt.pointerType !== 'touch' && evt.pointerType !== 'pen') return;
+        var pos = this._mapToLogicalCanvas(evt);
+        this._gravityPointer = pos;
+        if (!this._handleGravityWellPointerDown(pos.x, pos.y, evt.pointerId)) return;
+        try { this.canvas.setPointerCapture && this.canvas.setPointerCapture(evt.pointerId); } catch (_) {}
+        evt.preventDefault();
+        evt.stopImmediatePropagation();
+      }.bind(this), { capture: true, passive: false });
+
+      this.canvas.addEventListener('pointermove', function(evt) {
+        if (evt.pointerType !== 'touch' && evt.pointerType !== 'pen') return;
+        var pos = this._mapToLogicalCanvas(evt);
+        var handled = this._handleGravityWellPointerMove(pos.x, pos.y);
+        if (!handled) return;
+        evt.preventDefault();
+        evt.stopImmediatePropagation();
+      }.bind(this), { capture: true, passive: false });
+
+      this.canvas.addEventListener('pointerup', function(evt) {
+        if (evt.pointerType !== 'touch' && evt.pointerType !== 'pen') return;
+        var pos = this._mapToLogicalCanvas(evt);
+        if (!this._handleGravityWellPointerUp(pos.x, pos.y, evt.pointerId)) return;
+        evt.preventDefault();
+        evt.stopImmediatePropagation();
+      }.bind(this), { capture: true, passive: false });
+
+      this.canvas.addEventListener('pointercancel', function(evt) {
+        if (this._gravityPointerId !== evt.pointerId) return;
+        this.cancelGravityWellPlacement();
+      }.bind(this), true);
+
       // RAF control flags
       this._rafActive = false;
       this._rafId = null;
@@ -627,6 +1126,16 @@
       this.canvas.addEventListener(
         "wheel",
         function (event) {
+          var position = this._mapToLogicalCanvas(event);
+          var hoveredWell = this._hitTestGravityWellVisual(position.x, position.y);
+          if (hoveredWell) {
+            this.selectedGravityWellId = hoveredWell.id;
+            this.updateGravityWell(hoveredWell.id, {
+              strength: hoveredWell.strength + (event.deltaY < 0 ? 1 : -1)
+            });
+            event.preventDefault();
+            return;
+          }
           if (event.deltaY < 0) {
             // mwheelup - Increase particles by X2
             this.adjustParticleCount(true);
@@ -754,6 +1263,7 @@
       var dt = Math.min(Math.max((now - (this._lastUpdateTime || now)) / 1000, 0), 0.1);
       this._lastUpdateTime = now;
       this._dt = dt;
+      this._emitMiddleMouseParticles(dt);
       // Update motion using SoA for performance, then sync back to objects for rendering/grid
       if (this.numParticles > 0) {
         this._updateSoA();
@@ -794,6 +1304,8 @@
         g.clearRect(0, 0, this.i.size.width, this.i.size.height);
         g.globalAlpha = 1;
       }
+
+      this._prepareGravityWellFrame();
 
       // Begin GL frame if available
       if (this.glRenderer && this.glRenderer.beginFrame) {
@@ -1049,7 +1561,9 @@
         this.glRenderer.endFrame();
       }
 
-      if (options.velocity !== 0) {
+      this._finishGravityWellFrame();
+
+      if (this._shouldAnimate()) {
         // Keep RAF ID and active flag consistent
         this._rafActive = true;
         this._rafId = requestAnimationFrame(this.update);
@@ -1084,6 +1598,86 @@
       if (this.performanceMonitor && this.performanceMonitor.setParticleCount) {
         this.performanceMonitor.setParticleCount(this.numParticles);
       }
+    }),
+    (b.prototype._ensureParticleCapacity = function(required) {
+      var currentCapacity = this.posX ? this.posX.length : 0;
+      if (currentCapacity >= required) return;
+      var capacity = Math.max(required, 64, Math.ceil(currentCapacity * 1.5));
+      var nextPosX = new Float32Array(capacity);
+      var nextPosY = new Float32Array(capacity);
+      var nextVelX = new Float32Array(capacity);
+      var nextVelY = new Float32Array(capacity);
+      var nextSizeA = new Float32Array(capacity);
+      if (this.posX) nextPosX.set(this.posX.subarray(0, this.numParticles));
+      if (this.posY) nextPosY.set(this.posY.subarray(0, this.numParticles));
+      if (this.velX) nextVelX.set(this.velX.subarray(0, this.numParticles));
+      if (this.velY) nextVelY.set(this.velY.subarray(0, this.numParticles));
+      if (this.sizeA) nextSizeA.set(this.sizeA.subarray(0, this.numParticles));
+      this.posX = nextPosX;
+      this.posY = nextPosY;
+      this.velX = nextVelX;
+      this.velY = nextVelY;
+      this.sizeA = nextSizeA;
+    }),
+    (b.prototype._spawnParticlesAt = function(x, y, count) {
+      count = Math.max(0, count | 0);
+      if (!count || !this.o || !this.i) return 0;
+      x = Math.max(0, Math.min(this.i.size.width, Number.isFinite(x) ? x : this.i.size.width * 0.5));
+      y = Math.max(0, Math.min(this.i.size.height, Number.isFinite(y) ? y : this.i.size.height * 0.5));
+      var start = this.numParticles | 0;
+      var target = start + count;
+      this._ensureParticleCapacity(target);
+      var spawned = new Array(count);
+      var baseSpeed = Math.max(0.25, Math.abs(this.options.velocity || 0));
+      for (var i = 0; i < count; i++) {
+        var particle = new c(this);
+        var angle = Math.random() * Math.PI * 2;
+        var spread = Math.random() * 3;
+        var speed = baseSpeed * (0.45 + Math.random() * 0.75);
+        var index = start + i;
+        particle.index = index;
+        particle.x = x + Math.cos(angle) * spread;
+        particle.y = y + Math.sin(angle) * spread;
+        particle.velocity.x = Math.cos(angle) * speed;
+        particle.velocity.y = Math.sin(angle) * speed;
+        spawned[i] = particle;
+        this.posX[index] = particle.x;
+        this.posY[index] = particle.y;
+        this.velX[index] = particle.velocity.x;
+        this.velY[index] = particle.velocity.y;
+        this.sizeA[index] = particle.size;
+      }
+      if (this.p && this.o[start] === this.p) {
+        Array.prototype.splice.apply(this.o, [start, 0].concat(spawned));
+      } else {
+        Array.prototype.push.apply(this.o, spawned);
+      }
+      this.numParticles = target;
+      if (this.p) this.p.index = target;
+      if (this.performanceMonitor && this.performanceMonitor.setParticleCount) {
+        this.performanceMonitor.setParticleCount(target);
+      }
+      return count;
+    }),
+    (b.prototype._startMiddleMouseSpawn = function(x, y) {
+      this._middleSpawnActive = true;
+      this._middleSpawnPointer = { x: x, y: y };
+      this._middleSpawnAccumulator = 0;
+      this._spawnParticlesAt(x, y, 1);
+      this._ensureAnimationLoop();
+    }),
+    (b.prototype._stopMiddleMouseSpawn = function() {
+      this._middleSpawnActive = false;
+      this._middleSpawnPointer = null;
+      this._middleSpawnAccumulator = 0;
+    }),
+    (b.prototype._emitMiddleMouseParticles = function(dt) {
+      if (!this._middleSpawnActive || !this._middleSpawnPointer) return 0;
+      this._middleSpawnAccumulator += Math.max(0, Number.isFinite(dt) ? dt : 0) * 60;
+      var count = Math.min(8, Math.floor(this._middleSpawnAccumulator));
+      if (count <= 0) return 0;
+      this._middleSpawnAccumulator -= count;
+      return this._spawnParticlesAt(this._middleSpawnPointer.x, this._middleSpawnPointer.y, count);
     }),
     (b.prototype.setVelocity = function (a) {
       return "fast" === a ? 1 : "slow" === a ? 0.33 : "none" === a ? 0 : 0.66;
@@ -1129,11 +1723,13 @@
       var speedRecoveryRate = 0.01;
       var width = this.i.size.width;
       var height = this.i.size.height;
+      var gravityWells = this.options.gravityWellsEnabled !== false ? this.gravityWells : [];
       for (var i = 0; i < n; i++) {
         var x = this.posX[i];
         var y = this.posY[i];
         var vx = this.velX[i];
         var vy = this.velY[i];
+        var gravityRespawned = false;
         if (this.options.interactive && hasA) {
           var dxA = ax - x; var dyA = ay - y;
           var dA = Math.sqrt(dxA*dxA + dyA*dyA); if (dA < 50) dA = 50;
@@ -1147,6 +1743,55 @@
           var fxR = dxR / dR; var fyR = dyR / dR;
           var fR = (100 / (dR*dR)) * repR * repI;
           vx += fR * fxR; vy += fR * fyR;
+        }
+        if (gravityWells.length) {
+          var gravityX = 0;
+          var gravityY = 0;
+	          for (var wi = 0; wi < gravityWells.length; wi++) {
+	            var gravityWell = gravityWells[wi];
+	            var wellX = Number.isFinite(gravityWell.x) ? gravityWell.x : width * 0.5;
+	            var wellY = Number.isFinite(gravityWell.y) ? gravityWell.y : height * 0.5;
+	            var wellRadius = Math.max(1, Number.isFinite(gravityWell.radius) ? gravityWell.radius : 120);
+	            var wellStrength = Math.max(0, Number.isFinite(gravityWell.strength) ? gravityWell.strength : 0);
+	            var gravityDx = wellX - x;
+	            var gravityDy = wellY - y;
+	            var gravityDistanceSq = gravityDx * gravityDx + gravityDy * gravityDy;
+	            var swallowRadius = wellRadius * 0.18;
+
+	            if (gravityWell.type === 'black' && gravityDistanceSq <= swallowRadius * swallowRadius) {
+              var edge = Math.floor(Math.random() * 4);
+              if (edge === 0) { x = 0; y = Math.random() * height; }
+              else if (edge === 1) { x = width; y = Math.random() * height; }
+              else if (edge === 2) { x = Math.random() * width; y = 0; }
+              else { x = Math.random() * width; y = height; }
+              var respawnSpeed = Math.max(Math.abs(speed), 0.25);
+              vx = (Math.random() - 0.5) * respawnSpeed;
+              vy = (Math.random() - 0.5) * respawnSpeed;
+              gravityRespawned = true;
+	              gravityDx = wellX - x;
+	              gravityDy = wellY - y;
+	              gravityDistanceSq = gravityDx * gravityDx + gravityDy * gravityDy;
+	            }
+
+	            var gravityDistance = Math.sqrt(gravityDistanceSq);
+	            if (gravityDistance < 0.0001) continue;
+	            var softenedRadius = Math.max(12, wellRadius * 0.12);
+	            var softenedSq = gravityDistanceSq + softenedRadius * softenedRadius;
+	            var gravityMagnitude = wellStrength * wellRadius * wellRadius / softenedSq * 0.012;
+            var gravitySign = gravityWell.type === 'white' ? -1 : 1;
+            var gravityUnitX = gravityDx / gravityDistance;
+            var gravityUnitY = gravityDy / gravityDistance;
+            gravityX += (gravityUnitX * gravitySign - gravityUnitY * gravitySign * 0.2) * gravityMagnitude;
+            gravityY += (gravityUnitY * gravitySign + gravityUnitX * gravitySign * 0.2) * gravityMagnitude;
+          }
+          var gravityAcceleration = Math.sqrt(gravityX * gravityX + gravityY * gravityY);
+          var maxGravityAcceleration = 1.5;
+          if (gravityAcceleration > maxGravityAcceleration) {
+            gravityX *= maxGravityAcceleration / gravityAcceleration;
+            gravityY *= maxGravityAcceleration / gravityAcceleration;
+          }
+          vx += gravityX;
+          vy += gravityY;
         }
         // Curved drift motion: apply perpendicular bias to velocity
         if (this.options.curvedDrift) {
@@ -1167,20 +1812,21 @@
         var currS = Math.sqrt(vx*vx + vy*vy);
         if (currS < speed) { vx *= 1 + speedRecoveryRate; vy *= 1 + speedRecoveryRate; }
         else if (currS > speed) { vx *= 1 - speedRecoveryRate; vy *= 1 - speedRecoveryRate; }
-        x += vx; y += vy;
+        if (!gravityRespawned) { x += vx; y += vy; }
         // boundary bounce
-        if (this.options.boundaryMode === 'wrap') {
+        if (!gravityRespawned && this.options.boundaryMode === 'wrap') {
           var sz = this.sizeA[i];
           if (x > width + sz) x = -sz; else if (x < -sz) x = width + sz;
           if (y > height + sz) y = -sz; else if (y < -sz) y = height + sz;
-        } else if (this.options.boundaryMode === 'bounce') {
+        } else if (!gravityRespawned && this.options.boundaryMode === 'bounce') {
           var s = this.sizeA[i];
           if (x + s > width) { x = width - s; vx = -Math.abs(vx); }
           else if (x - s < 0) { x = s; vx = Math.abs(vx); }
           if (y + s > height) { y = height - s; vy = -Math.abs(vy); }
           else if (y - s < 0) { y = s; vy = Math.abs(vy); }
         }
-        if (isNaN(vx) || isNaN(vy)) { vx = 0; vy = 0; }
+        if (!Number.isFinite(x) || !Number.isFinite(y)) { x = Math.random() * width; y = Math.random() * height; }
+        if (!Number.isFinite(vx) || !Number.isFinite(vy)) { vx = 0; vy = 0; }
         this.posX[i] = x; this.posY[i] = y; this.velX[i] = vx; this.velY[i] = vy;
       }
     }),
@@ -1235,6 +1881,8 @@
       var gradient = null;
       var glColor1 = null;
       var glColor2 = null;
+      var cssColor1 = null;
+      var cssColor2 = null;
       var alphaFactor = (options.lineConnectionDistance - distance) / options.lineConnectionDistance;
 
       if (options.useDistanceEffect) {
@@ -1253,18 +1901,22 @@
         } else {
           var interpolatedColor = interpolateColor(network.startColorRgb, network.endColorRgb, colorFactor);
           var colorString = rgbToString(interpolatedColor);
+          cssColor1 = colorString;
+          cssColor2 = colorString;
           gradient = g.createLinearGradient(particleA.x, particleA.y, particleB.x, particleB.y);
-          gradient.addColorStop(0, colorString);
-          gradient.addColorStop(1, colorString);
+          gradient.addColorStop(0, cssColor1);
+          gradient.addColorStop(1, cssColor2);
         }
       } else if (options.lineColorCycling && options.gradientEffect) {
         if (network.glRenderer && network.glRenderer.addLine) {
           glColor1 = copyRgb01WithAlpha(network._frameLineColor1, glLineColor1Scratch, alphaFactor);
           glColor2 = copyRgb01WithAlpha(network._frameLineColor2, glLineColor2Scratch, alphaFactor);
         } else {
+          cssColor1 = network.currentLineColor1;
+          cssColor2 = network.currentLineColor2;
           gradient = g.createLinearGradient(particleA.x, particleA.y, particleB.x, particleB.y);
-          gradient.addColorStop(0, network.currentLineColor1);
-          gradient.addColorStop(1, network.currentLineColor2);
+          gradient.addColorStop(0, cssColor1);
+          gradient.addColorStop(1, cssColor2);
         }
       } else if (options.lineColorCycling) {
         if (network.glRenderer && network.glRenderer.addLine) {
@@ -1272,58 +1924,59 @@
           glColor2 = copyRgb01WithAlpha(network._frameLineColor1, glLineColor2Scratch, alphaFactor);
         } else {
           // Use current cycling color per draw; do not reuse cached gradient
+          cssColor1 = network.currentLineColor1;
+          cssColor2 = network.currentLineColor1;
           gradient = g.createLinearGradient(particleA.x, particleA.y, particleB.x, particleB.y);
-          gradient.addColorStop(0, network.currentLineColor1);
-          gradient.addColorStop(1, network.currentLineColor1);
+          gradient.addColorStop(0, cssColor1);
+          gradient.addColorStop(1, cssColor2);
         }
       } else if (options.gradientEffect) {
         if (network.glRenderer && network.glRenderer.addLine) {
           glColor1 = copyRgb01WithAlpha(network._frameLineColor1, glLineColor1Scratch, alphaFactor);
           glColor2 = copyRgb01WithAlpha(network._frameLineColor2, glLineColor2Scratch, alphaFactor);
         } else {
+          cssColor1 = options.gradientColor1;
+          cssColor2 = options.gradientColor2;
           gradient = g.createLinearGradient(particleA.x, particleA.y, particleB.x, particleB.y);
-          gradient.addColorStop(0, options.gradientColor1);
-          gradient.addColorStop(1, options.gradientColor2);
+          gradient.addColorStop(0, cssColor1);
+          gradient.addColorStop(1, cssColor2);
         }
       } else {
         if (network.glRenderer && network.glRenderer.addLine) {
           glColor1 = copyRgb01WithAlpha(network._frameLineColor1, glLineColor1Scratch, alphaFactor);
           glColor2 = copyRgb01WithAlpha(network._frameLineColor1, glLineColor2Scratch, alphaFactor);
         } else {
+          cssColor1 = options.gradientColor1;
+          cssColor2 = options.gradientColor1;
           gradient = network.cachedGradient2;
           if (!gradient) {
             gradient = g.createLinearGradient(0, 0, 0, 0);
-            gradient.addColorStop(0, options.gradientColor1);
-            gradient.addColorStop(1, options.gradientColor1);
+            gradient.addColorStop(0, cssColor1);
+            gradient.addColorStop(1, cssColor2);
             network.cachedGradient2 = gradient;
           }
         }
       }
 
       if (options.interactive && network.p) {
-        var dX = network.p.x - particleA.x;
-        var dY = network.p.y - particleA.y;
-        var dSq = dX * dX + dY * dY;
-        var d = Math.sqrt(dSq);
-        if (d < options.proximityEffectDistance) {
-          if (network.glRenderer && network.glRenderer.addLine) {
-            // override start color with proximity color
+        var proximityDistanceSq = options.proximityEffectDistance * options.proximityEffectDistance;
+        var pointerAX = network.p.x - particleA.x;
+        var pointerAY = network.p.y - particleA.y;
+        var pointerBX = network.p.x - particleB.x;
+        var pointerBY = network.p.y - particleB.y;
+        var particleANearPointer = pointerAX * pointerAX + pointerAY * pointerAY < proximityDistanceSq;
+        var particleBNearPointer = pointerBX * pointerBX + pointerBY * pointerBY < proximityDistanceSq;
+        if (network.glRenderer && network.glRenderer.addLine) {
+          if (particleANearPointer) {
             glColor1 = copyRgb01WithAlpha(network._frameProximityColor, glLineColor1Scratch, alphaFactor);
-          } else {
-            gradient = g.createLinearGradient(particleA.x, particleA.y, particleB.x, particleB.y);
-            gradient.addColorStop(0, options.proximityEffectColor);
-            if (options.useDistanceEffect) {
-              gradient.addColorStop(1, colorString);
-            } else if (options.lineColorCycling && options.gradientEffect) {
-              gradient.addColorStop(1, network.currentLineColor2);
-            } else if (options.lineColorCycling) {
-              gradient.addColorStop(1, network.currentLineColor1);
-            } else if (options.gradientEffect) {
-              gradient.addColorStop(1, options.gradientColor2);
-            } else {
-              gradient.addColorStop(1, options.gradientColor1);
-            }
           }
+          if (particleBNearPointer) {
+            glColor2 = copyRgb01WithAlpha(network._frameProximityColor, glLineColor2Scratch, alphaFactor);
+          }
+        } else if (particleANearPointer || particleBNearPointer) {
+          gradient = g.createLinearGradient(particleA.x, particleA.y, particleB.x, particleB.y);
+          gradient.addColorStop(0, particleANearPointer ? options.proximityEffectColor : cssColor1);
+          gradient.addColorStop(1, particleBNearPointer ? options.proximityEffectColor : cssColor2);
         }
       }
 

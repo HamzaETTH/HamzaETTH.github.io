@@ -55,6 +55,11 @@
       return;
     }
     this.gl = gl;
+    this.gravityWells = [];
+    this.gravityWellReducedMotion = false;
+    this.gravityWellTrails = false;
+    this.gravityWellCompositionFailed = false;
+    this._gravityCompositionActive = false;
 
     // Program for lines
     var vsLines = "\nattribute vec2 a_position;\nattribute vec4 a_color;\nuniform vec2 u_resolution;\nvarying vec4 v_color;\nvoid main() {\n  vec2 zeroToOne = a_position / u_resolution;\n  vec2 zeroToTwo = zeroToOne * 2.0;\n  vec2 clipSpace = zeroToTwo - 1.0;\n  gl_Position = vec4(clipSpace * vec2(1.0, -1.0), 0.0, 1.0);\n  v_color = a_color;\n}\n";
@@ -99,6 +104,17 @@
 
     // Transparent clear
     gl.clearColor(0, 0, 0, 0);
+
+    if (window.GravityWellRendererGL) {
+      try {
+        this.gravityWellRenderer = new window.GravityWellRendererGL(gl, this.canvas);
+        this.gravityWellCompositionFailed = !this.gravityWellRenderer.ready;
+      } catch (error) {
+        this.gravityWellRenderer = null;
+        this.gravityWellCompositionFailed = true;
+        console.warn('Gravity-well renderer init failed:', error);
+      }
+    }
 
     this.resize(this.canvas.width, this.canvas.height);
   }
@@ -146,7 +162,27 @@
     this.canvas.width = backingWidth;
     this.canvas.height = backingHeight;
     this.gl.viewport(0, 0, backingWidth, backingHeight);
+    if (this.gravityWellRenderer && this.gravityWells.length) {
+      if (!this.gravityWellRenderer.resize(backingWidth, backingHeight)) {
+        this.gravityWellCompositionFailed = !!this.gravityWellRenderer.failed;
+      }
+    }
     return true;
+  };
+
+  ParticleRendererGL.prototype.setGravityWells = function(wells, options) {
+    this.gravityWells = Array.isArray(wells) ? wells : [];
+    options = options || {};
+    this.gravityWellReducedMotion = !!options.reducedMotion;
+    this.gravityWellTrails = !!options.trails;
+    if (!this.gravityWells.length || !this.gravityWellRenderer || this.gravityWellRenderer.failed) {
+      this._gravityCompositionActive = false;
+      if (this.gravityWellRenderer && this.gravityWellRenderer.failed) this.gravityWellCompositionFailed = true;
+      return false;
+    }
+    var resized = this.gravityWellRenderer.resize(this.canvas.width, this.canvas.height);
+    this.gravityWellCompositionFailed = !!this.gravityWellRenderer.failed;
+    return !this.gravityWellCompositionFailed || resized;
   };
 
   ParticleRendererGL.prototype.beginFrame = function() {
@@ -161,6 +197,15 @@
       }
     }
     this.vertexCount = 0;
+    this._gravityCompositionActive = false;
+    if (this.gravityWells.length && this.gravityWellRenderer && !this.gravityWellRenderer.failed) {
+      this._gravityCompositionActive = this.gravityWellRenderer.beginScene();
+    }
+    if (!this._gravityCompositionActive) {
+      this.gl.bindFramebuffer(this.gl.FRAMEBUFFER, null);
+      this.gl.viewport(0, 0, this.canvas.width, this.canvas.height);
+    }
+    this.gl.clearColor(0, 0, 0, 0);
     this.gl.clear(this.gl.COLOR_BUFFER_BIT);
     // Pre-size points from last frame
     if (this.lastFramePoints && this.lastFramePoints > 0) {
@@ -222,7 +267,7 @@
   ParticleRendererGL.prototype.endFrame = function() {
     if (!this.gl) return;
     var gl = this.gl;
-    if (this.vertexCount > 0) {
+    if (this.vertexCount > 0 && !this.gravityWellTrails) {
       gl.useProgram(this.programLines);
       gl.uniform2f(this.u_resolution, this.canvas.width, this.canvas.height);
       gl.bindBuffer(gl.ARRAY_BUFFER, this.positionBuffer);
@@ -255,6 +300,18 @@
       gl.drawArrays(gl.POINTS, 0, this.pointCount);
       this.lastFramePoints = this.pointCount;
     }
+
+    if (this._gravityCompositionActive) {
+      var rendered = this.gravityWellRenderer.render(
+        this.gravityWells,
+        performance.now() * 0.001,
+        this.gravityWellReducedMotion
+      );
+      if (!rendered) {
+        this.gravityWellCompositionFailed = true;
+        this._gravityCompositionActive = false;
+      }
+    }
   };
 
   ParticleRendererGL.prototype.destroy = function() {
@@ -263,6 +320,9 @@
 
     var gl = this.gl;
     if (gl) {
+      if (this.gravityWellRenderer && this.gravityWellRenderer.destroy) {
+        this.gravityWellRenderer.destroy();
+      }
       [this.positionBuffer, this.colorBuffer, this.pointPositionBuffer,
         this.pointColorBuffer, this.pointSizeBuffer].forEach(function(buffer) {
         if (buffer) gl.deleteBuffer(buffer);
@@ -293,6 +353,8 @@
     this.pointSizeBuffer = null;
     this.programLines = null;
     this.programPoints = null;
+    this.gravityWellRenderer = null;
+    this.gravityWells = null;
     this.gl = null;
     this.canvas = null;
   };

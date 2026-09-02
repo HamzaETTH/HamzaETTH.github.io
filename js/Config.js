@@ -70,7 +70,18 @@
     performanceOverlay: false,
 
     // Physics/boundary
-    boundaryMode: 'bounce'
+    boundaryMode: 'bounce',
+
+    // Gravity-well defaults
+    gravityWellsEnabled: true,
+    gravityWellRadius: 120,
+    gravityWellStrength: 12,
+    gravityWellMinRadius: 24,
+    gravityWellMaxRadius: 500,
+    blackHoleInnerColor: '#ff8080',
+    blackHoleOuterColor: '#3633ff',
+    whiteHoleInnerColor: '#dffcff',
+    whiteHoleOuterColor: '#6b5cff'
   };
 
   // Preset configurations for different visual styles
@@ -191,7 +202,16 @@
       curvedDrift: cfg.curvedDrift != null ? cfg.curvedDrift : false,
       curvedDriftCurvature: (typeof cfg.curvedDriftCurvature === 'number') ? cfg.curvedDriftCurvature : 0.12,
       curvedDriftNoiseSpeed: (typeof cfg.curvedDriftNoiseSpeed === 'number') ? cfg.curvedDriftNoiseSpeed : 1.5,
-      gatherRadius: (typeof cfg.gatherRadius === 'number') ? cfg.gatherRadius : 100
+      gatherRadius: (typeof cfg.gatherRadius === 'number') ? cfg.gatherRadius : 100,
+      gravityWellsEnabled: cfg.gravityWellsEnabled !== false,
+      gravityWellRadius: (typeof cfg.gravityWellRadius === 'number') ? cfg.gravityWellRadius : 120,
+      gravityWellStrength: (typeof cfg.gravityWellStrength === 'number') ? cfg.gravityWellStrength : 12,
+      gravityWellMinRadius: (typeof cfg.gravityWellMinRadius === 'number') ? cfg.gravityWellMinRadius : 24,
+      gravityWellMaxRadius: (typeof cfg.gravityWellMaxRadius === 'number') ? cfg.gravityWellMaxRadius : 500,
+      blackHoleInnerColor: cfg.blackHoleInnerColor || '#ff8080',
+      blackHoleOuterColor: cfg.blackHoleOuterColor || '#3633ff',
+      whiteHoleInnerColor: cfg.whiteHoleInnerColor || '#dffcff',
+      whiteHoleOuterColor: cfg.whiteHoleOuterColor || '#6b5cff'
     };
   }
 

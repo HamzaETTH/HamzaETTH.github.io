@@ -101,10 +101,14 @@
       if (this._activePointers) this._activePointers.clear();
       this.attractionForce = null;
       this.repulsionForce = null;
+      this._middleSpawnActive = false;
+      this._middleSpawnPointer = null;
+      this._middleSpawnAccumulator = 0;
       this.p = null;
 
       if (this.performanceMonitor && this.performanceMonitor.destroy) this.performanceMonitor.destroy();
       if (this.glRenderer && this.glRenderer.destroy) this.glRenderer.destroy();
+      if (this._gravityWellOverlay && this._gravityWellOverlay.parentNode) this._gravityWellOverlay.parentNode.removeChild(this._gravityWellOverlay);
       if (this.canvas && this.canvas.parentNode) this.canvas.parentNode.removeChild(this.canvas);
       if (this.k && this.k.parentNode) this.k.parentNode.removeChild(this.k);
       if (this.i) {
@@ -121,6 +125,11 @@
       this.sizeA = null;
       this.numParticles = 0;
       this._activePointers = null;
+      this.gravityWells = null;
+      this.gravityWellDraft = null;
+      this.selectedGravityWellId = null;
+      this._gravityWellOverlayContext = null;
+      this._gravityWellOverlay = null;
       this.performanceMonitor = null;
       this.glRenderer = null;
       this.g = null;

@@ -48,7 +48,7 @@ section, main {
 }
 
 .tp-dfwv {
-  width: 400px !important;
+  width: min(400px, calc(100vw - 24px)) !important;
 }
 
 .performance-overlay {

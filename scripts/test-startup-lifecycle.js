@@ -135,11 +135,11 @@ async function main() {
       afterRepeatToggle.tweakpaneRequestCount = responses.filter(isTweakpaneUrl).length;
     }
 
-    const expectedHotkeys = ['b', 'c', 'd', 'h', 'm', 'p', 'r'];
+    const expectedHotkeys = ['b', 'c', 'd', 'escape', 'h', 'm', 'p', 'r', 'w'];
     const assertions = {
       particleRuntimeHealthy: initial.particleCount > 0 && initial.rafActive &&
         initial.hasWebGl && !initial.webGlContextLost,
-      expectedClassicScriptCount: initial.classicScripts.length === 9
+      expectedClassicScriptCount: initial.classicScripts.length === 10
     };
     if (!options.blockTweakpane) {
       assertions.hotkeysAvailable = JSON.stringify(initial.hotkeys) === JSON.stringify(expectedHotkeys);

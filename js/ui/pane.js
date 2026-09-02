@@ -93,6 +93,9 @@ function buildParamsFromNetwork(pn) {
 
     // Gather
     gatherRadius: o.gatherRadius != null ? o.gatherRadius : 100,
+
+    // Gravity wells
+    gravityWellsEnabled: o.gravityWellsEnabled !== false,
   };
 }
 
@@ -116,6 +119,12 @@ async function buildPane() {
   const PARAMS = buildParamsFromNetwork(pn);
   // Snapshot current as reset baseline rather than global defaults
   const DEFAULTS = { ...PARAMS };
+  const WELL_PARAMS = {
+    radius: pn.options.gravityWellRadius || 120,
+    strength: pn.options.gravityWellStrength || 12,
+    innerColor: pn.options.blackHoleInnerColor || '#ff8080',
+    outerColor: pn.options.blackHoleOuterColor || '#3633ff'
+  };
 
   // Shared reset that truly restores defaults and clears transient state
   function doReset() {
@@ -128,6 +137,7 @@ async function buildPane() {
         pn.repulsionForce = null;
         pn._gatherActive = false;
         pn.forceHueSweep = false;
+        if (typeof pn.clearGravityWells === 'function') pn.clearGravityWells();
         // Wipe 2D canvas (clear trails immediately)
         if (pn.g && pn.i && pn.i.size) {
           pn.g.clearRect(0, 0, pn.i.size.width, pn.i.size.height);
@@ -247,6 +257,62 @@ async function buildPane() {
 
   // Lines
   const adv = tabs.pages[1];
+
+  const gravityWellsFolder = adv.addFolder({ title: 'Gravity Wells', expanded: true });
+  const bindGravityWellsEnabled = gravityWellsFolder.addBinding(PARAMS, 'gravityWellsEnabled', { label: 'Global Enabled' })
+    .on('change', () => applyParamsToNetwork(pn, PARAMS));
+  gravityWellsFolder.addButton({ title: 'Add Black Hole' }).on('click', () => {
+    PARAMS.gravityWellsEnabled = true;
+    bindGravityWellsEnabled.refresh();
+    pn.beginGravityWellPlacement('black', false);
+  });
+  gravityWellsFolder.addButton({ title: 'Add White Hole' }).on('click', () => {
+    PARAMS.gravityWellsEnabled = true;
+    bindGravityWellsEnabled.refresh();
+    pn.beginGravityWellPlacement('white', false);
+  });
+
+  const bindWellRadius = gravityWellsFolder.addBinding(WELL_PARAMS, 'radius', {
+    min: 24, max: 500, step: 1, label: 'Radius'
+  }).on('change', () => pn.updateSelectedGravityWell({ radius: WELL_PARAMS.radius }));
+  const bindWellStrength = gravityWellsFolder.addBinding(WELL_PARAMS, 'strength', {
+    min: 0, max: 40, step: 0.5, label: 'Strength'
+  }).on('change', () => pn.updateSelectedGravityWell({ strength: WELL_PARAMS.strength }));
+  const bindWellInnerColor = gravityWellsFolder.addBinding(WELL_PARAMS, 'innerColor', {
+    view: 'color', label: 'Inner Color'
+  }).on('change', () => pn.updateSelectedGravityWell({ innerColor: WELL_PARAMS.innerColor }));
+  const bindWellOuterColor = gravityWellsFolder.addBinding(WELL_PARAMS, 'outerColor', {
+    view: 'color', label: 'Outer Color'
+  }).on('change', () => pn.updateSelectedGravityWell({ outerColor: WELL_PARAMS.outerColor }));
+  const repositionWellButton = gravityWellsFolder.addButton({ title: 'Reposition/Resize' });
+  repositionWellButton.on('click', () => pn.beginSelectedGravityWellPlacement());
+  const removeWellButton = gravityWellsFolder.addButton({ title: 'Remove Selected' });
+  removeWellButton.on('click', () => pn.removeSelectedGravityWell());
+  const clearWellsButton = gravityWellsFolder.addButton({ title: 'Clear All' });
+  clearWellsButton.on('click', () => pn.clearGravityWells());
+
+  function syncGravityWellControls() {
+    PARAMS.gravityWellsEnabled = pn.options.gravityWellsEnabled !== false;
+    bindGravityWellsEnabled.refresh();
+    const selected = pn.getSelectedGravityWell();
+    const disabled = !selected;
+    [bindWellRadius, bindWellStrength, bindWellInnerColor, bindWellOuterColor,
+      repositionWellButton, removeWellButton].forEach(control => { control.disabled = disabled; });
+    clearWellsButton.disabled = pn.gravityWells.length === 0;
+    if (!selected) return;
+    WELL_PARAMS.radius = selected.radius;
+    WELL_PARAMS.strength = selected.strength;
+    WELL_PARAMS.innerColor = selected.innerColor;
+    WELL_PARAMS.outerColor = selected.outerColor;
+    bindWellRadius.refresh();
+    bindWellStrength.refresh();
+    bindWellInnerColor.refresh();
+    bindWellOuterColor.refresh();
+  }
+
+  const onGravityWellsChange = () => syncGravityWellControls();
+  window.addEventListener('particle-gravity-wells-change', onGravityWellsChange);
+  syncGravityWellControls();
 
   // Effects
   // Motion
@@ -628,7 +694,12 @@ async function buildPane() {
     window.hotkeyManager.register('d', hotkeyHandlers.handleReset, 'Reset to Default');
     window.hotkeyManager.register('h', hotkeyHandlers.handleHelp, 'Show Help');
     window.hotkeyManager.register('m', hotkeyHandlers.handleColorMethod, 'Cycle Color Method');
-    window.hotkeyManager.register('b', hotkeyHandlers.handleBenchmark, 'Run Benchmark');
+    window.hotkeyManager.register('b', (context, event) => {
+      if (event && event.shiftKey) hotkeyHandlers.handleBenchmark(context);
+      else pn.beginGravityWellPlacement('black', true);
+    }, 'Add Black Hole (Shift+B Benchmark)');
+    window.hotkeyManager.register('w', () => pn.beginGravityWellPlacement('white', true), 'Add White Hole');
+    window.hotkeyManager.register('escape', () => pn.cancelGravityWellPlacement(), 'Cancel or Deselect Gravity Well');
     
     console.log('HotkeyManager: All hotkeys registered', Array.from(window.hotkeyManager.handlers.keys()));
   } else {
@@ -639,12 +710,16 @@ async function buildPane() {
     pane,
     container,
     params: PARAMS,
+    gravityWellParams: WELL_PARAMS,
+    syncGravityWellControls,
     doReset,
     randomizeVisualParams,
     togglePane,
     hotkeyHandlers,
     destroy() {
       stopRuntimeSync();
+      window.removeEventListener('particle-gravity-wells-change', onGravityWellsChange);
+      if (window.particleSettingsUi === ui) window.particleSettingsUi = null;
       if (featureHideTimerId !== null) clearTimeout(featureHideTimerId);
       featureHideTimerId = null;
       if (featureRestore) {
@@ -664,6 +739,7 @@ async function buildPane() {
     }
   };
   activeUi = ui;
+  window.particleSettingsUi = ui;
   return ui;
 }
 
@@ -692,7 +768,7 @@ function installVisibilityLifecycle(pn) {
   pn._resumeOnVisible = false;
   pn._handleVisibilityChange = function () {
     if (document.hidden) {
-      pn._resumeOnVisible = pn.options.velocity !== 0 &&
+      pn._resumeOnVisible = pn._shouldAnimate() &&
         (pn._resumeOnVisible || pn._rafActive || pn._rafId != null);
       if (pn._rafId != null) cancelAnimationFrame(pn._rafId);
       pn._rafActive = false;
@@ -700,7 +776,7 @@ function installVisibilityLifecycle(pn) {
       return;
     }
 
-    const shouldResume = pn._resumeOnVisible && pn.options.velocity !== 0;
+    const shouldResume = pn._resumeOnVisible && pn._shouldAnimate();
     pn._resumeOnVisible = false;
     if (shouldResume && !pn._rafActive && pn._rafId == null) {
       pn._lastUpdateTime = performance.now();
@@ -752,13 +828,17 @@ function registerBootstrapHotkeys() {
     includeMouse: true
   }), 'Show Help');
   manager.register('m', () => invokePaneAction(ui => ui.hotkeyHandlers.handleColorMethod(manager.context)), 'Cycle Color Method');
-  manager.register('b', () => {
-    if (!window.BenchmarkSystem) return;
-    if (!window._benchmarkRunner) {
-      window._benchmarkRunner = new window.BenchmarkSystem(pn);
+  manager.register('b', (context, event) => {
+    if (!event || !event.shiftKey) {
+      pn.beginGravityWellPlacement('black', true);
+      return;
     }
+    if (!window.BenchmarkSystem) return;
+    if (!window._benchmarkRunner) window._benchmarkRunner = new window.BenchmarkSystem(pn);
     window._benchmarkRunner.start();
-  }, 'Run Benchmark');
+  }, 'Add Black Hole (Shift+B Benchmark)');
+  manager.register('w', () => pn.beginGravityWellPlacement('white', true), 'Add White Hole');
+  manager.register('escape', () => pn.cancelGravityWellPlacement(), 'Cancel or Deselect Gravity Well');
 
   console.log('HotkeyManager: Bootstrap hotkeys registered', Array.from(manager.handlers.keys()));
 }
@@ -767,6 +847,7 @@ function destroySettingsOwnership() {
   lifecycleGeneration++;
   if (activeUi) activeUi.destroy();
   activeUi = null;
+  window.particleSettingsUi = null;
   paneBuildPromise = null;
   const strayContainer = document.getElementById('tp-container');
   if (strayContainer && strayContainer.parentNode) strayContainer.parentNode.removeChild(strayContainer);

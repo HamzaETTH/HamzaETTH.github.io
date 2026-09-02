@@ -85,7 +85,8 @@ function applyVelocityAndDensity(pn, o, p) {
   }
   
   // If the loop was stopped (velocity 0) and we now have non-zero velocity, restart it
-  if ((!pn._rafActive || pn._rafId == null) && o.velocity !== 0 && typeof pn.update === 'function') {
+  const shouldAnimate = typeof pn._shouldAnimate === 'function' ? pn._shouldAnimate() : o.velocity !== 0;
+  if ((!pn._rafActive || pn._rafId == null) && shouldAnimate && typeof pn.update === 'function') {
     if (document.hidden) {
       pn._resumeOnVisible = true;
     } else {
@@ -105,6 +106,13 @@ function applyVelocityAndDensity(pn, o, p) {
   if (typeof pn.initGrid === 'function') {
     pn.initGrid();
   }
+}
+
+function applyGravityWells(pn, o, p) {
+  if (typeof p.gravityWellsEnabled !== 'boolean') return;
+  if (o.gravityWellsEnabled === p.gravityWellsEnabled) return;
+  if (typeof pn.setGravityWellsEnabled === 'function') pn.setGravityWellsEnabled(p.gravityWellsEnabled);
+  else o.gravityWellsEnabled = p.gravityWellsEnabled;
 }
 
 function applyParticleAppearance(pn, o, p) {
@@ -158,6 +166,7 @@ export function applyParamsToNetwork(pn, p) {
 
   try {
     applyScalarParams(o, p);
+    applyGravityWells(pn, o, p);
     applyColorParams(o, p);
     applyBackground(pn, o, p);
     applyVelocityAndDensity(pn, o, p);
