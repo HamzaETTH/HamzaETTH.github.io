@@ -96,6 +96,7 @@ function buildParamsFromNetwork(pn) {
 
     // Gravity wells
     gravityWellsEnabled: o.gravityWellsEnabled !== false,
+    gravityWellMotion: o.gravityWellMotion || 'system',
   };
 }
 
@@ -261,6 +262,10 @@ async function buildPane() {
   const gravityWellsFolder = adv.addFolder({ title: 'Gravity Wells', expanded: true });
   const bindGravityWellsEnabled = gravityWellsFolder.addBinding(PARAMS, 'gravityWellsEnabled', { label: 'Global Enabled' })
     .on('change', () => applyParamsToNetwork(pn, PARAMS));
+  gravityWellsFolder.addBinding(PARAMS, 'gravityWellMotion', {
+    label: 'Motion',
+    options: { System: 'system', Animate: 'animate', Static: 'static' }
+  }).on('change', () => applyParamsToNetwork(pn, PARAMS));
   gravityWellsFolder.addButton({ title: 'Add Black Hole' }).on('click', () => {
     PARAMS.gravityWellsEnabled = true;
     bindGravityWellsEnabled.refresh();

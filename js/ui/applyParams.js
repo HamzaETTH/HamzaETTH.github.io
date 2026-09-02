@@ -109,8 +109,12 @@ function applyVelocityAndDensity(pn, o, p) {
 }
 
 function applyGravityWells(pn, o, p) {
-  if (typeof p.gravityWellsEnabled !== 'boolean') return;
-  if (o.gravityWellsEnabled === p.gravityWellsEnabled) return;
+  if (typeof p.gravityWellMotion === 'string' && window.ParticleNetworkConfig) {
+    const motion = window.ParticleNetworkConfig.normalizeGravityWellMotion(p.gravityWellMotion);
+    o.gravityWellMotion = motion;
+    window.ParticleNetworkConfig.saveGravityWellMotion(motion);
+  }
+  if (typeof p.gravityWellsEnabled !== 'boolean' || o.gravityWellsEnabled === p.gravityWellsEnabled) return;
   if (typeof pn.setGravityWellsEnabled === 'function') pn.setGravityWellsEnabled(p.gravityWellsEnabled);
   else o.gravityWellsEnabled = p.gravityWellsEnabled;
 }

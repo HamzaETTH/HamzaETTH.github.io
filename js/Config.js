@@ -6,6 +6,27 @@
 (function(window) {
   'use strict';
 
+  const GRAVITY_WELL_MOTION_STORAGE_KEY = 'pn_gravity_well_motion';
+  const GRAVITY_WELL_MOTION_MODES = ['system', 'animate', 'static'];
+
+  function normalizeGravityWellMotion(value, fallback = 'system') {
+    return GRAVITY_WELL_MOTION_MODES.includes(value) ? value : fallback;
+  }
+
+  function loadGravityWellMotion(fallback = 'system') {
+    try {
+      return normalizeGravityWellMotion(window.localStorage.getItem(GRAVITY_WELL_MOTION_STORAGE_KEY), fallback);
+    } catch (_) {
+      return fallback;
+    }
+  }
+
+  function saveGravityWellMotion(value) {
+    const normalized = normalizeGravityWellMotion(value);
+    try { window.localStorage.setItem(GRAVITY_WELL_MOTION_STORAGE_KEY, normalized); } catch (_) {}
+    return normalized;
+  }
+
   // Default configuration settings
   const DEFAULT_CONFIG = {
     // Background options
@@ -74,6 +95,7 @@
 
     // Gravity-well defaults
     gravityWellsEnabled: true,
+    gravityWellMotion: 'system',
     gravityWellRadius: 120,
     gravityWellStrength: 12,
     gravityWellMinRadius: 24,
@@ -204,6 +226,9 @@
       curvedDriftNoiseSpeed: (typeof cfg.curvedDriftNoiseSpeed === 'number') ? cfg.curvedDriftNoiseSpeed : 1.5,
       gatherRadius: (typeof cfg.gatherRadius === 'number') ? cfg.gatherRadius : 100,
       gravityWellsEnabled: cfg.gravityWellsEnabled !== false,
+      gravityWellMotion: Object.prototype.hasOwnProperty.call(userOptions, 'gravityWellMotion')
+        ? normalizeGravityWellMotion(cfg.gravityWellMotion)
+        : loadGravityWellMotion(cfg.gravityWellMotion),
       gravityWellRadius: (typeof cfg.gravityWellRadius === 'number') ? cfg.gravityWellRadius : 120,
       gravityWellStrength: (typeof cfg.gravityWellStrength === 'number') ? cfg.gravityWellStrength : 12,
       gravityWellMinRadius: (typeof cfg.gravityWellMinRadius === 'number') ? cfg.gravityWellMinRadius : 24,
@@ -220,7 +245,10 @@
     DEFAULT_CONFIG,
     PRESETS,
     createConfig,
-    createRuntimeConfig
+    createRuntimeConfig,
+    normalizeGravityWellMotion,
+    loadGravityWellMotion,
+    saveGravityWellMotion
   };
 
   // Export as module or global

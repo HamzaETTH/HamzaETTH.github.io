@@ -492,7 +492,7 @@ async function runDesktop(browser, options, browserErrors) {
     escapeDeselects: deselected,
     escapeCancelsDraft: cancelState.count === countBeforeCancel && cancelState.draft === null,
     shiftBRunsBenchmark: benchmarkState.starts === 1 && benchmarkState.draft === null && benchmarkState.count === countBeforeCancel,
-    panelComplete: ['Gravity Wells', 'Global Enabled', 'Add Black Hole', 'Add White Hole', 'Radius', 'Strength',
+    panelComplete: ['Gravity Wells', 'Global Enabled', 'Motion', 'Add Black Hole', 'Add White Hole', 'Radius', 'Strength',
       'Inner Color', 'Outer Color', 'Reposition/Resize', 'Remove Selected', 'Clear All'].every(label => panelText.includes(label)),
     settingsSynchronize: synchronized,
     repositionResize: repositioned && Math.abs(repositioned.x - 360) <= 2 && Math.abs(repositioned.y - 300) <= 2 && Math.abs(repositioned.radius - 120) <= 2,
@@ -576,10 +576,29 @@ async function runTouch(browser, options, browserErrors) {
     };
   }, beforePhysics);
 
+  const animateOverride = await page.evaluate(() => {
+    const ui = window.particleSettingsUi;
+    ui.params.gravityWellMotion = 'animate';
+    window.applyParamsToNetwork(window.particleInstance, ui.params);
+    return localStorage.getItem('pn_gravity_well_motion');
+  });
+  await waitForFrames(page, 4);
+  const overrideAnimationTime = await page.evaluate(() =>
+    window.particleInstance.glRenderer.gravityWellRenderer.diagnostics.lastAnimationTime
+  );
+
   await page.keyboard.press('Escape');
   if (options.screenshotDir) {
     await page.screenshot({ path: path.join(options.screenshotDir, 'touch-black-white.png') });
   }
+
+  await page.reload({ waitUntil: 'load' });
+  await page.waitForFunction(() => window.particleInstance && window.ParticleNetworkConfig);
+  const restoredMotion = await page.evaluate(() => {
+    const motion = window.particleInstance.options.gravityWellMotion;
+    localStorage.removeItem('pn_gravity_well_motion');
+    return motion;
+  });
 
   const sizes = touchState.targetSizes;
   const assertions = {
@@ -591,12 +610,14 @@ async function runTouch(browser, options, browserErrors) {
     panelFitsViewport: touchState.panelWidth <= 366,
     reducedMotionFreezesDecoration: touchState.animationTime === 0,
     reducedMotionKeepsPhysics: touchState.physicsMoved,
+    animateOverrideAdvancesDecoration: animateOverride === 'animate' && overrideAnimationTime > 0,
+    motionOverrideRestored: restoredMotion === 'animate',
     dprTargetsSized: sizes.sceneWidth === sizes.backingWidth && sizes.sceneHeight === sizes.backingHeight &&
       sizes.fieldWidth === Math.ceil(sizes.backingWidth / 2) && sizes.fieldHeight === Math.ceil(sizes.backingHeight / 2),
     touchContextHealthy: !touchState.contextLost
   };
   await context.close();
-  return { assertions, highDprPointerState, touchState };
+  return { assertions, highDprPointerState, touchState, animateOverride, overrideAnimationTime, restoredMotion };
 }
 
 async function main() {

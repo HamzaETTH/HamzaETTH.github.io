@@ -598,7 +598,9 @@
     }),
     (b.prototype._prepareGravityWellFrame = function() {
       this._frameGravityWells = this._getVisibleGravityWells();
-      var reducedMotion = !!(window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches);
+      var motionMode = this.options.gravityWellMotion || 'system';
+      var systemReducedMotion = !!(window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches);
+      var reducedMotion = motionMode === 'static' || (motionMode === 'system' && systemReducedMotion);
       if (this.glRenderer && this.glRenderer.setGravityWells) {
         this.glRenderer.setGravityWells(this._frameGravityWells, {
           reducedMotion: reducedMotion,
