@@ -95,7 +95,7 @@
 
     // Gravity-well defaults
     gravityWellsEnabled: true,
-    gravityWellMotion: 'system',
+    gravityWellMotion: 'animate',
     gravityWellRadius: 120,
     gravityWellStrength: 12,
     gravityWellMinRadius: 24,

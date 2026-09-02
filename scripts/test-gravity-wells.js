@@ -532,6 +532,7 @@ async function runTouch(browser, options, browserErrors) {
   page.on('pageerror', error => browserErrors.push({ surface: 'touch', type: 'pageerror', text: String(error) }));
   await page.emulateMedia({ reducedMotion: 'reduce' });
   await load(page, options.url);
+  const defaultMotion = await page.evaluate(() => window.particleInstance.options.gravityWellMotion);
   const highDprPointerState = await page.evaluate(point => {
     const pn = window.particleInstance;
     const rect = pn.canvas.getBoundingClientRect();
@@ -545,6 +546,12 @@ async function runTouch(browser, options, browserErrors) {
   await page.keyboard.press('c');
   await page.waitForFunction(() => window.particleSettingsUi && document.getElementById('tp-container')?.style.display !== 'none');
   await page.getByText('Advanced', { exact: true }).click();
+  const systemOverride = await page.evaluate(() => {
+    const ui = window.particleSettingsUi;
+    ui.params.gravityWellMotion = 'system';
+    window.applyParamsToNetwork(window.particleInstance, ui.params);
+    return localStorage.getItem('pn_gravity_well_motion');
+  });
 
   await page.getByRole('button', { name: 'Add Black Hole' }).click();
   await dispatchTouchDrag(page, { x: 95, y: 520 }, { x: 175, y: 520 }, 11);
@@ -608,6 +615,8 @@ async function runTouch(browser, options, browserErrors) {
     hoverUsesLogicalCoordinates: highDprPointerState.dpr === 2 &&
       Math.abs(highDprPointerState.x - 95) <= 1 && Math.abs(highDprPointerState.y - 320) <= 1,
     panelFitsViewport: touchState.panelWidth <= 366,
+    animationEnabledByDefault: defaultMotion === 'animate',
+    systemOverrideRespectsReducedMotion: systemOverride === 'system' && touchState.animationTime === 0,
     reducedMotionFreezesDecoration: touchState.animationTime === 0,
     reducedMotionKeepsPhysics: touchState.physicsMoved,
     animateOverrideAdvancesDecoration: animateOverride === 'animate' && overrideAnimationTime > 0,
@@ -617,7 +626,8 @@ async function runTouch(browser, options, browserErrors) {
     touchContextHealthy: !touchState.contextLost
   };
   await context.close();
-  return { assertions, highDprPointerState, touchState, animateOverride, overrideAnimationTime, restoredMotion };
+  return { assertions, highDprPointerState, defaultMotion, systemOverride, touchState,
+    animateOverride, overrideAnimationTime, restoredMotion };
 }
 
 async function main() {
