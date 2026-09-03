@@ -106,11 +106,20 @@
       this._middleSpawnActive = false;
       this._middleSpawnPointer = null;
       this._middleSpawnAccumulator = 0;
+      this._cursorCaptureActive = false;
+      this._cursorCapturePoint = null;
+      this._cursorCaptureAppliedPoint = null;
+      this._cursorCapturePending = null;
+      this._cursorCaptureHoldTimer = null;
+      this._lastPrimaryEmptyDown = null;
+      this._gravityWellDrag = null;
       this.p = null;
 
       if (this.performanceMonitor && this.performanceMonitor.destroy) this.performanceMonitor.destroy();
       if (this.glRenderer && this.glRenderer.destroy) this.glRenderer.destroy();
       if (this._gravityWellOverlay && this._gravityWellOverlay.parentNode) this._gravityWellOverlay.parentNode.removeChild(this._gravityWellOverlay);
+      if (this._gravityWellRadiusLabel && this._gravityWellRadiusLabel.parentNode) this._gravityWellRadiusLabel.parentNode.removeChild(this._gravityWellRadiusLabel);
+      if (this._gravityWellStrengthLabel && this._gravityWellStrengthLabel.parentNode) this._gravityWellStrengthLabel.parentNode.removeChild(this._gravityWellStrengthLabel);
       if (this.canvas && this.canvas.parentNode) this.canvas.parentNode.removeChild(this.canvas);
       if (this.k && this.k.parentNode) this.k.parentNode.removeChild(this.k);
       if (this.i) {
@@ -129,9 +138,25 @@
       this._activePointers = null;
       this.gravityWells = null;
       this.gravityWellDraft = null;
+      this._gravityWellDrag = null;
       this.selectedGravityWellId = null;
       this._gravityWellOverlayContext = null;
       this._gravityWellOverlay = null;
+      this._gravityWellRadiusLabel = null;
+      this._gravityWellStrengthLabel = null;
+      this._gravityWellStrengthLabelTimer = null;
+      this._lineDetailLinkCounts = null;
+      this._lineDetailParticleTiles = null;
+      this._lineDetailCoverage = null;
+      this._lineDetailCoverageTouched = null;
+      this._lineDetailTileOccupancy = null;
+      this._lineDetailTileSegments = null;
+      this._lineDetailTileScratch = null;
+      this._blackHoleLineTintStrength = null;
+      this._blackHoleLineTintR = null;
+      this._blackHoleLineTintG = null;
+      this._blackHoleLineTintB = null;
+      this._blackHoleLineTintActive = false;
       this.performanceMonitor = null;
       this.glRenderer = null;
       this.g = null;

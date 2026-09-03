@@ -28,6 +28,7 @@ This file is the permanent optimization record. Every optimization must be isola
 | 16 | Configuration cleanup | **COMPLETE** | Exact configuration contract, lifecycle suite, pair equivalence, and focused FPS confirmation below | Keep `9e51979` |
 | 17 | Requested-scope cumulative milestone | **COMPLETE** | Final regression suite and 54-measurement three-profile A/B below | Keep application checkpoint `2cabf86` |
 | 18 | Full SoA/index architecture | **REJECTED** | Final-engine profile, exact state contract, and two rejected staged A/B experiments below | Revisit only if a future runtime/profile changes the bottleneck |
+| 19 | Adaptive line detail | **COMPLETE** | Five-trial sparse/dense/10k A/B, visual captures, and adaptive regression suite below | Keep; Full remains generous at healthy FPS |
 
 Progress protocol:
 
@@ -838,3 +839,65 @@ The useful outputs are retained: workload-selectable CPU profiling (`1b66fb1`), 
 6. **Optional:** dt-scaling, destroy(), growth caps, SoA second wave.
 
 Validate each step with Benchmark.js (B) and FPS overlay (P) A/B, plus DevTools Performance/Allocation traces.
+
+---
+
+## Adaptive line detail — COMPLETE (2026-09-02)
+
+**Goal:** retain the particle network and black-hole readability without paying to emit lines whose visual contribution is already redundant. The public controls are under **Main → Lines**:
+
+- **Adaptive Line Detail** is disabled by default. Enabling it applies the FPS-sensitive performance mode; leaving both controls off preserves the uncapped line path.
+- **Grid Effect** is disabled by default and works independently. Enabling it keeps the cellular/3D grid look at its gentler Full-quality limits even when Adaptive Line Detail is off.
+
+**Final calibration after visual feedback:** Full quality was deliberately made much more generous than the initial candidate because that candidate visibly starved lines even near 140 FPS. Full/Balanced/Reduced use 48/16/8 links per particle, 96,000/32,000/16,000 emitted segments, and coverage capacities of 2,048/192/48. Stable pair hashing samples across neighboring cells before those limits, preventing the adaptive mode from reproducing the square-cell traversal pattern. The optional cellular mode intentionally retains that pattern with 64/24/12 links, 128,000/48,000/24,000 segments, and 4,096/384/96 coverage capacities. FPS can only step quality down while Adaptive Line Detail is enabled and line pressure exists. The two-second startup grace, one-second degradation, three-second recovery, and 50/57 FPS hysteresis remain intact.
+
+The hard segment budget is distributed across occupied 24×24 CSS-pixel tiles instead of being consumed in scan order. This prevents early cells from exhausting the frame budget and leaving later screen regions with particles but no lines. The focused 5,000-particle distribution test recorded 75,302 endpoint-segments on the left and 72,766 on the right. In the concentrated 600-particle Full-quality case, the final calibration retained 7,908 logical lines versus 223 in the rejected harsh candidate.
+
+### Measurement
+
+**Environment:** Microsoft Edge 152.0.4191.53 through Playwright, Windows, WebGL, 1280×720 CSS pixels, DPR 1, headless. The baseline was an untouched snapshot of the exact dirty working tree taken before this optimization; it and the optimized tree were served on separate localhost ports.
+
+**Method:** five alternating baseline/optimized trials per scenario. The normal scene used 185 deterministic particles. The dense scene used 5,000 deterministic particles. The black-hole line stress used a reproducible 10,000-particle post-collapse cluster with the black-hole renderer present and force neutralized so both variants received identical line candidates; active black-hole physics is covered separately by the gravity-well regression suite. Dense and black-hole trials used a four-second warmup so the two-second grace and sustained-FPS adaptation could settle before measurement.
+
+| Scenario | Baseline frame | Adaptive frame | Change | Baseline FPS | Adaptive FPS | Lines baseline → adaptive | Peak line buffer baseline → adaptive |
+|---|---:|---:|---:|---:|---:|---:|---:|
+| Normal, 185 | 6.9 ms | 6.9 ms | 0.0% | 144.52 | 144.20 | 756 → 756 | 2,048 → 2,048 |
+| Dense, 5,000 | 34.7 ms | 27.8 ms | **-19.88%** | 29.52 | 34.11 | 548,729 → 11,416 | 1,048,576 → 131,072 |
+| Black hole, 10,000 | 770.9 ms | 708.4 ms | **-8.11%** | 0.99 | 1.13 | 12,362,192 → 5,671 | 16,777,216 → 131,072 |
+
+The acceptance gates passed: normal median frame time regressed by 0.0% (limit <1%), and dense median frame time improved by 19.88% (requirement ≥10%). The 10,000-particle case remains dominated by the intentionally unchanged near-quadratic same-cell candidate traversal; this optimization reduces redundant line work, not physics/pair discovery.
+
+### Visual evidence
+
+Uncapped baseline:
+
+![Uncapped 10,000-particle black-hole baseline](docs/optimization/adaptive-line-detail/baseline-black-hole.png)
+
+Opt-in even-coverage adaptive mode:
+
+![Adaptive 10,000-particle black-hole result](docs/optimization/adaptive-line-detail/optimized-black-hole.png)
+
+Independent cellular/3D grid mode at Full quality, with Adaptive Line Detail off:
+
+![Independent cellular grid effect around a black hole](docs/optimization/adaptive-line-detail/optimized-cellular-black-hole.png)
+
+The adaptive capture leaves visible black background around the particle shell without visible square partitions and keeps the black hole/accretion disk readable. The grid-only capture retains the requested 3D cellular effect across the whole shell. With both controls off, the runtime follows the uncapped baseline behavior.
+
+### Verification
+
+- `scripts/test-adaptive-lines.js`: both controls default off, grid-only independence, all three adaptive levels, one-second degradation, three-second recovery, hysteresis, unrelated low FPS without pressure, uncapped bypass equivalence, jitter accounting, Trails, 2D fallback, reduced motion, gravity-well coexistence, resize/DPR coverage sizing, cellular gentleness, left/right spatial-budget distribution, and particle-size persistence all passed.
+- `scripts/test-config-contract.js --allow-added adaptiveLineDetail,cellularLineClusters --allow-changed particleSize`: the remaining configuration contract stayed exact.
+- Existing gravity-well, pair-hot-path, SoA-state, startup/manifest, frame-color, grid-neighborhood, and resize suites passed with healthy WebGL and no browser errors.
+- The destroy/recreate probe passed both cycles on a plain static server, including release of every new adaptive array. The same probe sees one infrastructure-owned timeout on the live-reload benchmark server in both baseline and optimized variants.
+
+**Follow-up UI correction:** particle size now defaults to 1 CSS-pixel radius. The control previously updated particle objects but failed to update the `Float32Array` size store because it used `Array.isArray`; the next SoA synchronization immediately restored the old value. The typed array is now filled directly, and the browser test confirms a changed size persists into the following rendered frame.
+
+**Decision:** keep. The implementation meets the measured gates, defaults to the original uncapped line behavior, keeps the grid visual independent, and avoids framebuffer reads.
+
+### Optional black-hole line color (2026-09-02)
+
+**Black Hole Line Color** is a default-off checkbox under **Main → Lines**. When enabled, each connection endpoint blends toward the nearest effective black hole's existing outer and inner colors as it approaches the hole. Distant connections retain their current gradient, cycling, or distance-effect colors; white holes are unaffected; pointer highlighting still takes priority.
+
+Tint influence is calculated once per particle per frame and stored in lazily allocated reusable typed arrays. Line emission then performs only a small endpoint blend, avoiding a gravity-well search for every emitted connection. Disabling the option restores the original color path and skips tint-buffer allocation on startup.
+
+**Verification:** `scripts/test-black-hole-line-color.js` passed the default/control, WebGL endpoint colors, unchanged line count, distance boundary, white-hole exclusion, canvas fallback, lazy allocation, disable, and renderer-health assertions without browser errors. The configuration contract, adaptive-line suite, gravity-well suite, SoA state contract, startup smoke, and destroy/recreate lifecycle were rerun after integration.

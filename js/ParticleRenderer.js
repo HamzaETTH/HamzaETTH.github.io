@@ -21,7 +21,7 @@
       
       // Visual options
       particleColor: "#fff",
-      particleSize: 2,
+      particleSize: 1,
       opacity: 0.7,
       
       // Line options
@@ -29,6 +29,7 @@
       gradientEffect: true,
       gradientColor1: "#00bfff",
       gradientColor2: "#ff4500",
+      blackHoleLineColor: false,
       
       // Color cycling
       lineColorCycling: true,
@@ -309,4 +310,4 @@
   } else {
     window.ParticleNetworkRenderer = ParticleRenderer;
   }
-})(window); 
+})(window);

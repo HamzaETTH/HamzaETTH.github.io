@@ -69,10 +69,63 @@ async function runDesktop(browser, options, browserErrors) {
     const pn = window.particleInstance;
     return {
       wellCount: pn.gravityWells.length,
+      defaultRadius: pn.options.gravityWellRadius,
+      gravityWellAccelerationCapped: pn.gravityWellAccelerationCapped,
+      gravityWellAccelerationLimit: pn.gravityWellAccelerationLimit,
+      gravityWellForceMultiplier: pn.options.gravityWellForceMultiplier,
+      gravityWellSpin: pn.options.gravityWellSpin,
+      cursorCaptureForceMultiplier: pn.options.cursorCaptureForceMultiplier,
+      cursorCaptureMaxSpeed: pn.options.cursorCaptureMaxSpeed,
       pointBufferCreates: pn.glRenderer.gravityWellRenderer.diagnostics.pointBufferCreates,
       pointBuffer: pn.glRenderer.gravityWellRenderer.pointBuffer,
       contextLost: pn.glRenderer.gl.isContextLost()
     };
+  });
+
+  const heroFade = await page.evaluate(() => {
+    const hero = document.querySelector('.center-text');
+    const animation = hero?.getAnimations().find(candidate => candidate.animationName === 'hero-overlay-fade');
+    if (!animation) return null;
+    animation.pause();
+    const sample = time => {
+      animation.currentTime = time;
+      const style = getComputedStyle(hero);
+      return { opacity: Number(style.opacity), visibility: style.visibility };
+    };
+    const start = sample(0);
+    const fading = sample(5000);
+    const finished = sample(10000);
+    const timing = animation.effect.getTiming();
+    animation.currentTime = 0;
+    animation.play();
+    return { start, fading, finished, delay: timing.delay, duration: timing.duration };
+  });
+  await page.emulateMedia({ reducedMotion: 'reduce' });
+  const reducedHeroFade = await page.evaluate(() => {
+    const animation = document.querySelector('.center-text')?.getAnimations()
+      .find(candidate => candidate.animationName === 'hero-overlay-fade');
+    if (!animation) return null;
+    const timing = animation.effect.getTiming();
+    return { delay: timing.delay, duration: timing.duration };
+  });
+  await page.emulateMedia({ reducedMotion: 'no-preference' });
+
+  await page.mouse.move(1100, 100);
+  await page.keyboard.press('w');
+  await page.mouse.move(1050, 120);
+  const defaultClickDraft = await page.evaluate(() => ({
+    x: window.particleInstance.gravityWellDraft?.x,
+    y: window.particleInstance.gravityWellDraft?.y,
+    radius: window.particleInstance.gravityWellDraft?.radius,
+    label: document.querySelector('.gravity-well-radius-label')?.textContent
+  }));
+  await page.mouse.click(1050, 120);
+  const defaultClickPlacement = await page.evaluate(() => {
+    const pn = window.particleInstance;
+    const well = pn.getSelectedGravityWell();
+    const result = well ? { type: well.type, x: well.x, y: well.y, radius: well.radius } : null;
+    pn.removeSelectedGravityWell();
+    return result;
   });
 
   await page.evaluate(() => {
@@ -88,10 +141,15 @@ async function runDesktop(browser, options, browserErrors) {
   await page.waitForTimeout(160);
   const middleSpawnFirst = await page.evaluate(start => {
     const pn = window.particleInstance;
+    const spawned = Array.from({ length: pn.numParticles - start }, (_, offset) => ({
+      x: pn.posX[start + offset],
+      y: pn.posY[start + offset]
+    }));
     return {
       count: pn.numParticles,
       active: pn._middleSpawnActive,
-      nearPointer: pn.o.slice(start, pn.numParticles).some(particle => Math.hypot(particle.x - 640, particle.y - 560) < 20),
+      allNearPointer: spawned.length > 0 && spawned.every(particle => Math.hypot(particle.x - 640, particle.y - 560) < 20),
+      noneOnEdge: spawned.every(particle => particle.x > 0 && particle.x < pn.i.size.width && particle.y > 0 && particle.y < pn.i.size.height),
       forcesClear: !pn.attractionForce && !pn.repulsionForce
     };
   }, middleSpawnBaseline);
@@ -99,10 +157,15 @@ async function runDesktop(browser, options, browserErrors) {
   await page.waitForTimeout(160);
   const middleSpawnSecond = await page.evaluate(start => {
     const pn = window.particleInstance;
+    const spawned = Array.from({ length: pn.numParticles - start }, (_, offset) => ({
+      x: pn.posX[start + offset],
+      y: pn.posY[start + offset]
+    }));
     return {
       count: pn.numParticles,
       active: pn._middleSpawnActive,
-      nearPointer: pn.o.slice(start, pn.numParticles).some(particle => Math.hypot(particle.x - 720, particle.y - 560) < 20),
+      allNearPointer: spawned.length > 0 && spawned.every(particle => Math.hypot(particle.x - 720, particle.y - 560) < 20),
+      noneOnEdge: spawned.every(particle => particle.x > 0 && particle.x < pn.i.size.width && particle.y > 0 && particle.y < pn.i.size.height),
       finite: pn.o.slice(0, pn.numParticles).every(particle =>
         Number.isFinite(particle.x) && Number.isFinite(particle.y) &&
         Number.isFinite(particle.velocity.x) && Number.isFinite(particle.velocity.y))
@@ -126,17 +189,46 @@ async function runDesktop(browser, options, browserErrors) {
     pn._ensureAnimationLoop();
   }, middleSpawnBaseline);
 
+  const particleCountBeforePlacementWheel = await page.evaluate(() => window.particleInstance.o.length);
   await page.mouse.move(300, 250);
   await page.keyboard.press('b');
   await page.mouse.move(420, 250);
-  const blackDraft = await page.evaluate(() => ({ ...window.particleInstance.gravityWellDraft }));
+  await page.mouse.wheel(0, -100);
+  const blackPreview = await page.evaluate(() => {
+    const label = document.querySelector('.gravity-well-radius-label');
+    return {
+      draft: { ...window.particleInstance.gravityWellDraft },
+      particleCount: window.particleInstance.o.length,
+      labelText: label?.textContent,
+      labelVisible: !!label && getComputedStyle(label).display !== 'none'
+    };
+  });
+  const blackDraft = blackPreview.draft;
   await page.mouse.click(420, 250);
+  const blackLabelHiddenAfterCommit = await page.evaluate(() => {
+    const label = document.querySelector('.gravity-well-radius-label');
+    return !!label && getComputedStyle(label).display === 'none';
+  });
 
   await page.mouse.move(820, 350);
   await page.keyboard.press('w');
   await page.mouse.move(960, 350);
-  const whiteDraft = await page.evaluate(() => ({ ...window.particleInstance.gravityWellDraft }));
+  await page.mouse.wheel(0, 100);
+  const whitePreview = await page.evaluate(() => {
+    const label = document.querySelector('.gravity-well-radius-label');
+    return {
+      draft: { ...window.particleInstance.gravityWellDraft },
+      particleCount: window.particleInstance.o.length,
+      labelText: label?.textContent,
+      labelVisible: !!label && getComputedStyle(label).display !== 'none'
+    };
+  });
+  const whiteDraft = whitePreview.draft;
   await page.mouse.click(960, 350);
+  const whiteLabelHiddenAfterCommit = await page.evaluate(() => {
+    const label = document.querySelector('.gravity-well-radius-label');
+    return !!label && getComputedStyle(label).display === 'none';
+  });
   await waitForFrames(page, 4);
 
   const placed = await page.evaluate(() => {
@@ -157,31 +249,260 @@ async function runDesktop(browser, options, browserErrors) {
     };
   });
 
+  const particleCountBeforeDoubleClick = await page.evaluate(() => {
+    const pn = window.particleInstance;
+    pn.updateGravityWell(pn.gravityWells[0].id, { strength: 100 });
+    return pn.o.length;
+  });
+  await page.mouse.dblclick(420, 250);
+  await waitForFrames(page, 2);
+  const blackReversed = await page.evaluate(() => {
+    const pn = window.particleInstance;
+    const well = pn.gravityWells[0];
+    const visible = pn._frameGravityWells.find(candidate => candidate.id === well.id);
+    return {
+      strength: well.strength,
+      visualType: visible?.type,
+      innerColor: visible?.innerColor,
+      outerColor: visible?.outerColor,
+      selected: pn.selectedGravityWellId === well.id,
+      particleCount: pn.o.length,
+      forcesClear: !pn.attractionForce && !pn.repulsionForce,
+      cursorCaptureInactive: !pn._cursorCaptureActive && !pn._cursorCapturePending
+    };
+  });
+  await page.mouse.dblclick(420, 250);
+  await waitForFrames(page, 2);
+  const blackRestored = await page.evaluate(() => {
+    const pn = window.particleInstance;
+    const well = pn.gravityWells[0];
+    const visible = pn._frameGravityWells.find(candidate => candidate.id === well.id);
+    return { strength: well.strength, visualType: visible?.type };
+  });
+
+  await page.evaluate(() => {
+    const pn = window.particleInstance;
+    pn.updateGravityWell(pn.gravityWells[1].id, { strength: 25 });
+  });
+  await page.mouse.dblclick(960, 350);
+  await waitForFrames(page, 2);
+  const whiteReversed = await page.evaluate(() => {
+    const pn = window.particleInstance;
+    const well = pn.gravityWells[1];
+    const visible = pn._frameGravityWells.find(candidate => candidate.id === well.id);
+    return {
+      strength: well.strength,
+      visualType: visible?.type,
+      innerColor: visible?.innerColor,
+      outerColor: visible?.outerColor
+    };
+  });
+  await page.mouse.dblclick(960, 350);
+  await page.evaluate(() => {
+    const pn = window.particleInstance;
+    pn.updateGravityWell(pn.gravityWells[0].id, { strength: 12 });
+    pn.updateGravityWell(pn.gravityWells[1].id, { strength: 12 });
+  });
+
+  const capturePoint = { x: 720, y: 600 };
+  await page.mouse.dblclick(capturePoint.x, capturePoint.y, { delay: 20 });
+  await page.waitForTimeout(160);
+  const quickDoubleClickCapture = await page.evaluate(() => ({
+    active: window.particleInstance._cursorCaptureActive,
+    pending: window.particleInstance._cursorCapturePending
+  }));
+
+  const captureSetup = await page.evaluate(point => {
+    const pn = window.particleInstance;
+    const well = pn.addGravityWell('white', point.x - 360, point.y, 120);
+    well.strength = 1000000000;
+    window.__captureWellId = well.id;
+    pn.gravityWellAccelerationCapped = false;
+    pn.options.cursorCaptureForceMultiplier = 1.5;
+    pn.options.cursorCaptureMaxSpeed = 0.75;
+    return { wellId: well.id, count: pn.numParticles, radius: pn.options.gatherRadius };
+  }, capturePoint);
+  await page.mouse.move(capturePoint.x, capturePoint.y);
+  await page.mouse.down({ button: 'left' });
+  await page.waitForTimeout(30);
+  await page.mouse.up({ button: 'left' });
+  await page.waitForTimeout(40);
+  await page.mouse.down({ button: 'left' });
+  await page.waitForTimeout(160);
+  await waitForFrames(page, 3);
+  const captureHeld = await page.evaluate(point => {
+    const pn = window.particleInstance;
+    const distances = Array.from({ length: pn.numParticles }, (_, index) =>
+      Math.hypot(pn.posX[index] - point.x, pn.posY[index] - point.y)
+    );
+    const speeds = Array.from({ length: pn.numParticles }, (_, index) =>
+      Math.hypot(pn.velX[index], pn.velY[index])
+    );
+    return {
+      active: pn._cursorCaptureActive,
+      pending: pn._cursorCapturePending,
+      point: pn._cursorCapturePoint && { ...pn._cursorCapturePoint },
+      maxDistance: Math.max(...distances),
+      maxSpeed: Math.max(...speeds),
+      radius: pn.options.gatherRadius,
+      speedLimit: pn.options.cursorCaptureMaxSpeed,
+      forceMultiplier: pn.options.cursorCaptureForceMultiplier,
+      count: pn.numParticles,
+      cursorActive: pn.canvas.classList.contains('cursor-capture-active'),
+      opposingWellStrength: pn.getGravityWell(window.__captureWellId)?.strength,
+      gravityCapDisabled: !pn.gravityWellAccelerationCapped
+    };
+  }, capturePoint);
+  const movedCapturePoint = { x: 780, y: 630 };
+  await page.mouse.move(movedCapturePoint.x, movedCapturePoint.y);
+  await waitForFrames(page, 3);
+  const captureMoved = await page.evaluate(point => {
+    const pn = window.particleInstance;
+    const distances = Array.from({ length: pn.numParticles }, (_, index) =>
+      Math.hypot(pn.posX[index] - point.x, pn.posY[index] - point.y)
+    );
+    return {
+      point: pn._cursorCapturePoint && { ...pn._cursorCapturePoint },
+      maxDistance: Math.max(...distances),
+      count: pn.numParticles
+    };
+  }, movedCapturePoint);
+  await page.mouse.up({ button: 'left' });
+  const captureReleased = await page.evaluate(wellId => {
+    const pn = window.particleInstance;
+    const state = {
+      active: pn._cursorCaptureActive,
+      pending: pn._cursorCapturePending,
+      point: pn._cursorCapturePoint,
+      force: pn.repulsionForce,
+      cursorActive: pn.canvas.classList.contains('cursor-capture-active')
+    };
+    pn.removeGravityWell(wellId);
+    pn.gravityWellAccelerationCapped = true;
+    pn.options.cursorCaptureForceMultiplier = 1;
+    pn.options.cursorCaptureMaxSpeed = 2.64;
+    return state;
+  }, captureSetup.wellId);
+
   const particleCountBeforeWellWheel = await page.evaluate(() => window.particleInstance.o.length);
-  await page.mouse.move(360, 250);
+  await page.mouse.move(420, 250);
   await page.mouse.wheel(0, -100);
   await waitForFrames(page, 2);
   const wheelIncreased = await page.evaluate(() => {
     const pn = window.particleInstance;
     const well = pn.gravityWells[0];
+    const label = document.querySelector('.gravity-well-strength-label');
     return {
       strength: well.strength,
       selectedId: pn.selectedGravityWellId,
       wellId: well.id,
       particleCount: pn.o.length,
-      visualSpeed: pn.glRenderer.gravityWellRenderer.diagnostics.maxVisualSpeed
+      visualSpeed: pn.glRenderer.gravityWellRenderer.diagnostics.maxVisualSpeed,
+      forceLabel: label?.textContent,
+      forceLabelType: label?.dataset.force,
+      forceLabelVisible: label?.classList.contains('is-visible')
     };
   });
   await page.mouse.wheel(0, 100);
   await waitForFrames(page, 2);
   const wheelDecreased = await page.evaluate(() => window.particleInstance.gravityWells[0].strength);
+  await page.mouse.move(960, 350);
+  await page.mouse.wheel(0, -100);
+  const whiteForceLabel = await page.evaluate(() => {
+    const label = document.querySelector('.gravity-well-strength-label');
+    return {
+      text: label?.textContent,
+      type: label?.dataset.force,
+      visible: label?.classList.contains('is-visible')
+    };
+  });
+  await page.mouse.wheel(0, 100);
+  await page.mouse.move(420, 250);
+  await page.evaluate(() => {
+    const pn = window.particleInstance;
+    pn.updateGravityWell(pn.gravityWells[0].id, { strength: 40 });
+  });
+  await page.mouse.wheel(0, -100);
+  await waitForFrames(page, 2);
+  const wheelAboveFormerLimit = await page.evaluate(() => ({
+    strength: window.particleInstance.gravityWells[0].strength,
+    visualSpeed: window.particleInstance.glRenderer.gravityWellRenderer.diagnostics.maxVisualSpeed
+  }));
+  await page.evaluate(() => {
+    const pn = window.particleInstance;
+    pn.updateGravityWell(pn.gravityWells[0].id, { strength: 1 });
+  });
+  await page.mouse.wheel(0, 100);
+  await page.mouse.wheel(0, 100);
+  await waitForFrames(page, 2);
+  const wheelAtZero = await page.evaluate(() => {
+    const pn = window.particleInstance;
+    const visibleWell = pn._frameGravityWells.find(well => well.id === pn.gravityWells[0].id);
+    return {
+      strength: pn.gravityWells[0].strength,
+      visualType: visibleWell?.type,
+      visualInnerColor: visibleWell?.innerColor,
+      visualOuterColor: visibleWell?.outerColor
+    };
+  });
+  await page.evaluate(() => {
+    const pn = window.particleInstance;
+    pn.updateGravityWell(pn.gravityWells[0].id, { strength: 12 });
+  });
+
+  const dragBefore = await page.evaluate(() => {
+    const pn = window.particleInstance;
+    const well = pn.gravityWells[0];
+    return { id: well.id, x: well.x, y: well.y, radius: well.radius, strength: well.strength, particleCount: pn.o.length };
+  });
+  await page.mouse.move(dragBefore.x, dragBefore.y);
+  await page.mouse.down({ button: 'left' });
+  await page.mouse.wheel(0, -100);
+  await page.mouse.move(dragBefore.x + 80, dragBefore.y + 50);
+  const dragHeld = await page.evaluate(id => {
+    const pn = window.particleInstance;
+    const well = pn.getGravityWell(id);
+    return {
+      dragId: pn._gravityWellDrag?.id,
+      selectedId: pn.selectedGravityWellId,
+      x: well.x,
+      y: well.y,
+      radius: well.radius,
+      strength: well.strength,
+      particleCount: pn.o.length,
+      draggingCursor: pn.canvas.classList.contains('gravity-well-dragging'),
+      attractionForce: pn.attractionForce,
+      repulsionForce: pn.repulsionForce
+    };
+  }, dragBefore.id);
+  await page.mouse.up({ button: 'left' });
+  const dragReleased = await page.evaluate(id => {
+    const pn = window.particleInstance;
+    const well = pn.getGravityWell(id);
+    return {
+      drag: pn._gravityWellDrag,
+      x: well.x,
+      y: well.y,
+      radius: well.radius,
+      strength: well.strength,
+      draggingCursor: pn.canvas.classList.contains('gravity-well-dragging')
+    };
+  }, dragBefore.id);
+  await page.mouse.wheel(0, -100);
+  const dragAfterReleasedWheel = await page.evaluate(id => {
+    const well = window.particleInstance.getGravityWell(id);
+    return { radius: well.radius, strength: well.strength };
+  }, dragBefore.id);
+  await page.evaluate(({ id, x, y, radius, strength }) => {
+    window.particleInstance.updateGravityWell(id, { x, y, radius, strength });
+  }, dragBefore);
 
   await page.keyboard.press('Escape');
   if (options.screenshotDir) {
     await page.screenshot({ path: path.join(options.screenshotDir, 'desktop-black-white.png') });
   }
 
-  await page.mouse.click(300, 250);
+  await page.mouse.click(420, 250);
   const coreSelection = await page.evaluate(() => ({
     selectedType: window.particleInstance.getSelectedGravityWell()?.type,
     attractionForce: window.particleInstance.attractionForce,
@@ -196,10 +517,46 @@ async function runDesktop(browser, options, browserErrors) {
   const countBeforeCancel = await page.evaluate(() => window.particleInstance.gravityWells.length);
   await page.mouse.move(500, 180);
   await page.keyboard.press('b');
+  const cancelLabelBeforeEscape = await page.evaluate(() => {
+    const label = document.querySelector('.gravity-well-radius-label');
+    return {
+      text: label?.textContent,
+      visible: !!label && getComputedStyle(label).display !== 'none'
+    };
+  });
   await page.keyboard.press('Escape');
   const cancelState = await page.evaluate(() => ({
     count: window.particleInstance.gravityWells.length,
-    draft: window.particleInstance.gravityWellDraft
+    draft: window.particleInstance.gravityWellDraft,
+    labelHidden: getComputedStyle(document.querySelector('.gravity-well-radius-label')).display === 'none'
+  }));
+
+  await page.keyboard.press('w');
+  await page.mouse.click(540, 180, { button: 'right' });
+  const rightClickCancelState = await page.evaluate(() => ({
+    count: window.particleInstance.gravityWells.length,
+    draft: window.particleInstance.gravityWellDraft,
+    attractionForce: window.particleInstance.attractionForce,
+    repulsionForce: window.particleInstance.repulsionForce,
+    labelHidden: getComputedStyle(document.querySelector('.gravity-well-radius-label')).display === 'none'
+  }));
+
+  const gravityCapInitial = await page.evaluate(() => window.particleInstance.gravityWellAccelerationCapped);
+  await page.keyboard.press('l');
+  const gravityCapUnlimited = await page.evaluate(() => window.particleInstance.gravityWellAccelerationCapped);
+  await page.keyboard.press('l');
+  const gravityCapRestored = await page.evaluate(() => window.particleInstance.gravityWellAccelerationCapped);
+
+  const countBeforeDelete = await page.evaluate(() => {
+    const pn = window.particleInstance;
+    pn.addGravityWell('white', 1100, 600, 90);
+    return pn.gravityWells.length;
+  });
+  await page.mouse.move(1100, 600);
+  await page.keyboard.press('Delete');
+  const deleteState = await page.evaluate(() => ({
+    count: window.particleInstance.gravityWells.length,
+    hoveredWellGone: !window.particleInstance.gravityWells.some(well => well.x === 1100 && well.y === 600)
   }));
 
   await page.evaluate(() => {
@@ -215,8 +572,11 @@ async function runDesktop(browser, options, browserErrors) {
 
   await page.keyboard.press('c');
   await page.waitForFunction(() => window.particleSettingsUi && document.getElementById('tp-container')?.style.display !== 'none');
-  await page.getByText('Advanced', { exact: true }).click();
+  await page.getByText('Wells', { exact: true }).click();
   const panelText = await page.locator('#tp-container').textContent();
+  if (options.screenshotDir) {
+    await page.screenshot({ path: path.join(options.screenshotDir, 'desktop-wells-tab.png') });
+  }
   await page.evaluate(() => {
     const pn = window.particleInstance;
     pn.selectGravityWell(pn.gravityWells[0].id);
@@ -228,6 +588,49 @@ async function runDesktop(browser, options, browserErrors) {
     return selected && params.radius === selected.radius && params.strength === selected.strength &&
       params.innerColor === selected.innerColor && params.outerColor === selected.outerColor;
   });
+
+  const appliedWellSettings = await page.evaluate(() => {
+    const pn = window.particleInstance;
+    const params = window.particleSettingsUi.params;
+    Object.assign(params, {
+      gravityWellAccelerationCapped: true,
+      gravityWellAccelerationLimit: 0.4,
+      gravityWellForceMultiplier: 2.5,
+      gravityWellSpin: -0.35,
+      gatherRadius: 135,
+      cursorCaptureForceMultiplier: 1.8,
+      cursorCaptureMaxSpeed: 3.2
+    });
+    window.applyParamsToNetwork(pn, params);
+    return {
+      capped: pn.gravityWellAccelerationCapped,
+      accelerationLimit: pn.gravityWellAccelerationLimit,
+      forceMultiplier: pn.options.gravityWellForceMultiplier,
+      spin: pn.options.gravityWellSpin,
+      gatherRadius: pn.options.gatherRadius,
+      capturePull: pn.options.cursorCaptureForceMultiplier,
+      captureMaxSpeed: pn.options.cursorCaptureMaxSpeed
+    };
+  });
+  await page.keyboard.press('l');
+  await page.waitForTimeout(30);
+  const panelCapUnlimited = await page.evaluate(() => ({
+    runtime: window.particleInstance.gravityWellAccelerationCapped,
+    control: window.particleSettingsUi.params.gravityWellAccelerationCapped
+  }));
+  await page.keyboard.press('l');
+  await page.waitForTimeout(30);
+  const panelCapRestored = await page.evaluate(() => ({
+    runtime: window.particleInstance.gravityWellAccelerationCapped,
+    control: window.particleSettingsUi.params.gravityWellAccelerationCapped,
+    limit: window.particleInstance.gravityWellAccelerationLimit
+  }));
+
+  const strengthBeforePanelReverse = await page.evaluate(() => window.particleInstance.getSelectedGravityWell()?.strength);
+  await page.getByRole('button', { name: 'Reverse Selected' }).click();
+  const strengthAfterPanelReverse = await page.evaluate(() => window.particleInstance.getSelectedGravityWell()?.strength);
+  await page.getByRole('button', { name: 'Reverse Selected' }).click();
+  const strengthAfterPanelRestore = await page.evaluate(() => window.particleInstance.getSelectedGravityWell()?.strength);
 
   await page.getByRole('button', { name: 'Reposition/Resize' }).click();
   await page.mouse.move(360, 300);
@@ -247,7 +650,19 @@ async function runDesktop(browser, options, browserErrors) {
   await page.evaluate(() => window.particleInstance.addGravityWell('black', 500, 300, 120));
   await page.keyboard.press('d');
   await page.waitForFunction(() => window.particleInstance.gravityWells.length === 0);
-  const afterReset = await page.evaluate(() => window.particleInstance.gravityWells.length);
+  const afterReset = await page.evaluate(() => {
+    const pn = window.particleInstance;
+    return {
+      wellCount: pn.gravityWells.length,
+      capped: pn.gravityWellAccelerationCapped,
+      accelerationLimit: pn.gravityWellAccelerationLimit,
+      forceMultiplier: pn.options.gravityWellForceMultiplier,
+      spin: pn.options.gravityWellSpin,
+      gatherRadius: pn.options.gatherRadius,
+      capturePull: pn.options.cursorCaptureForceMultiplier,
+      captureMaxSpeed: pn.options.cursorCaptureMaxSpeed
+    };
+  });
 
   const physics = await page.evaluate(() => {
     const pn = window.particleInstance;
@@ -283,22 +698,115 @@ async function runDesktop(browser, options, browserErrors) {
       return { x: pn.posX[0], y: pn.posY[0], vx: pn.velX[0], vy: pn.velY[0] };
     }
 
-    const black = sample([{ type: 'black', ...center }], center.x + 72, center.y);
-    const white = sample([{ type: 'white', ...center }], center.x + 72, center.y);
+    const black = sample([{ type: 'black', ...center }], center.x + 200, center.y);
+    const white = sample([{ type: 'white', ...center }], center.x + 200, center.y);
+    const invertedBlack = sample([{ type: 'black', ...center, strength: -12 }], center.x + 200, center.y);
+    const invertedWhite = sample([{ type: 'white', ...center, strength: -12 }], center.x + 200, center.y);
     const a = { type: 'black', x: 570, y: 310, radius: 160, strength: 1 };
     const b = { type: 'white', x: 720, y: 420, radius: 140, strength: 1 };
-    const onlyA = sample([a], 640, 360);
-    const onlyB = sample([b], 640, 360);
-    const together = sample([a, b], 640, 360);
+    const onlyA = sample([a], 1000, 600);
+    const onlyB = sample([b], 1000, 600);
+    const together = sample([a, b], 1000, 600);
+
+    pn.gravityWellAccelerationCapped = false;
+    pn.options.gravityWellSpin = 0;
+    pn.options.gravityWellForceMultiplier = 1;
+    const globalForceOne = sample([{ type: 'black', ...center }], center.x + 200, center.y);
+    pn.options.gravityWellForceMultiplier = 2;
+    const globalForceTwo = sample([{ type: 'black', ...center }], center.x + 200, center.y);
+    pn.options.gravityWellForceMultiplier = 0;
+    const globalForceZero = sample([{ type: 'black', ...center }], center.x + 200, center.y);
+    pn.options.gravityWellForceMultiplier = 1;
+    pn.options.gravityWellSpin = 0;
+    const spinZero = sample([{ type: 'black', ...center }], center.x + 200, center.y);
+    pn.options.gravityWellSpin = 0.4;
+    const spinPositive = sample([{ type: 'black', ...center }], center.x + 200, center.y);
+    pn.options.gravityWellSpin = -0.4;
+    const spinNegative = sample([{ type: 'black', ...center }], center.x + 200, center.y);
+    pn.options.gravityWellSpin = 0.2;
+
+    const strongWell = [{ type: 'black', ...center, radius: 150, strength: 10000 }];
+    pn.gravityWellAccelerationCapped = true;
+    pn.gravityWellAccelerationLimit = 0.4;
+    const cappedStrong = sample(strongWell, center.x + 220, center.y);
+    pn.gravityWellAccelerationCapped = false;
+    const uncappedStrong = sample(strongWell, center.x + 220, center.y);
+    pn.gravityWellAccelerationCapped = true;
+    pn.gravityWellAccelerationLimit = 1.5;
+
+    setWells([]);
+    pn.options.interactive = true;
+    pn.options.gatherRadius = 100;
+    pn.options.cursorCaptureMaxSpeed = 100;
+    pn._cursorCaptureActive = true;
+    pn._cursorCapturePoint = { ...center };
+    pn._cursorCaptureAppliedPoint = { ...center };
+    pn.repulsionForce = { ...center };
+    pn.options.cursorCaptureForceMultiplier = 0;
+    setParticle(center.x + 80, center.y);
+    pn._updateSoA();
+    const capturePullZero = { vx: pn.velX[0], vy: pn.velY[0] };
+    pn.options.cursorCaptureForceMultiplier = 2;
+    setParticle(center.x + 80, center.y);
+    pn._updateSoA();
+    const capturePullTwo = { vx: pn.velX[0], vy: pn.velY[0] };
+    pn._cursorCaptureActive = false;
+    pn._cursorCapturePoint = null;
+    pn._cursorCaptureAppliedPoint = null;
+    pn.repulsionForce = null;
+    pn.options.cursorCaptureForceMultiplier = 1;
+    pn.options.cursorCaptureMaxSpeed = 2.64;
+    pn.options.interactive = false;
 
     setWells([{ type: 'black', ...center }]);
     setParticle(center.x + 5, center.y + 5);
     const countBefore = pn.numParticles;
+    const coreStart = { x: pn.posX[0], y: pn.posY[0] };
     pn._updateSoA();
-    const swallowed = {
-      onEdge: pn.posX[0] === 0 || pn.posX[0] === pn.i.size.width || pn.posY[0] === 0 || pn.posY[0] === pn.i.size.height,
+    const coreTraversal = {
+      distanceFromCenter: Math.hypot(pn.posX[0] - center.x, pn.posY[0] - center.y),
+      distanceFromStart: Math.hypot(pn.posX[0] - coreStart.x, pn.posY[0] - coreStart.y),
+      finite: [pn.posX[0], pn.posY[0], pn.velX[0], pn.velY[0]].every(Number.isFinite),
       countStable: pn.numParticles === countBefore && pn.posX.length === countBefore
     };
+    setParticle(center.x, center.y);
+    pn._updateSoA();
+    const exactCenterTraversal = {
+      distance: Math.hypot(pn.posX[0] - center.x, pn.posY[0] - center.y),
+      finite: [pn.posX[0], pn.posY[0], pn.velX[0], pn.velY[0]].every(Number.isFinite),
+      countStable: pn.numParticles === countBefore
+    };
+
+    const flowSize = 64;
+    pn.o = Array.from({ length: flowSize }, (_, index) => {
+      const angle = index * 2.399963229728653;
+      const distance = 45 + (index % 11) * 19;
+      return {
+        x: center.x + Math.cos(angle) * distance,
+        y: center.y + Math.sin(angle) * distance,
+        velocity: { x: 0, y: 0 },
+        size: 2
+      };
+    });
+    pn._initSoAFromObjects(flowSize);
+    setWells([{ type: 'black', ...center, radius: 150, strength: 12 }]);
+    for (let frame = 0; frame < 180; frame++) {
+      pn._lastUpdateTime = frame * (1000 / 60);
+      pn._updateSoA();
+    }
+    const flowDistances = Array.from({ length: flowSize }, (_, index) =>
+      Math.hypot(pn.posX[index] - center.x, pn.posY[index] - center.y)
+    );
+    const naturalFlow = {
+      minDistance: Math.min(...flowDistances),
+      maxDistance: Math.max(...flowDistances),
+      countStable: pn.numParticles === flowSize,
+      finite: flowDistances.every(Number.isFinite) &&
+        Array.from(pn.velX).every(Number.isFinite) && Array.from(pn.velY).every(Number.isFinite)
+    };
+    pn.o = pn.o.slice(0, 1);
+    pn._initSoAFromObjects(1);
+    pn.gravityWellAccelerationCapped = true;
 
     const many = [];
     for (let i = 0; i < 64; i++) {
@@ -316,7 +824,10 @@ async function runDesktop(browser, options, browserErrors) {
     const finite = [pn.posX[0], pn.posY[0], pn.velX[0], pn.velY[0]].every(Number.isFinite);
 
     pn.clearGravityWells();
-    return { black, white, onlyA, onlyB, together, swallowed, finite };
+    return { black, white, invertedBlack, invertedWhite, onlyA, onlyB, together,
+      globalForceOne, globalForceTwo, globalForceZero, spinZero, spinPositive, spinNegative,
+      cappedStrong, uncappedStrong, capturePullZero, capturePullTwo,
+      coreTraversal, exactCenterTraversal, naturalFlow, finite };
   });
 
   await page.evaluate(() => {
@@ -441,7 +952,11 @@ async function runDesktop(browser, options, browserErrors) {
     };
   });
 
-  await page.evaluate(() => { window.particleInstance.options.trails = true; });
+  await page.evaluate(() => {
+    const pn = window.particleInstance;
+    window.particleSettingsUi.params.trails = true;
+    window.applyParamsToNetwork(pn, window.particleSettingsUi.params);
+  });
   await waitForFrames(page, 3);
   const trails = await page.evaluate(() => ({
     overlayVisible: window.particleInstance._gravityWellOverlay?.style.display === 'block',
@@ -473,35 +988,114 @@ async function runDesktop(browser, options, browserErrors) {
 
   const assertions = {
     startsEmpty: initial.wellCount === 0 && initial.pointBufferCreates === 1 && !initial.contextLost,
+    heroOverlayFadesAfterTenSeconds: heroFade?.delay === 0 && heroFade.duration === 10000 && heroFade.start.opacity === 1 &&
+      heroFade.fading.opacity > 0 && heroFade.fading.opacity < 1 && heroFade.finished.opacity === 0 &&
+      reducedHeroFade?.delay === 0 && reducedHeroFade.duration === 10000,
+    defaultRadiusIs150: initial.defaultRadius === 150,
+    focusedPhysicsDefaults: initial.gravityWellAccelerationCapped && initial.gravityWellAccelerationLimit === 1.5 &&
+      initial.gravityWellForceMultiplier === 1 && initial.gravityWellSpin === 0.2 &&
+      initial.cursorCaptureForceMultiplier === 1 && initial.cursorCaptureMaxSpeed === 2.64,
+    clickWithoutResizeKeepsDefaultRadius: defaultClickDraft.x === 1050 && defaultClickDraft.y === 120 &&
+      defaultClickDraft.radius === 150 && defaultClickDraft.label === '150 px' && defaultClickPlacement?.type === 'white' &&
+      defaultClickPlacement.x === 1050 && defaultClickPlacement.y === 120 && defaultClickPlacement.radius === 150,
     middleHoldSpawnsAtPointer: middleSpawnFirst.active && middleSpawnSecond.active &&
       middleSpawnFirst.count > middleSpawnBaseline && middleSpawnSecond.count > middleSpawnFirst.count &&
-      middleSpawnFirst.nearPointer && middleSpawnSecond.nearPointer,
+      middleSpawnFirst.allNearPointer && middleSpawnSecond.allNearPointer &&
+      middleSpawnFirst.noneOnEdge && middleSpawnSecond.noneOnEdge,
     middleReleaseStopsSpawning: !middleSpawnReleased.active && !middleSpawnReleased.rafActive &&
       middleSpawnSettledCount === middleSpawnReleased.count,
     middleSpawnStateFinite: middleSpawnFirst.forcesClear && middleSpawnSecond.finite,
-    blackPlacementPreview: blackDraft && blackDraft.type === 'black' && Math.abs(blackDraft.radius - 120) <= 2,
-    whitePlacementPreview: whiteDraft && whiteDraft.type === 'white' && Math.abs(whiteDraft.radius - 140) <= 2,
+    blackPlacementPreview: blackDraft && blackDraft.type === 'black' && blackDraft.x === 420 && blackDraft.y === 250 && blackDraft.radius === 155,
+    whitePlacementPreview: whiteDraft && whiteDraft.type === 'white' && whiteDraft.x === 960 && whiteDraft.y === 350 && whiteDraft.radius === 145,
+    placementWheelOnlyResizesDraft: blackPreview.particleCount === particleCountBeforePlacementWheel &&
+      whitePreview.particleCount === particleCountBeforePlacementWheel,
+    radiusLabelTracksPlacement: blackPreview.labelVisible && blackPreview.labelText === '155 px' &&
+      whitePreview.labelVisible && whitePreview.labelText === '145 px' && cancelLabelBeforeEscape.visible && cancelLabelBeforeEscape.text === '150 px',
+    radiusLabelDisappears: blackLabelHiddenAfterCommit && whiteLabelHiddenAfterCommit && cancelState.labelHidden,
     placedBothTypes: placed.wells.length === 2 && placed.wells[0].type === 'black' && placed.wells[1].type === 'white',
+    doubleClickReversesBlackHole: blackReversed.strength === -100 && blackReversed.visualType === 'white' &&
+      blackReversed.innerColor === '#dffcff' && blackReversed.outerColor === '#6b5cff' && blackReversed.selected &&
+      blackReversed.particleCount === particleCountBeforeDoubleClick && blackReversed.forcesClear &&
+      blackReversed.cursorCaptureInactive,
+    secondDoubleClickRestoresBlackHole: blackRestored.strength === 100 && blackRestored.visualType === 'black',
+    doubleClickReversesWhiteHole: whiteReversed.strength === -25 && whiteReversed.visualType === 'black' &&
+      whiteReversed.innerColor === '#ff8080' && whiteReversed.outerColor === '#3633ff',
+    quickDoubleClickDoesNotCapture: !quickDoubleClickCapture.active && !quickDoubleClickCapture.pending,
+    doublePressHoldCapturesParticles: captureHeld.active && !captureHeld.pending && captureHeld.cursorActive &&
+      captureHeld.point.x === capturePoint.x && captureHeld.point.y === capturePoint.y &&
+      captureHeld.maxDistance <= captureHeld.radius + 0.1 && captureHeld.maxSpeed <= captureHeld.speedLimit + 0.001 &&
+      captureHeld.forceMultiplier === 1.5 && captureHeld.speedLimit === 0.75 && captureHeld.count === captureSetup.count,
+    cursorCaptureContainsAgainstUnlimitedGravity: captureHeld.opposingWellStrength === 1000000000 &&
+      captureHeld.gravityCapDisabled && captureHeld.maxDistance <= captureHeld.radius + 0.1,
+    cursorCaptureFollowsPointer: captureMoved.point.x === movedCapturePoint.x && captureMoved.point.y === movedCapturePoint.y &&
+      captureMoved.maxDistance <= captureSetup.radius + 0.1 && captureMoved.count === captureSetup.count,
+    cursorCaptureReleasesCleanly: !captureReleased.active && !captureReleased.pending && !captureReleased.point &&
+      !captureReleased.force && !captureReleased.cursorActive,
     framebuffersSized: placed.fbo.sceneWidth === placed.backing.width && placed.fbo.sceneHeight === placed.backing.height &&
       placed.fbo.fieldWidth === Math.ceil(placed.backing.width / 2) && placed.fbo.fieldHeight === Math.ceil(placed.backing.height / 2),
     compositionRan: placed.renderPasses > 0,
     wheelAdjustsHoveredStrength: wheelIncreased.strength === 13 && wheelDecreased === 12 &&
       wheelIncreased.selectedId === wheelIncreased.wellId && wheelIncreased.particleCount === particleCountBeforeWellWheel,
-    strengthDrivesVisualSpeed: wheelIncreased.visualSpeed > 1,
+    wheelShowsForceValue: wheelIncreased.forceLabel === 'Absorption 13' && wheelIncreased.forceLabelType === 'black' &&
+      wheelIncreased.forceLabelVisible && whiteForceLabel.text === 'Repulsion 13' && whiteForceLabel.type === 'white' &&
+      whiteForceLabel.visible,
+    wheelStrengthHasNoUpperCap: wheelAboveFormerLimit.strength === 41,
+    wheelStrengthStopsAtZeroWithoutFlipping: wheelAtZero.strength === 0 && wheelAtZero.visualType === 'black' &&
+      wheelAtZero.visualInnerColor === '#ff8080' && wheelAtZero.visualOuterColor === '#3633ff',
+    strengthDrivesVisualSpeed: wheelIncreased.visualSpeed > 1 && wheelAboveFormerLimit.visualSpeed > wheelIncreased.visualSpeed,
+    clickDragMovesExistingWell: dragHeld.dragId === dragBefore.id && dragHeld.selectedId === dragBefore.id &&
+      dragHeld.x === dragBefore.x + 80 && dragHeld.y === dragBefore.y + 50 && dragHeld.draggingCursor &&
+      !dragHeld.attractionForce && !dragHeld.repulsionForce,
+    grabbedWheelResizesOnly: dragHeld.radius === dragBefore.radius + 5 && dragHeld.strength === dragBefore.strength &&
+      dragHeld.particleCount === dragBefore.particleCount,
+    dragReleaseCleansState: !dragReleased.drag && !dragReleased.draggingCursor &&
+      dragReleased.x === dragHeld.x && dragReleased.y === dragHeld.y,
+    releasedWheelReturnsToStrength: dragAfterReleasedWheel.radius === dragReleased.radius &&
+      dragAfterReleasedWheel.strength === dragReleased.strength + 1,
     coreSelectionConsumesClick: coreSelection.selectedType === 'black' && !coreSelection.attractionForce && !coreSelection.repulsionForce,
     escapeDeselects: deselected,
     escapeCancelsDraft: cancelState.count === countBeforeCancel && cancelState.draft === null,
+    rightClickCancelsDraft: rightClickCancelState.count === countBeforeCancel && rightClickCancelState.draft === null &&
+      !rightClickCancelState.attractionForce && !rightClickCancelState.repulsionForce && rightClickCancelState.labelHidden,
+    lTogglesGravityAccelerationCap: gravityCapInitial && !gravityCapUnlimited && gravityCapRestored,
+    deleteRemovesHoveredWell: countBeforeDelete === countBeforeCancel + 1 && deleteState.count === countBeforeCancel && deleteState.hoveredWellGone,
     shiftBRunsBenchmark: benchmarkState.starts === 1 && benchmarkState.draft === null && benchmarkState.count === countBeforeCancel,
-    panelComplete: ['Gravity Wells', 'Global Enabled', 'Motion', 'Add Black Hole', 'Add White Hole', 'Radius', 'Strength',
-      'Inner Color', 'Outer Color', 'Reposition/Resize', 'Remove Selected', 'Clear All'].every(label => panelText.includes(label)),
+    panelComplete: ['Main', 'Wells', 'Advanced', 'Global Physics', 'Global Enabled', 'Motion', 'Limit Acceleration',
+      'Maximum Acceleration', 'Global Force', 'Particle Spin', 'Add / Manage', 'Add Black Hole', 'Add White Hole',
+      'Selected Hole', 'Radius', 'Strength', 'Inner Color', 'Outer Color', 'Reverse Selected', 'Reposition/Resize',
+      'Remove Selected', 'Clear All', 'Cursor Capture', 'Capture / Gather Radius', 'Capture Pull',
+      'Captured Max Speed'].every(label => panelText.includes(label)),
     settingsSynchronize: synchronized,
+    focusedSettingsApply: appliedWellSettings.capped && appliedWellSettings.accelerationLimit === 0.4 &&
+      appliedWellSettings.forceMultiplier === 2.5 && appliedWellSettings.spin === -0.35 &&
+      appliedWellSettings.gatherRadius === 135 && appliedWellSettings.capturePull === 1.8 &&
+      appliedWellSettings.captureMaxSpeed === 3.2,
+    lHotkeySynchronizesPanel: !panelCapUnlimited.runtime && !panelCapUnlimited.control &&
+      panelCapRestored.runtime && panelCapRestored.control && Math.abs(panelCapRestored.limit - 0.4) < 0.000001,
+    panelReversesSelectedHole: strengthAfterPanelReverse === -strengthBeforePanelReverse &&
+      strengthAfterPanelRestore === strengthBeforePanelReverse,
     repositionResize: repositioned && Math.abs(repositioned.x - 360) <= 2 && Math.abs(repositioned.y - 300) <= 2 && Math.abs(repositioned.radius - 120) <= 2,
-    removeClearReset: afterRemove === 1 && afterClear === 0 && afterReset === 0,
+    removeClearReset: afterRemove === 1 && afterClear === 0 && afterReset.wellCount === 0 && afterReset.capped &&
+      afterReset.accelerationLimit === 1.5 && afterReset.forceMultiplier === 1 && afterReset.spin === 0.2 &&
+      afterReset.gatherRadius === 100 && afterReset.capturePull === 1 && afterReset.captureMaxSpeed === 2.64,
     blackAttractsAndSpirals: physics.black.vx < 0 && Math.abs(physics.black.vy) > 0,
     whiteRepelsAndSpirals: physics.white.vx > 0 && Math.abs(physics.white.vy) > 0,
+    negativeStrengthSwapsBehavior: physics.invertedBlack.vx > 0 && physics.invertedWhite.vx < 0,
     overlappingForcesSum: Math.abs(physics.together.vx - (physics.onlyA.vx + physics.onlyB.vx)) < 0.0002 &&
       Math.abs(physics.together.vy - (physics.onlyA.vy + physics.onlyB.vy)) < 0.0002,
-    blackRespawnsAtEdge: physics.swallowed.onEdge && physics.swallowed.countStable,
+    globalForceScalesAndDisables: Math.abs(physics.globalForceTwo.vx - physics.globalForceOne.vx * 2) < 0.0002 &&
+      Math.abs(physics.globalForceZero.vx) < 0.000001 && Math.abs(physics.globalForceZero.vy) < 0.000001,
+    particleSpinControlsTangentialForce: Math.abs(physics.spinZero.vy) < 0.000001 && physics.spinPositive.vy < 0 &&
+      physics.spinNegative.vy > 0 && Math.abs(Math.abs(physics.spinPositive.vy) - Math.abs(physics.spinNegative.vy)) < 0.0002,
+    configuredGravityCapWorks: Math.hypot(physics.cappedStrong.vx, physics.cappedStrong.vy) <= 0.4001 &&
+      Math.hypot(physics.uncappedStrong.vx, physics.uncappedStrong.vy) > 0.4,
+    capturePullIsIndependent: Math.abs(physics.capturePullZero.vx) < 0.000001 && physics.capturePullTwo.vx < 0,
+    blackCorePreservesParticlesWithoutSnapping: physics.coreTraversal.finite && physics.coreTraversal.countStable &&
+      physics.coreTraversal.distanceFromCenter < 20 && physics.coreTraversal.distanceFromStart < 10,
+    exactCenterPreservesParticle: physics.exactCenterTraversal.finite && physics.exactCenterTraversal.countStable &&
+      physics.exactCenterTraversal.distance < 0.001,
+    blackHoleFlowDoesNotCollapseIntoRing: physics.naturalFlow.finite && physics.naturalFlow.countStable &&
+      physics.naturalFlow.maxDistance - physics.naturalFlow.minDistance > 40,
     manyWellsRemainFinite: physics.finite,
     zeroSpeedKeepsAnimating: zeroSpeedActive.rafActive && zeroSpeedActive.renderPasses > placed.renderPasses,
     visibleWellAnimation: visibleAnimation.changedRatio > 0.01 && visibleAnimation.meanDelta > 0.25,
@@ -515,7 +1109,9 @@ async function runDesktop(browser, options, browserErrors) {
   };
 
   await context.close();
-  return { assertions, initial, placed, physics, visibleAnimation, resourceAfter, resizedTargets, trails, fallback };
+  return { assertions, initial, placed, captureHeld, captureMoved, captureReleased, panelCapUnlimited, panelCapRestored,
+    physics, visibleAnimation,
+    resourceAfter, resizedTargets, trails, fallback };
 }
 
 async function runTouch(browser, options, browserErrors) {
@@ -545,7 +1141,7 @@ async function runTouch(browser, options, browserErrors) {
   }, { x: 95, y: 320 });
   await page.keyboard.press('c');
   await page.waitForFunction(() => window.particleSettingsUi && document.getElementById('tp-container')?.style.display !== 'none');
-  await page.getByText('Advanced', { exact: true }).click();
+  await page.getByText('Wells', { exact: true }).click();
   const systemOverride = await page.evaluate(() => {
     const ui = window.particleSettingsUi;
     ui.params.gravityWellMotion = 'system';

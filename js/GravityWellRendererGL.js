@@ -64,7 +64,7 @@
   }
 
   function visualSpeedForStrength(strength) {
-    return 0.25 + 0.75 * Math.max(0, Math.min(40, finiteOr(strength, 12))) / 12;
+    return 0.25 + 0.75 * Math.sqrt(Math.abs(finiteOr(strength, 12)) / 12);
   }
 
   function createTarget(gl, width, height) {
@@ -120,7 +120,7 @@
     '  float lensRing = exp(-pow((distancePx / max(u_radius, 1.0) - 0.36) * 4.5, 2.0));',
     '  vec2 direction = distancePx > 0.5 ? deltaPx / distancePx : vec2(0.0);',
     '  vec2 offset = direction * u_direction * (falloff * 0.014 + lensRing * 0.006);',
-    '  offset *= clamp(u_strength / 12.0, 0.0, 4.0) * (u_radius / u_resolution);',
+    '  offset *= max(u_strength / 12.0, 0.0) * (u_radius / u_resolution);',
     '  gl_FragColor = vec4(max(offset.x, 0.0), max(-offset.x, 0.0), max(offset.y, 0.0), max(-offset.y, 0.0));',
     '}'
   ].join('\n');
@@ -182,16 +182,23 @@
     '  band += smoothstep(0.58, 0.42, abs(discRadius - 0.70 + (grain - 0.5) * 0.12));',
     '  band += 0.65 * smoothstep(0.42, 0.30, abs(discRadius - 1.04 + (grain - 0.5) * 0.16));',
     '  band *= smoothstep(1.45, 0.22, discRadius);',
-    '  float horizon = 1.0 - smoothstep(0.16, 0.205, radial);',
-    '  float rim = smoothstep(0.30, 0.205, radial) * smoothstep(0.16, 0.205, radial);',
+    '  float horizonInner = 0.16;',
+    '  float horizonOuter = 0.205;',
+    '  float rimOuter = 0.30;',
+    '  float horizon = 1.0 - smoothstep(horizonInner, horizonOuter, radial);',
+    '  float rim = smoothstep(rimOuter, horizonOuter, radial) * smoothstep(horizonInner, horizonOuter, radial);',
     '  float halo = exp(-radial * 3.3) * 0.34;',
-    '  vec3 discColor = mix(u_inner, u_outer, clamp(discRadius / 1.35, 0.0, 1.0));',
-    '  vec3 color = discColor * (band * (0.45 + grain * 0.75) + rim * 1.5 + halo);',
-    '  float alpha = clamp(band * 0.72 + rim + halo, 0.0, 0.94);',
+    '  float colorMix = clamp(discRadius / 1.35, 0.0, 1.0);',
+    '  if (u_type < 0.0) colorMix = 0.35 + colorMix * 0.65;',
+    '  vec3 discColor = mix(u_inner, u_outer, colorMix);',
+    '  float whiteBalance = u_type < 0.0 ? 0.64 : 1.0;',
+    '  float rimEnergy = u_type < 0.0 ? 0.82 : 1.5;',
+    '  vec3 color = discColor * (band * (0.45 + grain * 0.75) * whiteBalance + rim * rimEnergy + halo);',
+    '  float alpha = clamp(band * mix(0.48, 0.72, whiteBalance) + rim * mix(0.78, 1.0, whiteBalance) + halo, 0.0, 0.94);',
     '  if (horizon > 0.0) {',
-    '    vec3 core = u_type > 0.0 ? vec3(0.0) : mix(vec3(1.0), u_inner, radial * 3.0);',
+    '    vec3 core = u_type > 0.0 ? vec3(0.0) : mix(u_inner, u_outer, 0.28);',
     '    color = mix(color, core, horizon);',
-    '    alpha = max(alpha, horizon * (u_type > 0.0 ? 0.99 : 0.96));',
+    '    alpha = max(alpha, horizon * (u_type > 0.0 ? 0.99 : 0.62));',
     '  }',
     '  float auraPulse = 0.84 + 0.16 * sin(u_time * u_speed * 1.6);',
     '  float selectionAura = u_selected * smoothstep(1.58, 0.24, radial) * smoothstep(0.16, 0.30, radial);',
@@ -226,10 +233,11 @@
     '  vec2 pixel = u_center + offset;',
     '  vec2 clip = pixel / u_resolution * 2.0 - 1.0;',
     '  gl_Position = vec4(clip, 0.0, 1.0);',
-    '  gl_PointSize = max(1.0, (0.7 + a_seed.y * 2.3) * min(u_resolution.y / 720.0, 2.0));',
+    '  float pointScale = u_type < 0.0 ? 0.68 : 1.0;',
+    '  gl_PointSize = max(1.0, (0.7 + a_seed.y * 2.3) * pointScale * min(u_resolution.y / 720.0, 2.0));',
     '  v_color = mix(u_inner, u_outer, outer);',
     '  float shimmer = 0.76 + 0.24 * sin(u_time * u_speed * 2.4 + a_seed.x * 31.0 + a_seed.z * 17.0);',
-    '  v_alpha = mix(0.82, 0.16, outer) * shimmer;',
+    '  v_alpha = mix(0.82, 0.16, outer) * shimmer * (u_type < 0.0 ? 0.34 : 1.0);',
     '}'
   ].join('\n');
 
@@ -365,8 +373,8 @@
         var well = wells[i];
         var fieldDpr = this.canvas.width / Math.max(1, this.canvas.clientWidth || this.canvas.width);
         gl.uniform2f(gl.getUniformLocation(this.fieldProgram, 'u_center'), finiteOr(well.x, 0) * fieldDpr / this.width, 1 - finiteOr(well.y, 0) * fieldDpr / this.height);
-        gl.uniform1f(gl.getUniformLocation(this.fieldProgram, 'u_radius'), Math.max(1, finiteOr(well.radius, 120)) * fieldDpr);
-        gl.uniform1f(gl.getUniformLocation(this.fieldProgram, 'u_strength'), finiteOr(well.strength, 0));
+        gl.uniform1f(gl.getUniformLocation(this.fieldProgram, 'u_radius'), Math.max(1, finiteOr(well.radius, 150)) * fieldDpr);
+        gl.uniform1f(gl.getUniformLocation(this.fieldProgram, 'u_strength'), Math.abs(finiteOr(well.strength, 0)));
         gl.uniform1f(gl.getUniformLocation(this.fieldProgram, 'u_direction'), well.type === 'white' ? 1 : -1);
         gl.drawArrays(gl.TRIANGLES, 0, 3);
       }
@@ -398,7 +406,7 @@
         var inner = parseColor(discWell.innerColor, discWell.type === 'white' ? '#dffcff' : '#ff8080');
         var outer = parseColor(discWell.outerColor, discWell.type === 'white' ? '#6b5cff' : '#3633ff');
         gl.uniform2f(gl.getUniformLocation(this.discProgram, 'u_center'), finiteOr(discWell.x, 0) * dpr, this.height - finiteOr(discWell.y, 0) * dpr);
-        gl.uniform1f(gl.getUniformLocation(this.discProgram, 'u_radius'), Math.max(1, finiteOr(discWell.radius, 120)) * dpr);
+        gl.uniform1f(gl.getUniformLocation(this.discProgram, 'u_radius'), Math.max(1, finiteOr(discWell.radius, 150)) * dpr);
         var discSpeed = visualSpeedForStrength(discWell.strength);
         this.diagnostics.maxVisualSpeed = Math.max(this.diagnostics.maxVisualSpeed, discSpeed);
         gl.uniform1f(gl.getUniformLocation(this.discProgram, 'u_speed'), discSpeed);
@@ -422,7 +430,7 @@
         var pointDpr = this.canvas.width / Math.max(1, this.canvas.clientWidth || this.canvas.width);
         var pointInner = parseColor(pointWell.innerColor, pointWell.type === 'white' ? '#dffcff' : '#ff8080');
         var pointOuter = parseColor(pointWell.outerColor, pointWell.type === 'white' ? '#6b5cff' : '#3633ff');
-        var pointRadius = Math.max(1, finiteOr(pointWell.radius, 120));
+        var pointRadius = Math.max(1, finiteOr(pointWell.radius, 150));
         gl.uniform2f(gl.getUniformLocation(this.pointProgram, 'u_center'), finiteOr(pointWell.x, 0) * pointDpr, this.height - finiteOr(pointWell.y, 0) * pointDpr);
         gl.uniform1f(gl.getUniformLocation(this.pointProgram, 'u_radius'), pointRadius * pointDpr);
         gl.uniform1f(gl.getUniformLocation(this.pointProgram, 'u_speed'), visualSpeedForStrength(pointWell.strength));
@@ -430,7 +438,8 @@
         gl.uniform3fv(gl.getUniformLocation(this.pointProgram, 'u_inner'), pointInner);
         gl.uniform3fv(gl.getUniformLocation(this.pointProgram, 'u_outer'), pointOuter);
         var scale = Math.min(1, (pointRadius * pointRadius) / (240 * 240));
-        var pointCount = Math.min(MAX_ORBIT_POINTS, Math.max(4000, Math.floor(MAX_ORBIT_POINTS * scale)));
+        var basePointCount = Math.min(MAX_ORBIT_POINTS, Math.max(4000, Math.floor(MAX_ORBIT_POINTS * scale)));
+        var pointCount = pointWell.type === 'white' ? Math.max(400, Math.floor(basePointCount * 0.05)) : basePointCount;
         gl.drawArrays(gl.POINTS, 0, pointCount);
       }
 

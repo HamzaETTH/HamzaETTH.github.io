@@ -17,6 +17,15 @@ function applyScalarParams(o, p) {
     'gatherRadius'
   ];
   keys.forEach(k => { o[k] = p[k]; });
+  if (typeof p.adaptiveLineDetail === 'boolean') {
+    o.adaptiveLineDetail = p.adaptiveLineDetail;
+  }
+  if (typeof p.cellularLineClusters === 'boolean') {
+    o.cellularLineClusters = p.cellularLineClusters;
+  }
+  if (typeof p.blackHoleLineColor === 'boolean') {
+    o.blackHoleLineColor = p.blackHoleLineColor;
+  }
 
   // Map UI px radius (0..300) to internal engine units (0..30) by /10
   if (typeof p.attractionRange === 'number') {
@@ -114,9 +123,26 @@ function applyGravityWells(pn, o, p) {
     o.gravityWellMotion = motion;
     window.ParticleNetworkConfig.saveGravityWellMotion(motion);
   }
-  if (typeof p.gravityWellsEnabled !== 'boolean' || o.gravityWellsEnabled === p.gravityWellsEnabled) return;
-  if (typeof pn.setGravityWellsEnabled === 'function') pn.setGravityWellsEnabled(p.gravityWellsEnabled);
-  else o.gravityWellsEnabled = p.gravityWellsEnabled;
+  if (typeof p.gravityWellAccelerationCapped === 'boolean') {
+    o.gravityWellAccelerationCapped = p.gravityWellAccelerationCapped;
+    pn.gravityWellAccelerationCapped = p.gravityWellAccelerationCapped;
+  }
+  const nonNegativeKeys = [
+    'gravityWellAccelerationLimit',
+    'gravityWellForceMultiplier',
+    'cursorCaptureForceMultiplier',
+    'cursorCaptureMaxSpeed'
+  ];
+  nonNegativeKeys.forEach(key => {
+    if (!Number.isFinite(p[key])) return;
+    o[key] = Math.max(0, p[key]);
+    if (key === 'gravityWellAccelerationLimit') pn.gravityWellAccelerationLimit = o[key];
+  });
+  if (Number.isFinite(p.gravityWellSpin)) o.gravityWellSpin = p.gravityWellSpin;
+  if (typeof p.gravityWellsEnabled === 'boolean' && o.gravityWellsEnabled !== p.gravityWellsEnabled) {
+    if (typeof pn.setGravityWellsEnabled === 'function') pn.setGravityWellsEnabled(p.gravityWellsEnabled);
+    else o.gravityWellsEnabled = p.gravityWellsEnabled;
+  }
 }
 
 function applyParticleAppearance(pn, o, p) {
@@ -135,10 +161,8 @@ function applyParticleAppearance(pn, o, p) {
       }
     }
     // sync SoA size array if present
-    if (pn.sizeA && Array.isArray(pn.sizeA)) {
-      for (let i = 0; i < pn.sizeA.length; i++) {
-        pn.sizeA[i] = p.particleSize;
-      }
+    if (pn.sizeA && ArrayBuffer.isView(pn.sizeA)) {
+      pn.sizeA.fill(p.particleSize);
     }
   }
 }

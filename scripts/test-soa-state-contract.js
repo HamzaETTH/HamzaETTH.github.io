@@ -5,12 +5,13 @@ const fs = require('node:fs');
 const { chromium } = require('playwright');
 
 function parseArgs(argv) {
-  const options = { output: null };
+  const options = { output: null, allowParticleSizeFix: false };
   for (let i = 0; i < argv.length; i++) {
     const arg = argv[i];
     if (arg === '--baseline') options.baseline = argv[++i];
     else if (arg === '--optimized') options.optimized = argv[++i];
     else if (arg === '--output') options.output = argv[++i];
+    else if (arg === '--allow-particle-size-fix') options.allowParticleSizeFix = true;
     else throw new Error(`Unknown argument: ${arg}`);
   }
   if (!options.baseline || !options.optimized) throw new Error('--baseline and --optimized are required');
@@ -313,10 +314,21 @@ async function main() {
   try {
     const baseline = await snapshot(browser, options.baseline);
     const optimized = await snapshot(browser, options.optimized);
-    const baselineStable = stable(baseline.data);
-    const optimizedStable = stable(optimized.data);
+    const comparableData = data => {
+      if (!options.allowParticleSizeFix) return data;
+      const { appearance, ...rest } = data;
+      return rest;
+    };
+    const baselineStable = stable(comparableData(baseline.data));
+    const optimizedStable = stable(comparableData(optimized.data));
+    const optimizedAppearance = optimized.data.appearance;
+    const particleSizeFixValid = !options.allowParticleSizeFix || (
+      optimizedAppearance.objectSizes.every(size => size === 3.5) &&
+      optimizedAppearance.typedSizes.every(size => size === 3.5)
+    );
     const assertions = {
       exactStateContract: JSON.stringify(baselineStable) === JSON.stringify(optimizedStable),
+      particleSizeFixValid,
       baselineHealthy: baseline.data.health.hasGl && !baseline.data.health.glContextLost,
       optimizedHealthy: optimized.data.health.hasGl && !optimized.data.health.glContextLost,
       noBrowserErrors: baseline.browserErrors.length === 0 && optimized.browserErrors.length === 0

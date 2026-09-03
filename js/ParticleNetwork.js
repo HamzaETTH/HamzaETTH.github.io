@@ -96,6 +96,108 @@
     hexToRgb01(options.proximityEffectColor || '#ff0000', proximityColor, 1);
   }
 
+  var blackHoleColorScratch = new Float32Array(4);
+
+  function ensureBlackHoleLineTintCapacity(network, count) {
+    var current = network._blackHoleLineTintStrength;
+    if (current && current.length >= count) return;
+    var capacity = 1;
+    while (capacity < count) capacity *= 2;
+    network._blackHoleLineTintStrength = new Float32Array(capacity);
+    network._blackHoleLineTintR = new Float32Array(capacity);
+    network._blackHoleLineTintG = new Float32Array(capacity);
+    network._blackHoleLineTintB = new Float32Array(capacity);
+  }
+
+  function prepareBlackHoleLineTints(network, particles, count) {
+    network._blackHoleLineTintActive = false;
+    if (network.options.blackHoleLineColor !== true || network.options.gravityWellsEnabled === false) return;
+
+    var wells = network._frameGravityWells || [];
+    var hasBlackHole = false;
+    for (var wi = 0; wi < wells.length; wi++) {
+      if (wells[wi].type === 'black') { hasBlackHole = true; break; }
+    }
+    if (!hasBlackHole || count <= 0) return;
+
+    ensureBlackHoleLineTintCapacity(network, count);
+    var strengths = network._blackHoleLineTintStrength;
+    var tintR = network._blackHoleLineTintR;
+    var tintG = network._blackHoleLineTintG;
+    var tintB = network._blackHoleLineTintB;
+    strengths.fill(0, 0, count);
+
+    for (wi = 0; wi < wells.length; wi++) {
+      var well = wells[wi];
+      if (well.type !== 'black') continue;
+      var radius = Math.max(1, Number.isFinite(well.radius) ? well.radius : 150);
+      var influenceRadius = radius * 1.5;
+      var influenceRadiusSq = influenceRadius * influenceRadius;
+      hexToRgb01(well.innerColor, blackHoleColorScratch, 1);
+      var innerR = blackHoleColorScratch[0];
+      var innerG = blackHoleColorScratch[1];
+      var innerB = blackHoleColorScratch[2];
+      hexToRgb01(well.outerColor, blackHoleColorScratch, 1);
+      var outerR = blackHoleColorScratch[0];
+      var outerG = blackHoleColorScratch[1];
+      var outerB = blackHoleColorScratch[2];
+
+      for (var pi = 0; pi < count; pi++) {
+        var particle = particles[pi];
+        var dx = particle.x - well.x;
+        var dy = particle.y - well.y;
+        var distanceSq = dx * dx + dy * dy;
+        if (distanceSq >= influenceRadiusSq) continue;
+        var distance = Math.sqrt(distanceSq);
+        var strength = 1 - distance / influenceRadius;
+        strength = strength * strength * (3 - 2 * strength);
+        var index = particle.index | 0;
+        if (strength <= strengths[index]) continue;
+        var colorFactor = Math.min(distance / radius, 1);
+        strengths[index] = strength;
+        tintR[index] = innerR + (outerR - innerR) * colorFactor;
+        tintG[index] = innerG + (outerG - innerG) * colorFactor;
+        tintB[index] = innerB + (outerB - innerB) * colorFactor;
+        network._blackHoleLineTintActive = true;
+      }
+    }
+  }
+
+  function prepareBaseLineColorsForBlackHoleTint(network, distance, alphaFactor) {
+    var options = network.options;
+    if (options.useDistanceEffect) {
+      var colorFactor = Math.min(distance / options.maxColorChangeDistance, 1);
+      var startColor = network.startColorRgb;
+      var endColor = network.endColorRgb;
+      glLineColor1Scratch[0] = (startColor[0] + colorFactor * (endColor[0] - startColor[0])) / 255;
+      glLineColor1Scratch[1] = (startColor[1] + colorFactor * (endColor[1] - startColor[1])) / 255;
+      glLineColor1Scratch[2] = (startColor[2] + colorFactor * (endColor[2] - startColor[2])) / 255;
+      glLineColor1Scratch[3] = alphaFactor;
+      copyRgb01WithAlpha(glLineColor1Scratch, glLineColor2Scratch, alphaFactor);
+    } else if (options.gradientEffect) {
+      copyRgb01WithAlpha(network._frameLineColor1, glLineColor1Scratch, alphaFactor);
+      copyRgb01WithAlpha(network._frameLineColor2, glLineColor2Scratch, alphaFactor);
+    } else {
+      copyRgb01WithAlpha(network._frameLineColor1, glLineColor1Scratch, alphaFactor);
+      copyRgb01WithAlpha(network._frameLineColor1, glLineColor2Scratch, alphaFactor);
+    }
+  }
+
+  function applyBlackHoleLineTint(network, particle, color) {
+    var index = particle.index | 0;
+    var strength = network._blackHoleLineTintStrength[index];
+    if (!(strength > 0)) return false;
+    color[0] += (network._blackHoleLineTintR[index] - color[0]) * strength;
+    color[1] += (network._blackHoleLineTintG[index] - color[1]) * strength;
+    color[2] += (network._blackHoleLineTintB[index] - color[2]) * strength;
+    return true;
+  }
+
+  function rgb01ToCss(color) {
+    return 'rgb(' + Math.round(color[0] * 255) + ',' +
+      Math.round(color[1] * 255) + ',' + Math.round(color[2] * 255) + ')';
+  }
+
   function prepareFrameParticleColor(network, dt) {
     var options = network.options;
     var particleColor = network._frameParticleColor ||
@@ -111,6 +213,312 @@
       network._frameParticleCssColor = options.particleColor;
       hexToRgb01(options.particleColor, particleColor, options.opacity);
     }
+  }
+
+  var LINE_DETAIL_TILE_SIZE = 24;
+  var LINE_DETAIL_PRESSURE_SEGMENTS = 2048;
+  var LINE_DETAIL_DENSITY_THRESHOLD = 24;
+  var LINE_DETAIL_LEVELS = [
+    { name: 'Full', maxLinks: 48, maxSegments: 96000, tileCapacity: 2048, sampleRate: 0.2 },
+    { name: 'Balanced', maxLinks: 16, maxSegments: 32000, tileCapacity: 192, sampleRate: 0.08 },
+    { name: 'Reduced', maxLinks: 8, maxSegments: 16000, tileCapacity: 48, sampleRate: 0.04 }
+  ];
+  var CELLULAR_LINE_DETAIL_LEVELS = [
+    { name: 'Full', maxLinks: 64, maxSegments: 128000, tileCapacity: 4096 },
+    { name: 'Balanced', maxLinks: 24, maxSegments: 48000, tileCapacity: 384 },
+    { name: 'Reduced', maxLinks: 12, maxSegments: 24000, tileCapacity: 96 }
+  ];
+
+  function createLineDetailDiagnostics() {
+    return {
+      candidateConnections: 0,
+      acceptedLogicalLines: 0,
+      emittedSegments: 0,
+      coverageRejections: 0,
+      hardBudgetRejections: 0,
+      coverageTileCrossings: 0,
+      pressure: false,
+      qualityLevel: 'Full'
+    };
+  }
+
+  function resetLineDetailDiagnostics(network) {
+    var diagnostics = network.lineDetailDiagnostics ||
+      (network.lineDetailDiagnostics = createLineDetailDiagnostics());
+    diagnostics.candidateConnections = 0;
+    diagnostics.acceptedLogicalLines = 0;
+    diagnostics.emittedSegments = 0;
+    diagnostics.coverageRejections = 0;
+    diagnostics.hardBudgetRejections = 0;
+    diagnostics.coverageTileCrossings = 0;
+    diagnostics.pressure = false;
+    diagnostics.qualityLevel = LINE_DETAIL_LEVELS[network._lineDetailQualityIndex || 0].name;
+    return diagnostics;
+  }
+
+  function ensureLineDetailBuffers(network) {
+    var particleCapacity = Math.max(1, network.o ? network.o.length : network.numParticles || 0);
+    if (!network._lineDetailLinkCounts || network._lineDetailLinkCounts.length < particleCapacity) {
+      network._lineDetailLinkCounts = new Uint8Array(particleCapacity);
+    } else {
+      network._lineDetailLinkCounts.fill(0, 0, particleCapacity);
+    }
+    if (!network._lineDetailParticleTiles || network._lineDetailParticleTiles.length < particleCapacity) {
+      network._lineDetailParticleTiles = new Int32Array(particleCapacity);
+    }
+
+    var width = Math.max(1, network.i.size.width);
+    var height = Math.max(1, network.i.size.height);
+    var columns = Math.ceil(width / LINE_DETAIL_TILE_SIZE);
+    var rows = Math.ceil(height / LINE_DETAIL_TILE_SIZE);
+    var coverageSize = columns * rows;
+    if (!network._lineDetailCoverage || network._lineDetailCoverage.length !== coverageSize) {
+      network._lineDetailCoverage = new Float32Array(coverageSize);
+      network._lineDetailCoverageTouched = [];
+    } else {
+      var touched = network._lineDetailCoverageTouched;
+      for (var i = 0; i < touched.length; i++) network._lineDetailCoverage[touched[i]] = 0;
+      touched.length = 0;
+    }
+    if (!network._lineDetailTileOccupancy || network._lineDetailTileOccupancy.length !== coverageSize) {
+      network._lineDetailTileOccupancy = new Uint16Array(coverageSize);
+      network._lineDetailTileSegments = new Uint32Array(coverageSize);
+    } else {
+      network._lineDetailTileOccupancy.fill(0);
+      network._lineDetailTileSegments.fill(0);
+    }
+    network._lineDetailOccupiedTileCount = 0;
+    network._lineDetailCoverageColumns = columns;
+    network._lineDetailCoverageRows = rows;
+
+    var traversalCapacity = columns + rows + 2;
+    if (!network._lineDetailTileScratch || network._lineDetailTileScratch.length < traversalCapacity) {
+      network._lineDetailTileScratch = new Int32Array(traversalCapacity);
+    }
+  }
+
+  function updateLineDetailQuality(network, now, elapsedSeconds, pressure) {
+    if (now - network._lineDetailStartupTime < 2000) {
+      network._lineDetailLowFpsSeconds = 0;
+      network._lineDetailRecoverySeconds = 0;
+      return;
+    }
+
+    var fps = elapsedSeconds > 0 ? 1 / elapsedSeconds : 60;
+    var qualityIndex = network._lineDetailQualityIndex;
+    var sampleSeconds = Math.min(elapsedSeconds, 1);
+    if (pressure && fps < 50) {
+      network._lineDetailLowFpsSeconds += sampleSeconds;
+      network._lineDetailRecoverySeconds = 0;
+      if (network._lineDetailLowFpsSeconds >= 1 && qualityIndex < LINE_DETAIL_LEVELS.length - 1) {
+        network._lineDetailQualityIndex++;
+        network._lineDetailLowFpsSeconds = 0;
+      }
+    } else if (!pressure || fps > 57) {
+      network._lineDetailRecoverySeconds += sampleSeconds;
+      network._lineDetailLowFpsSeconds = 0;
+      if (network._lineDetailRecoverySeconds >= 3 && qualityIndex > 0) {
+        network._lineDetailQualityIndex--;
+        network._lineDetailRecoverySeconds = 0;
+      }
+    } else {
+      network._lineDetailLowFpsSeconds = 0;
+      network._lineDetailRecoverySeconds = 0;
+    }
+  }
+
+  function prepareLineDetailFrame(network) {
+    var diagnostics = resetLineDetailDiagnostics(network);
+    if (network.options.adaptiveLineDetail !== true && network.options.cellularLineClusters !== true) {
+      network._lineDetailQualityIndex = 0;
+      network._lineDetailLowFpsSeconds = 0;
+      network._lineDetailRecoverySeconds = 0;
+      network._lineDetailPressure = false;
+      diagnostics.qualityLevel = 'Full';
+      return false;
+    }
+
+    ensureLineDetailBuffers(network);
+    return true;
+  }
+
+  function beginLineDetailFrame(network, now, elapsedSeconds, densityPressure) {
+    var diagnostics = network.lineDetailDiagnostics;
+    if (network.options.adaptiveLineDetail === true) {
+      var adaptationPressure = densityPressure || network._lineDetailPressure;
+      updateLineDetailQuality(network, now, elapsedSeconds, adaptationPressure);
+    } else {
+      network._lineDetailQualityIndex = 0;
+      network._lineDetailLowFpsSeconds = 0;
+      network._lineDetailRecoverySeconds = 0;
+    }
+    network._lineDetailPressure = !!densityPressure;
+    diagnostics.pressure = network._lineDetailPressure;
+    diagnostics.qualityLevel = LINE_DETAIL_LEVELS[network._lineDetailQualityIndex].name;
+  }
+
+  function lineDetailCoverageAlpha(
+    network,
+    particleA,
+    particleB,
+    alphaFactor,
+    tileCapacity,
+    cellularClusters,
+    startTileIndex,
+    endTileIndex
+  ) {
+    var tileSize = LINE_DETAIL_TILE_SIZE;
+    var columns = network._lineDetailCoverageColumns;
+    var rows = network._lineDetailCoverageRows;
+    var maxX = columns * tileSize - 0.0001;
+    var maxY = rows * tileSize - 0.0001;
+    var x0 = Math.max(0, Math.min(maxX, particleA.x));
+    var y0 = Math.max(0, Math.min(maxY, particleA.y));
+    var x1 = Math.max(0, Math.min(maxX, particleB.x));
+    var y1 = Math.max(0, Math.min(maxY, particleB.y));
+    var tileX = startTileIndex % columns;
+    var tileY = Math.floor(startTileIndex / columns);
+    var endTileX = endTileIndex % columns;
+    var endTileY = Math.floor(endTileIndex / columns);
+    var coverage = network._lineDetailCoverage;
+    var dx = x1 - x0;
+    var dy = y1 - y0;
+    var stepX = dx > 0 ? 1 : (dx < 0 ? -1 : 0);
+    var stepY = dy > 0 ? 1 : (dy < 0 ? -1 : 0);
+    var tDeltaX = stepX ? tileSize / Math.abs(dx) : Infinity;
+    var tDeltaY = stepY ? tileSize / Math.abs(dy) : Infinity;
+    var nextBoundaryX = stepX > 0 ? (tileX + 1) * tileSize : tileX * tileSize;
+    var nextBoundaryY = stepY > 0 ? (tileY + 1) * tileSize : tileY * tileSize;
+    var tMaxX = stepX ? (nextBoundaryX - x0) / dx : Infinity;
+    var tMaxY = stepY ? (nextBoundaryY - y0) / dy : Infinity;
+    var scratch = network._lineDetailTileScratch;
+    var count = 0;
+
+    while (count < scratch.length) {
+      scratch[count++] = tileX + tileY * columns;
+      if (tileX === endTileX && tileY === endTileY) break;
+      if (tMaxX < tMaxY) {
+        tileX += stepX;
+        tMaxX += tDeltaX;
+      } else if (tMaxY < tMaxX) {
+        tileY += stepY;
+        tMaxY += tDeltaY;
+      } else {
+        tileX += stepX;
+        tileY += stepY;
+        tMaxX += tDeltaX;
+        tMaxY += tDeltaY;
+      }
+    }
+
+    var remaining = 0;
+    for (var i = 0; i < count; i++) {
+      remaining += Math.max(0, 1 - coverage[scratch[i]] / tileCapacity);
+    }
+    var fadedAlpha = alphaFactor * (remaining / count);
+    if (fadedAlpha < 0.02) return 0;
+
+    var touched = network._lineDetailCoverageTouched;
+    var coverageContribution = cellularClusters ? fadedAlpha : 1;
+    for (var j = 0; j < count; j++) {
+      var tileIndex = scratch[j];
+      if (coverage[tileIndex] === 0) touched.push(tileIndex);
+      coverage[tileIndex] += coverageContribution;
+    }
+    network.lineDetailDiagnostics.coverageTileCrossings += count;
+    return fadedAlpha;
+  }
+
+  function evaluateAdaptiveLine(network, particleA, particleB, alphaFactor, segmentCount) {
+    var diagnostics = network.lineDetailDiagnostics;
+    diagnostics.candidateConnections++;
+    if (network.options.adaptiveLineDetail !== true && network.options.cellularLineClusters !== true) {
+      diagnostics.acceptedLogicalLines++;
+      diagnostics.emittedSegments += segmentCount;
+      return alphaFactor;
+    }
+
+    if (!network._lineDetailPressure && diagnostics.emittedSegments >= LINE_DETAIL_PRESSURE_SEGMENTS) {
+      network._lineDetailPressure = true;
+      diagnostics.pressure = true;
+    }
+
+    var indexA = particleA.index | 0;
+    var indexB = particleB.index | 0;
+    var links = network._lineDetailLinkCounts;
+    var budgetStartTile = -1;
+    var budgetEndTile = -1;
+    if (network._lineDetailPressure) {
+      var cellularClusters = network.options.cellularLineClusters === true;
+      var levels = cellularClusters ? CELLULAR_LINE_DETAIL_LEVELS : LINE_DETAIL_LEVELS;
+      var level = levels[network._lineDetailQualityIndex];
+      if (!cellularClusters) {
+        var lowIndex = Math.min(indexA, indexB) + 1;
+        var highIndex = Math.max(indexA, indexB) + 1;
+        var pairHash = Math.imul(lowIndex, 0x45d9f3b) ^ Math.imul(highIndex, 0x119de1f3);
+        pairHash = (pairHash ^ (pairHash >>> 16)) >>> 0;
+        if (pairHash / 4294967296 >= level.sampleRate) {
+          diagnostics.hardBudgetRejections++;
+          return -1;
+        }
+      }
+      if (diagnostics.emittedSegments + segmentCount > level.maxSegments ||
+          links[indexA] >= level.maxLinks || links[indexB] >= level.maxLinks) {
+        diagnostics.hardBudgetRejections++;
+        return -1;
+      }
+      var particleTiles = network._lineDetailParticleTiles;
+      var startTileIndex = particleTiles[indexA];
+      var endTileIndex = particleTiles[indexB];
+      var occupiedTileCount = Math.max(1, network._lineDetailOccupiedTileCount);
+      var tileSegmentBudget = Math.max(
+        segmentCount * 2,
+        Math.floor(level.maxSegments * 2 / occupiedTileCount)
+      );
+      var tileSegments = network._lineDetailTileSegments;
+      var sameTileCost = startTileIndex === endTileIndex ? segmentCount * 2 : segmentCount;
+      if (tileSegments[startTileIndex] + sameTileCost > tileSegmentBudget ||
+          (startTileIndex !== endTileIndex &&
+            tileSegments[endTileIndex] + segmentCount > tileSegmentBudget)) {
+        diagnostics.hardBudgetRejections++;
+        return -1;
+      }
+      budgetStartTile = startTileIndex;
+      budgetEndTile = endTileIndex;
+      if (!cellularClusters && network._lineDetailCoverage[startTileIndex] >= level.tileCapacity &&
+          network._lineDetailCoverage[endTileIndex] >= level.tileCapacity) {
+        diagnostics.coverageRejections++;
+        return -1;
+      }
+      alphaFactor = lineDetailCoverageAlpha(
+        network,
+        particleA,
+        particleB,
+        alphaFactor,
+        level.tileCapacity,
+        cellularClusters,
+        startTileIndex,
+        endTileIndex
+      );
+      if (!alphaFactor) {
+        diagnostics.coverageRejections++;
+        return -1;
+      }
+    }
+
+    links[indexA]++;
+    links[indexB]++;
+    if (budgetStartTile >= 0) {
+      if (budgetStartTile === budgetEndTile) {
+        network._lineDetailTileSegments[budgetStartTile] += segmentCount * 2;
+      } else {
+        network._lineDetailTileSegments[budgetStartTile] += segmentCount;
+        network._lineDetailTileSegments[budgetEndTile] += segmentCount;
+      }
+    }
+    diagnostics.acceptedLogicalLines++;
+    diagnostics.emittedSegments += segmentCount;
+    return alphaFactor;
   }
 
   // We'll use the ColorUtils functions if available, otherwise use these
@@ -284,16 +692,51 @@
         this.j
       );
 
+      this.lineDetailDiagnostics = createLineDetailDiagnostics();
+      this._lineDetailQualityIndex = 0;
+      this._lineDetailStartupTime = performance.now();
+      this._lineDetailLowFpsSeconds = 0;
+      this._lineDetailRecoverySeconds = 0;
+      this._lineDetailPressure = false;
+      this._lineDetailLinkCounts = null;
+      this._lineDetailParticleTiles = null;
+      this._lineDetailCoverage = null;
+      this._lineDetailCoverageTouched = [];
+      this._lineDetailTileOccupancy = null;
+      this._lineDetailTileSegments = null;
+      this._lineDetailOccupiedTileCount = 0;
+      this._lineDetailTileScratch = null;
+      this._blackHoleLineTintStrength = null;
+      this._blackHoleLineTintR = null;
+      this._blackHoleLineTintG = null;
+      this._blackHoleLineTintB = null;
+      this._blackHoleLineTintActive = false;
+
       this.gravityWells = [];
       this.selectedGravityWellId = null;
       this.gravityWellDraft = null;
       this._nextGravityWellId = 1;
       this._gravityPointer = null;
+      this._gravityPointerInsideCanvas = false;
       this._gravityPointerId = null;
+      this._gravityWellDrag = null;
+      this.gravityWellAccelerationCapped = this.options.gravityWellAccelerationCapped !== false;
+      this.gravityWellAccelerationLimit = Number.isFinite(this.options.gravityWellAccelerationLimit)
+        ? Math.max(0, this.options.gravityWellAccelerationLimit)
+        : 1.5;
       this._gravityWellOverlay = null;
+      this._gravityWellRadiusLabel = null;
+      this._gravityWellStrengthLabel = null;
+      this._gravityWellStrengthLabelTimer = null;
       this._middleSpawnActive = false;
       this._middleSpawnPointer = null;
       this._middleSpawnAccumulator = 0;
+      this._cursorCaptureActive = false;
+      this._cursorCapturePoint = null;
+      this._cursorCaptureAppliedPoint = null;
+      this._cursorCapturePending = null;
+      this._cursorCaptureHoldTimer = null;
+      this._lastPrimaryEmptyDown = null;
 
       this.init();
     }),
@@ -328,7 +771,7 @@
     (b.prototype._gravityWellDefaults = function(type) {
       var white = type === 'white';
       return {
-        radius: this.options.gravityWellRadius || 120,
+        radius: this.options.gravityWellRadius || 150,
         strength: this.options.gravityWellStrength || 12,
         innerColor: white ? this.options.whiteHoleInnerColor : this.options.blackHoleInnerColor,
         outerColor: white ? this.options.whiteHoleOuterColor : this.options.blackHoleOuterColor
@@ -337,9 +780,62 @@
     (b.prototype._clampGravityWellRadius = function(radius) {
       var min = this.options.gravityWellMinRadius || 24;
       var max = this.options.gravityWellMaxRadius || 500;
-      return Math.max(min, Math.min(max, Number.isFinite(radius) ? radius : this.options.gravityWellRadius || 120));
+      return Math.max(min, Math.min(max, Number.isFinite(radius) ? radius : this.options.gravityWellRadius || 150));
+    }),
+    (b.prototype._updateGravityWellRadiusLabel = function() {
+      var draft = this.gravityWellDraft;
+      var hasPosition = draft && Number.isFinite(draft.x) && Number.isFinite(draft.y) && Number.isFinite(draft.radius);
+      if (!hasPosition) {
+        if (this._gravityWellRadiusLabel) this._gravityWellRadiusLabel.style.display = 'none';
+        return;
+      }
+      if (!this._gravityWellRadiusLabel) {
+        var label = document.createElement('div');
+        label.className = 'gravity-well-radius-label';
+        label.setAttribute('aria-hidden', 'true');
+        this.i.appendChild(label);
+        this._gravityWellRadiusLabel = label;
+      }
+      var width = this.i.size.width;
+      var height = this.i.size.height;
+      var offset = Math.max(30, Math.min(90, draft.radius * 0.3));
+      this._gravityWellRadiusLabel.textContent = Math.round(draft.radius) + ' px';
+      this._gravityWellRadiusLabel.style.left = Math.max(34, Math.min(width - 34, draft.x)) + 'px';
+      this._gravityWellRadiusLabel.style.top = Math.max(18, Math.min(height - 18, draft.y - offset)) + 'px';
+      this._gravityWellRadiusLabel.style.display = 'block';
+    }),
+    (b.prototype._showGravityWellStrengthLabel = function(well) {
+      if (!well) return;
+      if (!this._gravityWellStrengthLabel) {
+        var label = document.createElement('div');
+        label.className = 'gravity-well-strength-label';
+        label.setAttribute('aria-hidden', 'true');
+        this.i.appendChild(label);
+        this._gravityWellStrengthLabel = label;
+      }
+      var strength = Number.isFinite(well.strength) ? well.strength : 0;
+      var effectiveType = strength < 0
+        ? (well.type === 'white' ? 'black' : 'white')
+        : well.type;
+      var behavior = effectiveType === 'white' ? 'Repulsion' : 'Absorption';
+      var magnitude = Math.abs(strength);
+      var formattedMagnitude = magnitude.toLocaleString(undefined, { maximumFractionDigits: 2 });
+      var width = this.i.size.width;
+      var height = this.i.size.height;
+      var offset = Math.max(30, Math.min(90, well.radius * 0.3));
+      this._gravityWellStrengthLabel.textContent = behavior + ' ' + formattedMagnitude;
+      this._gravityWellStrengthLabel.dataset.force = effectiveType;
+      this._gravityWellStrengthLabel.style.left = Math.max(54, Math.min(width - 54, well.x)) + 'px';
+      this._gravityWellStrengthLabel.style.top = Math.max(18, Math.min(height - 18, well.y - offset)) + 'px';
+      this._gravityWellStrengthLabel.classList.add('is-visible');
+      if (this._gravityWellStrengthLabelTimer != null) clearTimeout(this._gravityWellStrengthLabelTimer);
+      this._gravityWellStrengthLabelTimer = setTimeout(function() {
+        this._gravityWellStrengthLabelTimer = null;
+        if (this._gravityWellStrengthLabel) this._gravityWellStrengthLabel.classList.remove('is-visible');
+      }.bind(this), 900);
     }),
     (b.prototype._emitGravityWellsChange = function() {
+      this._updateGravityWellRadiusLabel();
       var detail = {
         wells: this.gravityWells.map(function(well) { return Object.assign({}, well); }),
         selectedId: this.selectedGravityWellId,
@@ -352,6 +848,7 @@
       return !!(this.options && (
         this.options.velocity !== 0 ||
         this._middleSpawnActive ||
+        this._cursorCaptureActive ||
         (this.options.gravityWellsEnabled !== false && (this.gravityWells.length > 0 || this.gravityWellDraft))
       ));
     }),
@@ -365,7 +862,71 @@
 	      this._rafActive = true;
 	      this._rafId = requestAnimationFrame(this.update);
 	    }),
+	    (b.prototype._cancelCursorCaptureHold = function() {
+	      if (this._cursorCaptureHoldTimer != null) clearTimeout(this._cursorCaptureHoldTimer);
+	      this._cursorCaptureHoldTimer = null;
+	      this._cursorCapturePending = null;
+	      if (this.canvas) this.canvas.classList.remove('cursor-capture-pending');
+	    }),
+	    (b.prototype._scheduleCursorCaptureHold = function(x, y) {
+	      this._cancelCursorCaptureHold();
+	      this._cursorCapturePending = { x: x, y: y };
+	      if (this.canvas) this.canvas.classList.add('cursor-capture-pending');
+	      this._cursorCaptureHoldTimer = setTimeout(function() {
+	        this._cursorCaptureHoldTimer = null;
+	        var pending = this._cursorCapturePending;
+	        if (!pending) return;
+	        this._startCursorCapture(pending.x, pending.y);
+	      }.bind(this), 120);
+	    }),
+	    (b.prototype._startCursorCapture = function(x, y) {
+	      this._cancelCursorCaptureHold();
+	      if (!Number.isFinite(x) || !Number.isFinite(y)) return false;
+	      this._cursorCaptureActive = true;
+	      this._cursorCapturePoint = { x: x, y: y };
+	      this._cursorCaptureAppliedPoint = { x: x, y: y };
+	      this.attractionForce = null;
+	      this.repulsionForce = { x: x, y: y };
+	      var radius = Math.max(0, Number.isFinite(this.options.gatherRadius) ? this.options.gatherRadius : 100);
+	      var golden = 2.399963229728653;
+	      var count = this.numParticles | 0;
+	      for (var i = 0; i < count; i++) {
+	        var angle = i * golden;
+	        var distance = radius * 0.82 * Math.sqrt((i + 1) / (count + 1));
+	        var particleX = x + Math.cos(angle) * distance;
+	        var particleY = y + Math.sin(angle) * distance;
+	        this.posX[i] = particleX;
+	        this.posY[i] = particleY;
+	        this.velX[i] = 0;
+	        this.velY[i] = 0;
+	        if (this.o && this.o[i]) {
+	          this.o[i].x = particleX;
+	          this.o[i].y = particleY;
+	          this.o[i].velocity.x = 0;
+	          this.o[i].velocity.y = 0;
+	        }
+	      }
+	      if (this.p) { this.p.x = x; this.p.y = y; }
+	      if (this.canvas) {
+	        this.canvas.classList.remove('cursor-capture-pending');
+	        this.canvas.classList.add('cursor-capture-active');
+	      }
+	      this._ensureAnimationLoop();
+	      return true;
+	    }),
+	    (b.prototype._stopCursorCapture = function() {
+	      var wasActive = this._cursorCaptureActive;
+	      this._cancelCursorCaptureHold();
+	      this._cursorCaptureActive = false;
+	      this._cursorCapturePoint = null;
+	      this._cursorCaptureAppliedPoint = null;
+	      this._lastPrimaryEmptyDown = null;
+	      if (this.canvas) this.canvas.classList.remove('cursor-capture-active');
+	      this.repulsionForce = null;
+	      return wasActive;
+	    }),
 	    (b.prototype._clearInteractivePointerForces = function() {
+	      this._stopCursorCapture();
 	      this.attractionForce = null;
 	      this.repulsionForce = null;
 	      if (this._activePointers) this._activePointers.clear();
@@ -410,7 +971,7 @@
       if (Number.isFinite(patch.x)) well.x = Math.max(0, Math.min(this.i.size.width, patch.x));
       if (Number.isFinite(patch.y)) well.y = Math.max(0, Math.min(this.i.size.height, patch.y));
       if (Number.isFinite(patch.radius)) well.radius = this._clampGravityWellRadius(patch.radius);
-      if (Number.isFinite(patch.strength)) well.strength = Math.max(0, Math.min(40, patch.strength));
+      if (Number.isFinite(patch.strength)) well.strength = patch.strength;
       if (typeof patch.innerColor === 'string') well.innerColor = patch.innerColor;
       if (typeof patch.outerColor === 'string') well.outerColor = patch.outerColor;
       this._emitGravityWellsChange();
@@ -420,12 +981,21 @@
     (b.prototype.updateSelectedGravityWell = function(patch) {
       return this.updateGravityWell(this.selectedGravityWellId, patch);
     }),
+    (b.prototype.reverseGravityWell = function(id) {
+      var well = this.getGravityWell(id);
+      if (!well) return null;
+      var strength = Number.isFinite(well.strength) ? well.strength : this.options.gravityWellStrength || 12;
+      if (strength === 0) strength = this.options.gravityWellStrength || 12;
+      this.selectedGravityWellId = well.id;
+      return this.updateGravityWell(well.id, { strength: -strength });
+    }),
     (b.prototype.removeGravityWell = function(id) {
       var index = -1;
       for (var i = 0; i < this.gravityWells.length; i++) {
         if (this.gravityWells[i].id === id) { index = i; break; }
       }
       if (index < 0) return false;
+      if (this._gravityWellDrag && this._gravityWellDrag.id === id) this._stopGravityWellDrag();
       this.gravityWells.splice(index, 1);
       if (this.selectedGravityWellId === id) this.selectedGravityWellId = null;
       if (this.gravityWellDraft && this.gravityWellDraft.editId === id) this.gravityWellDraft = null;
@@ -435,7 +1005,19 @@
     (b.prototype.removeSelectedGravityWell = function() {
       return this.removeGravityWell(this.selectedGravityWellId);
     }),
+    (b.prototype.removeGravityWellUnderPointer = function() {
+      if (!this._gravityPointerInsideCanvas || !this._gravityPointer) return false;
+      var hit = this._hitTestGravityWellVisual(this._gravityPointer.x, this._gravityPointer.y);
+      return hit ? this.removeGravityWell(hit.id) : false;
+    }),
+    (b.prototype.toggleGravityWellAccelerationCap = function() {
+      this.gravityWellAccelerationCapped = !this.gravityWellAccelerationCapped;
+      this.options.gravityWellAccelerationCapped = this.gravityWellAccelerationCapped;
+      this._emitGravityWellsChange();
+      return this.gravityWellAccelerationCapped;
+    }),
     (b.prototype.clearGravityWells = function() {
+      this._stopGravityWellDrag();
       this.gravityWells.length = 0;
       this.selectedGravityWellId = null;
       this.gravityWellDraft = null;
@@ -464,8 +1046,9 @@
         strength: defaults.strength,
         innerColor: defaults.innerColor,
         outerColor: defaults.outerColor,
-        phase: keyboardPlacement ? 'sizing' : 'awaiting',
+        phase: keyboardPlacement ? 'positioning' : 'awaiting',
         dragging: false,
+        sizedByPointer: false,
         editId: null
       };
       this._emitGravityWellsChange();
@@ -478,6 +1061,7 @@
       this.gravityWellDraft = Object.assign({}, selected, {
         phase: 'awaiting',
         dragging: false,
+        sizedByPointer: false,
         editId: selected.id
       });
       delete this.gravityWellDraft.id;
@@ -486,6 +1070,12 @@
       return this.gravityWellDraft;
     }),
     (b.prototype.cancelGravityWellPlacement = function() {
+      if (this._gravityWellDrag) {
+        this._stopGravityWellDrag();
+        this.selectedGravityWellId = null;
+        this._emitGravityWellsChange();
+        return true;
+      }
       if (this.gravityWellDraft) {
         this.gravityWellDraft = null;
         this._gravityPointerId = null;
@@ -537,13 +1127,61 @@
       }
       return null;
     }),
+    (b.prototype._startGravityWellDrag = function(well, x, y, pointerId) {
+      if (!well) return false;
+      this._clearInteractivePointerForces();
+      this.selectedGravityWellId = well.id;
+      this._gravityWellDrag = {
+        id: well.id,
+        pointerId: pointerId,
+        offsetX: x - well.x,
+        offsetY: y - well.y
+      };
+      this._lastPrimaryEmptyDown = null;
+      if (this.canvas) {
+        this.canvas.classList.remove('gravity-well-hover');
+        this.canvas.classList.add('gravity-well-dragging');
+      }
+      this._emitGravityWellsChange();
+      return true;
+    }),
+    (b.prototype._stopGravityWellDrag = function(pointerId) {
+      var drag = this._gravityWellDrag;
+      if (!drag || (pointerId != null && drag.pointerId !== pointerId)) return false;
+      this._gravityWellDrag = null;
+      if (this.canvas) this.canvas.classList.remove('gravity-well-dragging');
+      return true;
+    }),
     (b.prototype._handleGravityWellPointerMove = function(x, y) {
       this._gravityPointer = { x: x, y: y };
+      var drag = this._gravityWellDrag;
+      if (drag) {
+        var draggedWell = this.getGravityWell(drag.id);
+        if (!draggedWell) {
+          this._stopGravityWellDrag();
+          return false;
+        }
+        draggedWell.x = Math.max(0, Math.min(this.i.size.width, x - drag.offsetX));
+        draggedWell.y = Math.max(0, Math.min(this.i.size.height, y - drag.offsetY));
+        this._emitGravityWellsChange();
+        this._ensureAnimationLoop();
+        return true;
+      }
       var draft = this.gravityWellDraft;
-      if (!draft || draft.phase !== 'sizing' || !Number.isFinite(draft.x) || !Number.isFinite(draft.y)) return false;
+      if (!draft) return false;
+      if (draft.phase === 'positioning') {
+        draft.x = x;
+        draft.y = y;
+        this._emitGravityWellsChange();
+        return true;
+      }
+      if (draft.phase !== 'sizing' || !Number.isFinite(draft.x) || !Number.isFinite(draft.y)) return false;
       var dx = x - draft.x;
       var dy = y - draft.y;
-      draft.radius = this._clampGravityWellRadius(Math.sqrt(dx * dx + dy * dy));
+      var pointerRadius = Math.sqrt(dx * dx + dy * dy);
+      if (!draft.sizedByPointer && pointerRadius < 2) return true;
+      draft.sizedByPointer = true;
+      draft.radius = this._clampGravityWellRadius(pointerRadius);
       this._emitGravityWellsChange();
       return true;
     }),
@@ -551,7 +1189,11 @@
       var draft = this.gravityWellDraft;
 	      if (draft) {
 	        this._clearInteractivePointerForces();
-	        if (draft.phase === 'awaiting') {
+	        if (draft.phase === 'positioning') {
+          draft.x = x;
+          draft.y = y;
+          this._commitGravityWellPlacement();
+        } else if (draft.phase === 'awaiting') {
           draft.x = x;
           draft.y = y;
           draft.radius = this._clampGravityWellRadius(draft.radius);
@@ -565,16 +1207,18 @@
         }
         return true;
       }
-	      var hit = this._hitTestGravityWell(x, y);
+	      var hit = this._hitTestGravityWellVisual(x, y);
 	      if (hit) {
-	        this._clearInteractivePointerForces();
-	        this.selectedGravityWellId = hit.id;
-        this._emitGravityWellsChange();
-        return true;
-      }
+	        return this._startGravityWellDrag(hit, x, y, pointerId);
+	      }
       return false;
     }),
     (b.prototype._handleGravityWellPointerUp = function(x, y, pointerId) {
+      if (this._gravityWellDrag && this._gravityWellDrag.pointerId === pointerId) {
+        this._handleGravityWellPointerMove(x, y);
+        this._stopGravityWellDrag(pointerId);
+        return true;
+      }
       var draft = this.gravityWellDraft;
       if (!draft || !draft.dragging || this._gravityPointerId !== pointerId) return false;
       this._handleGravityWellPointerMove(x, y);
@@ -586,13 +1230,24 @@
       var selectedId = this.selectedGravityWellId;
       var draft = this.gravityWellDraft;
       var visible = [];
+      var prepareWell = function(well) {
+        var prepared = Object.assign({}, well);
+        if (Number.isFinite(prepared.strength) && prepared.strength < 0) {
+          prepared.type = prepared.type === 'white' ? 'black' : 'white';
+          prepared.strength = Math.abs(prepared.strength);
+          var defaults = this._gravityWellDefaults(prepared.type);
+          prepared.innerColor = defaults.innerColor;
+          prepared.outerColor = defaults.outerColor;
+        }
+        return prepared;
+      }.bind(this);
       for (var i = 0; i < this.gravityWells.length; i++) {
         var well = this.gravityWells[i];
         if (draft && draft.editId === well.id) continue;
-        visible.push(Object.assign({}, well, { selected: well.id === selectedId }));
+        visible.push(Object.assign(prepareWell(well), { selected: well.id === selectedId }));
       }
       if (draft && Number.isFinite(draft.x) && Number.isFinite(draft.y)) {
-        visible.push(Object.assign({}, draft, { draft: true, selected: true }));
+        visible.push(Object.assign(prepareWell(draft), { draft: true, selected: true }));
       }
       return visible;
     }),
@@ -680,6 +1335,7 @@
         } else {
           context.fillStyle = '#000000';
         }
+        context.globalAlpha = well.type === 'white' ? 0.62 : 1;
         context.beginPath();
         context.arc(well.x, well.y, well.type === 'white' ? coreRadius * 1.8 : coreRadius, 0, Math.PI * 2);
         context.fill();
@@ -961,6 +1617,17 @@
             if (this.attractionForce) { this.attractionForce.x = x; this.attractionForce.y = y; }
             if (this.repulsionForce) { this.repulsionForce.x = x; this.repulsionForce.y = y; }
             this.p.x = x; this.p.y = y;
+            if (this._cursorCapturePending) {
+              this._cursorCapturePending.x = x;
+              this._cursorCapturePending.y = y;
+            }
+            if (this._cursorCaptureActive && this._cursorCapturePoint) {
+              this._cursorCapturePoint.x = x;
+              this._cursorCapturePoint.y = y;
+              if (!this.repulsionForce) this.repulsionForce = { x: x, y: y };
+              this.repulsionForce.x = x;
+              this.repulsionForce.y = y;
+            }
             // If hold-to-gather active, keep repulsion-based gather locked to pointer (repulsionForce is attractive here)
             if (this._gatherActive) {
               if (!this.repulsionForce) this.repulsionForce = { x: x, y: y };
@@ -974,7 +1641,8 @@
 
         this.canvas.addEventListener("mousemove", updateMousePosition);
         window.addEventListener("mousemove", function(a) {
-          if (!this.repulsionForce && !this.attractionForce && !this._middleSpawnActive) return;
+          if (!this.repulsionForce && !this.attractionForce && !this._middleSpawnActive &&
+              !this._cursorCapturePending && !this._cursorCaptureActive && !this._gravityWellDrag) return;
           updateMousePosition(a);
         }.bind(this));
 
@@ -985,6 +1653,7 @@
         this.canvas.addEventListener(
           "mousedown",
           function (a) {
+            if (this._cursorCapturePending || this._cursorCaptureActive) return;
             var pos = this._mapToCanvas(a);
             var x = pos.x, y = pos.y;
             if (a.button === 0) { this.repulsionForce = { x: x, y: y }; }
@@ -1000,7 +1669,8 @@
           "mouseup",
           function (a) {
             if (a.button === 0) {
-              this.repulsionForce = null;
+              if (this._cursorCapturePending || this._cursorCaptureActive) this._stopCursorCapture();
+              else this.repulsionForce = null;
             } else if (a.button === 2) {
               this.attractionForce = null;
             } else if (a.button === 1) {
@@ -1017,17 +1687,23 @@
           this._stopMiddleMouseSpawn();
         }.bind(this));
         document.addEventListener('mouseup', function(a) {
-          if (a.button === 0) this.repulsionForce = null;
+          if (a.button === 0) {
+            this._stopGravityWellDrag('mouse');
+            if (this._cursorCapturePending || this._cursorCaptureActive) this._stopCursorCapture();
+            else this.repulsionForce = null;
+          }
           else if (a.button === 2) this.attractionForce = null;
           else if (a.button === 1) this._stopMiddleMouseSpawn();
         }.bind(this));
         window.addEventListener('blur', function() {
           this._stopMiddleMouseSpawn();
+          this._stopGravityWellDrag();
           this._clearInteractivePointerForces();
         }.bind(this));
         document.addEventListener('visibilitychange', function() {
           if (document.hidden) {
             this._stopMiddleMouseSpawn();
+            this._stopGravityWellDrag();
             this._clearInteractivePointerForces();
           }
         }.bind(this));
@@ -1098,12 +1774,60 @@
       // Gravity-well placement and core selection take precedence over normal forces.
       this.canvas.addEventListener('mousemove', function(evt) {
         var pos = this._mapToLogicalCanvas(evt);
+        this._gravityPointerInsideCanvas = true;
+        this._handleGravityWellPointerMove(pos.x, pos.y);
+        if (!this.gravityWellDraft && !this._gravityWellDrag) {
+          this.canvas.classList.toggle('gravity-well-hover', !!this._hitTestGravityWellVisual(pos.x, pos.y));
+        }
+      }.bind(this), true);
+
+      this.canvas.addEventListener('mouseleave', function() {
+        this._gravityPointerInsideCanvas = false;
+        if (this.canvas) this.canvas.classList.remove('gravity-well-hover');
+      }.bind(this), true);
+
+      window.addEventListener('mousemove', function(evt) {
+        if (!this._gravityWellDrag || this._gravityWellDrag.pointerId !== 'mouse' || evt.target === this.canvas) return;
+        var pos = this._mapToLogicalCanvas(evt);
         this._handleGravityWellPointerMove(pos.x, pos.y);
       }.bind(this), true);
 
+      window.addEventListener('mouseup', function(evt) {
+        if (evt.button === 0) this._stopGravityWellDrag('mouse');
+      }.bind(this));
+
       this.canvas.addEventListener('mousedown', function(evt) {
         if (evt.button === 1) return;
+        if (evt.button === 2 && this.gravityWellDraft) {
+          this._clearInteractivePointerForces();
+          this.cancelGravityWellPlacement();
+          evt.preventDefault();
+          evt.stopImmediatePropagation();
+          return;
+        }
         var pos = this._mapToLogicalCanvas(evt);
+        if (evt.button === 0 && !this.gravityWellDraft) {
+          var visualHit = this._hitTestGravityWellVisual(pos.x, pos.y);
+          if (!visualHit) {
+            var now = performance.now();
+            var previous = this._lastPrimaryEmptyDown;
+            var deltaX = previous ? pos.x - previous.x : 0;
+            var deltaY = previous ? pos.y - previous.y : 0;
+            var doublePress = previous && now - previous.time <= 450 && deltaX * deltaX + deltaY * deltaY <= 32 * 32;
+            this._lastPrimaryEmptyDown = { x: pos.x, y: pos.y, time: now };
+            if (doublePress) {
+              this._lastPrimaryEmptyDown = null;
+              this._scheduleCursorCaptureHold(pos.x, pos.y);
+              evt.preventDefault();
+              evt.stopImmediatePropagation();
+              return;
+            }
+          } else {
+            this._lastPrimaryEmptyDown = null;
+          }
+        } else if (evt.button !== 0) {
+          this._lastPrimaryEmptyDown = null;
+        }
         if (!this._handleGravityWellPointerDown(pos.x, pos.y, 'mouse')) return;
         evt.preventDefault();
         evt.stopImmediatePropagation();
@@ -1111,8 +1835,24 @@
 
       this.canvas.addEventListener('mouseup', function(evt) {
         if (evt.button === 1) return;
+        if (evt.button === 0 && (this._cursorCapturePending || this._cursorCaptureActive)) {
+          this._stopCursorCapture();
+          evt.preventDefault();
+          evt.stopImmediatePropagation();
+          return;
+        }
         var pos = this._mapToLogicalCanvas(evt);
         if (!this._handleGravityWellPointerUp(pos.x, pos.y, 'mouse')) return;
+        evt.preventDefault();
+        evt.stopImmediatePropagation();
+      }.bind(this), true);
+
+      this.canvas.addEventListener('dblclick', function(evt) {
+        var pos = this._mapToLogicalCanvas(evt);
+        var hit = this._hitTestGravityWell(pos.x, pos.y);
+        if (!hit) return;
+        this._clearInteractivePointerForces();
+        this.reverseGravityWell(hit.id);
         evt.preventDefault();
         evt.stopImmediatePropagation();
       }.bind(this), true);
@@ -1145,6 +1885,7 @@
       }.bind(this), { capture: true, passive: false });
 
       this.canvas.addEventListener('pointercancel', function(evt) {
+        if (this._stopGravityWellDrag(evt.pointerId)) return;
         if (this._gravityPointerId !== evt.pointerId) return;
         this.cancelGravityWellPlacement();
       }.bind(this), true);
@@ -1160,13 +1901,44 @@
       this.canvas.addEventListener(
         "wheel",
         function (event) {
+          var draft = this.gravityWellDraft;
+          if (draft && draft.phase === 'positioning') {
+            var radiusStep = event.deltaY < 0 ? 5 : (event.deltaY > 0 ? -5 : 0);
+            if (radiusStep) {
+              draft.radius = this._clampGravityWellRadius(draft.radius + radiusStep);
+              this._emitGravityWellsChange();
+            }
+            event.preventDefault();
+            return;
+          }
+          var activeDrag = this._gravityWellDrag;
+          if (activeDrag) {
+            var draggedWell = this.getGravityWell(activeDrag.id);
+            if (draggedWell) {
+              var dragRadiusStep = event.deltaY < 0 ? 5 : (event.deltaY > 0 ? -5 : 0);
+              if (dragRadiusStep) {
+                this.updateGravityWell(draggedWell.id, {
+                  radius: this._clampGravityWellRadius(draggedWell.radius + dragRadiusStep)
+                });
+              }
+              event.preventDefault();
+              return;
+            }
+            this._stopGravityWellDrag();
+          }
           var position = this._mapToLogicalCanvas(event);
           var hoveredWell = this._hitTestGravityWellVisual(position.x, position.y);
           if (hoveredWell) {
             this.selectedGravityWellId = hoveredWell.id;
+            var currentStrength = Number.isFinite(hoveredWell.strength) ? hoveredWell.strength : 0;
+            var strengthDirection = currentStrength < 0 ? -1 : 1;
+            var strengthMagnitude = Math.abs(currentStrength);
+            if (event.deltaY < 0) strengthMagnitude += 1;
+            else if (event.deltaY > 0) strengthMagnitude = Math.max(0, strengthMagnitude - 1);
             this.updateGravityWell(hoveredWell.id, {
-              strength: hoveredWell.strength + (event.deltaY < 0 ? 1 : -1)
+              strength: strengthDirection * strengthMagnitude
             });
+            this._showGravityWellStrengthLabel(hoveredWell);
             event.preventDefault();
             return;
           }
@@ -1294,7 +2066,8 @@
       var options = this.options;
       // Compute dt in seconds, clamp to avoid huge jumps on tab re-activation
       var now = performance.now();
-      var dt = Math.min(Math.max((now - (this._lastUpdateTime || now)) / 1000, 0), 0.1);
+      var elapsedSeconds = Math.max((now - (this._lastUpdateTime || now)) / 1000, 0);
+      var dt = Math.min(elapsedSeconds, 0.1);
       this._lastUpdateTime = now;
       this._dt = dt;
       this._emitMiddleMouseParticles(dt);
@@ -1373,6 +2146,8 @@
         if (this._touchedCells) this._touchedCells.length = 0; else this._touchedCells = [];
       }
       var grid = this.grid;
+      var lineDetailEnabled = prepareLineDetailFrame(this);
+      var lineDensityPressure = false;
 
       // Assign particles to grid cells
       for (i = 0; i < numParticles; i++) {
@@ -1387,6 +2162,22 @@
         var cellIndex = gridX + gridY * gridWidth;
         if (grid[cellIndex].length === 0) this._touchedCells.push(cellIndex);
         grid[cellIndex].push(particle);
+        if (grid[cellIndex].length === LINE_DETAIL_DENSITY_THRESHOLD) lineDensityPressure = true;
+        if (lineDetailEnabled) {
+          var coverageX = Math.min(
+            Math.max(Math.floor(particle.x / LINE_DETAIL_TILE_SIZE), 0),
+            this._lineDetailCoverageColumns - 1
+          );
+          var coverageY = Math.min(
+            Math.max(Math.floor(particle.y / LINE_DETAIL_TILE_SIZE), 0),
+            this._lineDetailCoverageRows - 1
+          );
+          var coverageTileIndex = coverageX + coverageY * this._lineDetailCoverageColumns;
+          this._lineDetailParticleTiles[particle.index | 0] = coverageTileIndex;
+          if (this._lineDetailTileOccupancy[coverageTileIndex]++ === 0) {
+            this._lineDetailOccupiedTileCount++;
+          }
+        }
       }
 
       var interactionDistanceSq = options.particleInteractionDistance * options.particleInteractionDistance;
@@ -1477,9 +2268,12 @@
         }
       }
 
-      if (this.glRenderer && this.glRenderer.addLine) {
+      if (lineDetailEnabled) beginLineDetailFrame(this, now, elapsedSeconds, lineDensityPressure);
+
+      if ((this.glRenderer && this.glRenderer.addLine) || options.blackHoleLineColor === true) {
         prepareFrameLineColors(this);
       }
+      prepareBlackHoleLineTints(this, particles, numParticles);
 
       // Process interactions
       for (var x = 0; x < gridWidth; x++) {
@@ -1758,12 +2552,28 @@
       var width = this.i.size.width;
       var height = this.i.size.height;
       var gravityWells = this.options.gravityWellsEnabled !== false ? this.gravityWells : [];
+      var capturePoint = this._cursorCaptureActive && this._cursorCapturePoint &&
+        Number.isFinite(this._cursorCapturePoint.x) && Number.isFinite(this._cursorCapturePoint.y)
+        ? this._cursorCapturePoint
+        : null;
+      var captureRadius = capturePoint
+        ? Math.max(0, Number.isFinite(this.options.gatherRadius) ? this.options.gatherRadius : 100)
+        : 0;
+      var captureApplied = capturePoint ? (this._cursorCaptureAppliedPoint || capturePoint) : null;
+      var captureShiftX = capturePoint ? capturePoint.x - captureApplied.x : 0;
+      var captureShiftY = capturePoint ? capturePoint.y - captureApplied.y : 0;
+      var captureForceMultiplier = capturePoint && Number.isFinite(this.options.cursorCaptureForceMultiplier)
+        ? Math.max(0, this.options.cursorCaptureForceMultiplier)
+        : 1;
+      var gravityForceMultiplier = Number.isFinite(this.options.gravityWellForceMultiplier)
+        ? Math.max(0, this.options.gravityWellForceMultiplier)
+        : 1;
+      var gravitySpin = Number.isFinite(this.options.gravityWellSpin) ? this.options.gravityWellSpin : 0.2;
       for (var i = 0; i < n; i++) {
-        var x = this.posX[i];
-        var y = this.posY[i];
+        var x = this.posX[i] + captureShiftX;
+        var y = this.posY[i] + captureShiftY;
         var vx = this.velX[i];
         var vy = this.velY[i];
-        var gravityRespawned = false;
         if (this.options.interactive && hasA) {
           var dxA = ax - x; var dyA = ay - y;
           var dA = Math.sqrt(dxA*dxA + dyA*dyA); if (dA < 50) dA = 50;
@@ -1775,9 +2585,11 @@
           var dxR = rx - x; var dyR = ry - y;
           var dR = Math.sqrt(dxR*dxR + dyR*dyR); if (dR < 50) dR = 50;
           var fxR = dxR / dR; var fyR = dyR / dR;
-          var fR = (100 / (dR*dR)) * repR * repI;
+          var fR = (100 / (dR*dR)) * repR * repI * captureForceMultiplier;
           vx += fR * fxR; vy += fR * fyR;
         }
+        // Gravity wells still shape motion during cursor capture. The final
+        // capture constraint below only prevents particles from escaping.
         if (gravityWells.length) {
           var gravityX = 0;
           var gravityY = 0;
@@ -1785,44 +2597,36 @@
 	            var gravityWell = gravityWells[wi];
 	            var wellX = Number.isFinite(gravityWell.x) ? gravityWell.x : width * 0.5;
 	            var wellY = Number.isFinite(gravityWell.y) ? gravityWell.y : height * 0.5;
-	            var wellRadius = Math.max(1, Number.isFinite(gravityWell.radius) ? gravityWell.radius : 120);
-	            var wellStrength = Math.max(0, Number.isFinite(gravityWell.strength) ? gravityWell.strength : 0);
+	            var wellRadius = Math.max(1, Number.isFinite(gravityWell.radius) ? gravityWell.radius : 150);
+	            var signedWellStrength = Number.isFinite(gravityWell.strength) ? gravityWell.strength : 0;
+	            var wellStrength = Math.abs(signedWellStrength);
+	            var effectiveWellType = signedWellStrength < 0
+	              ? (gravityWell.type === 'white' ? 'black' : 'white')
+	              : gravityWell.type;
 	            var gravityDx = wellX - x;
 	            var gravityDy = wellY - y;
 	            var gravityDistanceSq = gravityDx * gravityDx + gravityDy * gravityDy;
-	            var swallowRadius = wellRadius * 0.18;
-
-	            if (gravityWell.type === 'black' && gravityDistanceSq <= swallowRadius * swallowRadius) {
-              var edge = Math.floor(Math.random() * 4);
-              if (edge === 0) { x = 0; y = Math.random() * height; }
-              else if (edge === 1) { x = width; y = Math.random() * height; }
-              else if (edge === 2) { x = Math.random() * width; y = 0; }
-              else { x = Math.random() * width; y = height; }
-              var respawnSpeed = Math.max(Math.abs(speed), 0.25);
-              vx = (Math.random() - 0.5) * respawnSpeed;
-              vy = (Math.random() - 0.5) * respawnSpeed;
-              gravityRespawned = true;
-	              gravityDx = wellX - x;
-	              gravityDy = wellY - y;
-	              gravityDistanceSq = gravityDx * gravityDx + gravityDy * gravityDy;
-	            }
 
 	            var gravityDistance = Math.sqrt(gravityDistanceSq);
 	            if (gravityDistance < 0.0001) continue;
 	            var softenedRadius = Math.max(12, wellRadius * 0.12);
 	            var softenedSq = gravityDistanceSq + softenedRadius * softenedRadius;
-	            var gravityMagnitude = wellStrength * wellRadius * wellRadius / softenedSq * 0.012;
-            var gravitySign = gravityWell.type === 'white' ? -1 : 1;
+	            var gravityMagnitude = wellStrength * wellRadius * wellRadius / softenedSq * 0.012 * gravityForceMultiplier;
+            var gravitySign = effectiveWellType === 'white' ? -1 : 1;
             var gravityUnitX = gravityDx / gravityDistance;
             var gravityUnitY = gravityDy / gravityDistance;
-            gravityX += (gravityUnitX * gravitySign - gravityUnitY * gravitySign * 0.2) * gravityMagnitude;
-            gravityY += (gravityUnitY * gravitySign + gravityUnitX * gravitySign * 0.2) * gravityMagnitude;
+            gravityX += (gravityUnitX * gravitySign - gravityUnitY * gravitySign * gravitySpin) * gravityMagnitude;
+            gravityY += (gravityUnitY * gravitySign + gravityUnitX * gravitySign * gravitySpin) * gravityMagnitude;
           }
-          var gravityAcceleration = Math.sqrt(gravityX * gravityX + gravityY * gravityY);
-          var maxGravityAcceleration = 1.5;
-          if (gravityAcceleration > maxGravityAcceleration) {
-            gravityX *= maxGravityAcceleration / gravityAcceleration;
-            gravityY *= maxGravityAcceleration / gravityAcceleration;
+          if (this.gravityWellAccelerationCapped) {
+            var gravityAcceleration = Math.sqrt(gravityX * gravityX + gravityY * gravityY);
+            var maxGravityAcceleration = Number.isFinite(this.gravityWellAccelerationLimit)
+              ? Math.max(0, this.gravityWellAccelerationLimit)
+              : 1.5;
+            if (gravityAcceleration > maxGravityAcceleration) {
+              gravityX *= maxGravityAcceleration / gravityAcceleration;
+              gravityY *= maxGravityAcceleration / gravityAcceleration;
+            }
           }
           vx += gravityX;
           vy += gravityY;
@@ -1846,13 +2650,13 @@
         var currS = Math.sqrt(vx*vx + vy*vy);
         if (currS < speed) { vx *= 1 + speedRecoveryRate; vy *= 1 + speedRecoveryRate; }
         else if (currS > speed) { vx *= 1 - speedRecoveryRate; vy *= 1 - speedRecoveryRate; }
-        if (!gravityRespawned) { x += vx; y += vy; }
+        x += vx; y += vy;
         // boundary bounce
-        if (!gravityRespawned && this.options.boundaryMode === 'wrap') {
+        if (this.options.boundaryMode === 'wrap') {
           var sz = this.sizeA[i];
           if (x > width + sz) x = -sz; else if (x < -sz) x = width + sz;
           if (y > height + sz) y = -sz; else if (y < -sz) y = height + sz;
-        } else if (!gravityRespawned && this.options.boundaryMode === 'bounce') {
+        } else if (this.options.boundaryMode === 'bounce') {
           var s = this.sizeA[i];
           if (x + s > width) { x = width - s; vx = -Math.abs(vx); }
           else if (x - s < 0) { x = s; vx = Math.abs(vx); }
@@ -1861,7 +2665,45 @@
         }
         if (!Number.isFinite(x) || !Number.isFinite(y)) { x = Math.random() * width; y = Math.random() * height; }
         if (!Number.isFinite(vx) || !Number.isFinite(vy)) { vx = 0; vy = 0; }
+        if (capturePoint) {
+          if (captureRadius <= 0) {
+            x = capturePoint.x;
+            y = capturePoint.y;
+            vx = 0;
+            vy = 0;
+          } else {
+            var captureDx = x - capturePoint.x;
+            var captureDy = y - capturePoint.y;
+            var captureDistance = Math.sqrt(captureDx * captureDx + captureDy * captureDy);
+            if (captureDistance > captureRadius) {
+              var captureUnitX = captureDx / captureDistance;
+              var captureUnitY = captureDy / captureDistance;
+              x = capturePoint.x + captureUnitX * captureRadius;
+              y = capturePoint.y + captureUnitY * captureRadius;
+              var outwardVelocity = vx * captureUnitX + vy * captureUnitY;
+              if (outwardVelocity > 0) {
+                vx -= captureUnitX * outwardVelocity;
+                vy -= captureUnitY * outwardVelocity;
+              }
+            }
+            var captureSpeed = Math.sqrt(vx * vx + vy * vy);
+            var captureSpeedLimit = Number.isFinite(this.options.cursorCaptureMaxSpeed)
+              ? Math.max(0, this.options.cursorCaptureMaxSpeed)
+              : 2.64;
+            if (captureSpeed > captureSpeedLimit) {
+              vx *= captureSpeedLimit / captureSpeed;
+              vy *= captureSpeedLimit / captureSpeed;
+            }
+          }
+        }
         this.posX[i] = x; this.posY[i] = y; this.velX[i] = vx; this.velY[i] = vy;
+      }
+      if (capturePoint) {
+        if (!this._cursorCaptureAppliedPoint) this._cursorCaptureAppliedPoint = { x: capturePoint.x, y: capturePoint.y };
+        else {
+          this._cursorCaptureAppliedPoint.x = capturePoint.x;
+          this._cursorCaptureAppliedPoint.y = capturePoint.y;
+        }
       }
     }),
     // Sync object array from SoA for rendering and grid assignment
@@ -1902,7 +2744,7 @@
         cx,
         cy,
         options.particleInteractionDistance,
-        -Math.abs(options.particleAttractionForce || 5)
+        -Math.abs(options.particleAttractionForce)
       );
     }
   }
@@ -1918,8 +2760,17 @@
       var cssColor1 = null;
       var cssColor2 = null;
       var alphaFactor = (options.lineConnectionDistance - distance) / options.lineConnectionDistance;
+      var emittedSegmentCount = options.lineJitter ? Math.max(2, options.lineJitterSegments | 0) : 1;
+      alphaFactor = evaluateAdaptiveLine(
+        network,
+        particleA,
+        particleB,
+        alphaFactor,
+        emittedSegmentCount
+      );
+      var lineAccepted = alphaFactor >= 0;
 
-      if (options.useDistanceEffect) {
+      if (lineAccepted && options.useDistanceEffect) {
         var colorFactor = Math.min(distance / options.maxColorChangeDistance, 1);
 
         if (network.glRenderer && network.glRenderer.addLine) {
@@ -1941,7 +2792,7 @@
           gradient.addColorStop(0, cssColor1);
           gradient.addColorStop(1, cssColor2);
         }
-      } else if (options.lineColorCycling && options.gradientEffect) {
+      } else if (lineAccepted && options.lineColorCycling && options.gradientEffect) {
         if (network.glRenderer && network.glRenderer.addLine) {
           glColor1 = copyRgb01WithAlpha(network._frameLineColor1, glLineColor1Scratch, alphaFactor);
           glColor2 = copyRgb01WithAlpha(network._frameLineColor2, glLineColor2Scratch, alphaFactor);
@@ -1952,7 +2803,7 @@
           gradient.addColorStop(0, cssColor1);
           gradient.addColorStop(1, cssColor2);
         }
-      } else if (options.lineColorCycling) {
+      } else if (lineAccepted && options.lineColorCycling) {
         if (network.glRenderer && network.glRenderer.addLine) {
           glColor1 = copyRgb01WithAlpha(network._frameLineColor1, glLineColor1Scratch, alphaFactor);
           glColor2 = copyRgb01WithAlpha(network._frameLineColor1, glLineColor2Scratch, alphaFactor);
@@ -1964,7 +2815,7 @@
           gradient.addColorStop(0, cssColor1);
           gradient.addColorStop(1, cssColor2);
         }
-      } else if (options.gradientEffect) {
+      } else if (lineAccepted && options.gradientEffect) {
         if (network.glRenderer && network.glRenderer.addLine) {
           glColor1 = copyRgb01WithAlpha(network._frameLineColor1, glLineColor1Scratch, alphaFactor);
           glColor2 = copyRgb01WithAlpha(network._frameLineColor2, glLineColor2Scratch, alphaFactor);
@@ -1975,7 +2826,7 @@
           gradient.addColorStop(0, cssColor1);
           gradient.addColorStop(1, cssColor2);
         }
-      } else {
+      } else if (lineAccepted) {
         if (network.glRenderer && network.glRenderer.addLine) {
           glColor1 = copyRgb01WithAlpha(network._frameLineColor1, glLineColor1Scratch, alphaFactor);
           glColor2 = copyRgb01WithAlpha(network._frameLineColor1, glLineColor2Scratch, alphaFactor);
@@ -1992,7 +2843,25 @@
         }
       }
 
-      if (options.interactive && network.p) {
+      if (lineAccepted && network._blackHoleLineTintActive) {
+        var hasGlLines = !!(network.glRenderer && network.glRenderer.addLine);
+        if (!hasGlLines) {
+          prepareBaseLineColorsForBlackHoleTint(network, distance, alphaFactor);
+          glColor1 = glLineColor1Scratch;
+          glColor2 = glLineColor2Scratch;
+        }
+        var tintedA = applyBlackHoleLineTint(network, particleA, glColor1);
+        var tintedB = applyBlackHoleLineTint(network, particleB, glColor2);
+        if (!hasGlLines && (tintedA || tintedB)) {
+          cssColor1 = rgb01ToCss(glColor1);
+          cssColor2 = rgb01ToCss(glColor2);
+          gradient = g.createLinearGradient(particleA.x, particleA.y, particleB.x, particleB.y);
+          gradient.addColorStop(0, cssColor1);
+          gradient.addColorStop(1, cssColor2);
+        }
+      }
+
+      if (lineAccepted && options.interactive && network.p) {
         var proximityDistanceSq = options.proximityEffectDistance * options.proximityEffectDistance;
         var pointerAX = network.p.x - particleA.x;
         var pointerAY = network.p.y - particleA.y;
@@ -2014,7 +2883,7 @@
         }
       }
 
-      if (network.glRenderer && network.glRenderer.addLine && glColor1 && glColor2) {
+      if (lineAccepted && network.glRenderer && network.glRenderer.addLine && glColor1 && glColor2) {
         // if ((network._lastUpdateTime || 0) >= (network._debugNextLogTime || 0)) {
         //   console.debug('[PN] addLine colors', glColor1, glColor2);
         // }
@@ -2060,7 +2929,7 @@
             particleB.x, particleB.y, glColor2
           );
         }
-      } else {
+      } else if (lineAccepted) {
         // 2D Canvas path
         g.globalAlpha = alphaFactor;
         g.lineWidth = 1.2;
@@ -2123,7 +2992,7 @@ var options = {
 
   // Particle options
   particleColor: "#888",
-  particleSize: 2,
+  particleSize: 1,
   particleColorCycling: false,
   particleCyclingSpeed: 10,
   

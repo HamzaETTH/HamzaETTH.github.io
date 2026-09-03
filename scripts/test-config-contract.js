@@ -4,12 +4,14 @@ const fs = require('node:fs');
 const { chromium } = require('playwright');
 
 function parseArgs(argv) {
-  const options = { output: null };
+  const options = { output: null, allowAdded: [], allowChanged: [] };
   for (let i = 0; i < argv.length; i++) {
     const arg = argv[i];
     if (arg === '--baseline') options.baseline = argv[++i];
     else if (arg === '--optimized') options.optimized = argv[++i];
     else if (arg === '--output') options.output = argv[++i];
+    else if (arg === '--allow-added') options.allowAdded = argv[++i].split(',');
+    else if (arg === '--allow-changed') options.allowChanged = argv[++i].split(',');
     else throw new Error(`Unknown argument: ${arg}`);
   }
   if (!options.baseline || !options.optimized) throw new Error('--baseline and --optimized are required');
@@ -25,6 +27,38 @@ function stable(value) {
     }, {});
   }
   return value;
+}
+
+function withoutTypedKeys(value, allowedKeys) {
+  if (Array.isArray(value)) {
+    return value
+      .filter(item => !(item && typeof item === 'object' && allowedKeys.has(item.key)))
+      .map(item => withoutTypedKeys(item, allowedKeys));
+  }
+  if (value && typeof value === 'object') {
+    return Object.fromEntries(
+      Object.entries(value).map(([key, item]) => [key, withoutTypedKeys(item, allowedKeys)])
+    );
+  }
+  return value;
+}
+
+function firstDifference(left, right, path = 'root') {
+  if (Object.is(left, right)) return null;
+  if (typeof left !== typeof right || left === null || right === null) {
+    return { path, baseline: left, optimized: right };
+  }
+  if (typeof left !== 'object') return { path, baseline: left, optimized: right };
+  const leftKeys = Object.keys(left);
+  const rightKeys = Object.keys(right);
+  if (leftKeys.length !== rightKeys.length || leftKeys.some((key, index) => key !== rightKeys[index])) {
+    return { path, baselineKeys: leftKeys, optimizedKeys: rightKeys };
+  }
+  for (const key of leftKeys) {
+    const difference = firstDifference(left[key], right[key], `${path}.${key}`);
+    if (difference) return difference;
+  }
+  return null;
 }
 
 async function snapshot(browser, url) {
@@ -129,10 +163,24 @@ async function main() {
   try {
     const baseline = await snapshot(browser, options.baseline);
     const optimized = await snapshot(browser, options.optimized);
-    const baselineStable = stable(baseline.data);
-    const optimizedStable = stable(optimized.data);
+    const allowedDifferenceKeys = new Set([...options.allowAdded, ...options.allowChanged]);
+    const baselineStable = stable(withoutTypedKeys(baseline.data, allowedDifferenceKeys));
+    const optimizedStable = stable(withoutTypedKeys(optimized.data, allowedDifferenceKeys));
+    const baselineDefaults = new Map(baseline.data.configDefaults.map(entry => [entry.key, entry.value]));
+    const baselineRuntime = new Map(baseline.data.shippedRuntime.map(entry => [entry.key, entry.value]));
+    const optimizedDefaults = new Map(optimized.data.configDefaults.map(entry => [entry.key, entry.value]));
+    const optimizedRuntime = new Map(optimized.data.shippedRuntime.map(entry => [entry.key, entry.value]));
+    const allowedKeysPresent = options.allowAdded.every(key =>
+      optimizedDefaults.has(key) && optimizedRuntime.has(key)
+    );
+    const allowedChangedKeysPresent = options.allowChanged.every(key =>
+      baselineDefaults.has(key) && baselineRuntime.has(key) &&
+      optimizedDefaults.has(key) && optimizedRuntime.has(key)
+    );
     const assertions = {
       exactConfigAndRuntimeContract: JSON.stringify(baselineStable) === JSON.stringify(optimizedStable),
+      allowedAddedKeysPresent: allowedKeysPresent,
+      allowedChangedKeysPresent,
       baselineHealthy: baseline.data.particleCount > 0 && baseline.data.hasWebGl && !baseline.data.webGlContextLost,
       optimizedHealthy: optimized.data.particleCount > 0 && optimized.data.hasWebGl && !optimized.data.webGlContextLost,
       noBrowserErrors: baseline.browserErrors.length === 0 && optimized.browserErrors.length === 0
@@ -140,6 +188,7 @@ async function main() {
     const result = {
       passed: Object.values(assertions).every(Boolean),
       assertions,
+      unexpectedDifference: firstDifference(baselineStable, optimizedStable),
       baseline: baseline.data,
       optimized: optimized.data,
       browserErrors: { baseline: baseline.browserErrors, optimized: optimized.browserErrors }

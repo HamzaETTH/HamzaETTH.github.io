@@ -197,7 +197,12 @@ async function main() {
             glContextLost: oldGl ? oldGl.isContextLost() : true,
             staleFramesAfterDestroy: staleFrames - framesAtDestroy,
             storageReleased: old.o === null && old.grid === null && old.posX === null &&
-              old.posY === null && old.velX === null && old.velY === null && old.sizeA === null,
+              old.posY === null && old.velX === null && old.velY === null && old.sizeA === null &&
+              old._lineDetailLinkCounts == null && old._lineDetailParticleTiles == null &&
+              old._lineDetailCoverage == null && old._lineDetailTileOccupancy == null &&
+              old._lineDetailTileSegments == null && old._lineDetailTileScratch == null &&
+              old._blackHoleLineTintStrength == null && old._blackHoleLineTintR == null &&
+              old._blackHoleLineTintG == null && old._blackHoleLineTintB == null,
             listenersReleased: old.__lifecycleListeners.length === 0,
             globalsReleased: window.particleInstance === null && window.hotkeyManager === null &&
               window.__PN_ACTIVE_MONITOR__ === null && window._benchmarkRunner == null &&
@@ -273,6 +278,7 @@ async function main() {
       'window:resize', 'window:keydown', 'window:keyup',
       'document:contextmenu', 'document:keydown', 'document:keyup', 'document:visibilitychange'
     ];
+    const expectedHotkeys = ['b', 'c', 'd', 'delete', 'escape', 'h', 'l', 'm', 'p', 'r', 'w'];
     const assertions = options.expect === 'baseline' ? {
       teardownContractsMissing: missingContracts,
       detachedEngineStayedRetained: Boolean(evidence &&
@@ -299,11 +305,11 @@ async function main() {
         evidence.final.overlays === 1 && evidence.final.paneContainers === 0 &&
         !evidence.final.webGlContextLost),
       hotkeysRecreatedOnce: Boolean(evidence &&
-        JSON.stringify(evidence.final.hotkeys) === JSON.stringify(['b', 'c', 'd', 'escape', 'h', 'm', 'p', 'r', 'w'])),
+        JSON.stringify(evidence.final.hotkeys) === JSON.stringify(expectedHotkeys)),
       lazyPaneRecreatedOnce: Boolean(evidence && evidence.recreatedUi &&
         evidence.recreatedUi.paneContainers === 1 && evidence.recreatedUi.populated &&
         evidence.recreatedUi.visible &&
-        JSON.stringify(evidence.recreatedUi.hotkeys) === JSON.stringify(['b', 'c', 'd', 'escape', 'h', 'm', 'p', 'r', 'w'])),
+        JSON.stringify(evidence.recreatedUi.hotkeys) === JSON.stringify(expectedHotkeys)),
       pendingPaneBuildStayedDestroyed: Boolean(evidence && evidence.pendingBuild &&
         evidence.pendingBuild.particleInstance === null && evidence.pendingBuild.hotkeyManager === null &&
         evidence.pendingBuild.activeMonitor === null && evidence.pendingBuild.paneContainers === 0 &&

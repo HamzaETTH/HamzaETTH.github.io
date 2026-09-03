@@ -34,7 +34,7 @@
 
     // Particle options
     particleColor: "#fff",
-    particleSize: 2,
+    particleSize: 1,
     particleColorCycling: false,
     // Particle hue cycling speed (0..100 UI range; mapped internally to time-based degrees/frame)
     particleCyclingSpeed: 10,
@@ -86,6 +86,9 @@
 
     // Connection options
     lineConnectionDistance: 120,
+    adaptiveLineDetail: false,
+    cellularLineClusters: false,
+    blackHoleLineColor: false,
 
     // Performance options
     performanceOverlay: false,
@@ -96,10 +99,16 @@
     // Gravity-well defaults
     gravityWellsEnabled: true,
     gravityWellMotion: 'animate',
-    gravityWellRadius: 120,
+    gravityWellRadius: 150,
     gravityWellStrength: 12,
     gravityWellMinRadius: 24,
     gravityWellMaxRadius: 500,
+    gravityWellAccelerationCapped: true,
+    gravityWellAccelerationLimit: 1.5,
+    gravityWellForceMultiplier: 1,
+    gravityWellSpin: 0.2,
+    cursorCaptureForceMultiplier: 1,
+    cursorCaptureMaxSpeed: 2.64,
     blackHoleInnerColor: '#ff8080',
     blackHoleOuterColor: '#3633ff',
     whiteHoleInnerColor: '#dffcff',
@@ -176,7 +185,7 @@
     return {
       background: cfg.background || "#000000",
       particleColor: cfg.particleColor || "#fff",
-      particleSize: cfg.particleSize != null ? cfg.particleSize : 2,
+      particleSize: cfg.particleSize != null ? cfg.particleSize : 1,
       particleColorCycling: !!cfg.particleColorCycling,
       particleCyclingSpeed: cfg.particleCyclingSpeed != null ? cfg.particleCyclingSpeed : 10,
       gradientEffect: cfg.gradientEffect != null ? cfg.gradientEffect : true,
@@ -210,6 +219,9 @@
       particleRepulsionForce: cfg.particleRepulsionForce != null ? cfg.particleRepulsionForce : 5,
       particleAttractionForce: cfg.particleAttractionForce != null ? cfg.particleAttractionForce : 5,
       lineConnectionDistance: cfg.lineConnectionDistance != null ? cfg.lineConnectionDistance : 120,
+      adaptiveLineDetail: cfg.adaptiveLineDetail === true,
+      cellularLineClusters: cfg.cellularLineClusters === true,
+      blackHoleLineColor: cfg.blackHoleLineColor === true,
       performanceOverlay: cfg.performanceOverlay != null ? cfg.performanceOverlay : false,
       randomizeDistanceColors: cfg.randomizeDistanceColors != null ? cfg.randomizeDistanceColors : false,
       distanceColorCyclingSpeed: cfg.distanceColorCyclingSpeed != null
@@ -229,10 +241,16 @@
       gravityWellMotion: Object.prototype.hasOwnProperty.call(userOptions, 'gravityWellMotion')
         ? normalizeGravityWellMotion(cfg.gravityWellMotion)
         : loadGravityWellMotion(cfg.gravityWellMotion),
-      gravityWellRadius: (typeof cfg.gravityWellRadius === 'number') ? cfg.gravityWellRadius : 120,
+      gravityWellRadius: (typeof cfg.gravityWellRadius === 'number') ? cfg.gravityWellRadius : 150,
       gravityWellStrength: (typeof cfg.gravityWellStrength === 'number') ? cfg.gravityWellStrength : 12,
       gravityWellMinRadius: (typeof cfg.gravityWellMinRadius === 'number') ? cfg.gravityWellMinRadius : 24,
       gravityWellMaxRadius: (typeof cfg.gravityWellMaxRadius === 'number') ? cfg.gravityWellMaxRadius : 500,
+      gravityWellAccelerationCapped: cfg.gravityWellAccelerationCapped !== false,
+      gravityWellAccelerationLimit: Number.isFinite(cfg.gravityWellAccelerationLimit) ? Math.max(0, cfg.gravityWellAccelerationLimit) : 1.5,
+      gravityWellForceMultiplier: Number.isFinite(cfg.gravityWellForceMultiplier) ? Math.max(0, cfg.gravityWellForceMultiplier) : 1,
+      gravityWellSpin: Number.isFinite(cfg.gravityWellSpin) ? cfg.gravityWellSpin : 0.2,
+      cursorCaptureForceMultiplier: Number.isFinite(cfg.cursorCaptureForceMultiplier) ? Math.max(0, cfg.cursorCaptureForceMultiplier) : 1,
+      cursorCaptureMaxSpeed: Number.isFinite(cfg.cursorCaptureMaxSpeed) ? Math.max(0, cfg.cursorCaptureMaxSpeed) : 2.64,
       blackHoleInnerColor: cfg.blackHoleInnerColor || '#ff8080',
       blackHoleOuterColor: cfg.blackHoleOuterColor || '#3633ff',
       whiteHoleInnerColor: cfg.whiteHoleInnerColor || '#dffcff',
