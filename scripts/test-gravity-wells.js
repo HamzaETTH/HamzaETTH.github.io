@@ -574,6 +574,31 @@ async function runDesktop(browser, options, browserErrors) {
   await page.waitForFunction(() => window.particleSettingsUi && document.getElementById('tp-container')?.style.display !== 'none');
   await page.getByText('Wells', { exact: true }).click();
   const panelText = await page.locator('#tp-container').textContent();
+  const sliderControls = await page.evaluate(() => {
+    const expectedLabels = [
+      'Max Color Change Distance', 'Distance Cycling Speed', 'Line Color Cycling Speed',
+      'Line Connection Distance', 'Trail Fade', 'Jitter Segments', 'Jitter Amplitude',
+      'Size', 'Particle Color Cycling Speed', 'Interaction Distance', 'Attraction Force',
+      'Repulsion Force', 'Maximum Acceleration', 'Global Force', 'Particle Spin', 'Radius',
+      'Strength', 'Capture / Gather Radius', 'Capture Pull', 'Captured Max Speed', 'Speed',
+      'Curve Intensity', 'Noise Speed', 'Highlight Distance', 'Repulsion Radius (px)',
+      'Repulsion Intensity', 'Attraction Radius (px)', 'Attraction Intensity'
+    ];
+    const expected = new Set(expectedLabels);
+    const controls = {};
+    function visit(api) {
+      for (const child of Array.from(api.children || [])) visit(child);
+      for (const tabPage of Array.from(api.pages || [])) visit(tabPage);
+      if (!expected.has(api.label)) return;
+      const slider = api.controller?.valueController?.sliderC_;
+      controls[api.label] = slider ? {
+        min: slider.props.get('min'),
+        max: slider.props.get('max')
+      } : null;
+    }
+    visit(window.particleSettingsUi.pane);
+    return { expectedLabels, controls };
+  });
   if (options.screenshotDir) {
     await page.screenshot({ path: path.join(options.screenshotDir, 'desktop-wells-tab.png') });
   }
@@ -1065,6 +1090,9 @@ async function runDesktop(browser, options, browserErrors) {
       'Selected Hole', 'Radius', 'Strength', 'Inner Color', 'Outer Color', 'Reverse Selected', 'Reposition/Resize',
       'Remove Selected', 'Clear All', 'Cursor Capture', 'Capture / Gather Radius', 'Capture Pull',
       'Captured Max Speed'].every(label => panelText.includes(label)),
+    allNumericControlsUseSliders: sliderControls.expectedLabels.every(label => sliderControls.controls[label]) &&
+      sliderControls.controls.Strength.min === -100 && sliderControls.controls.Strength.max === 100 &&
+      sliderControls.controls['Particle Spin'].min === -1 && sliderControls.controls['Particle Spin'].max === 1,
     settingsSynchronize: synchronized,
     focusedSettingsApply: appliedWellSettings.capped && appliedWellSettings.accelerationLimit === 0.4 &&
       appliedWellSettings.forceMultiplier === 2.5 && appliedWellSettings.spin === -0.35 &&
@@ -1110,6 +1138,7 @@ async function runDesktop(browser, options, browserErrors) {
 
   await context.close();
   return { assertions, initial, placed, captureHeld, captureMoved, captureReleased, panelCapUnlimited, panelCapRestored,
+    sliderControls,
     physics, visibleAnimation,
     resourceAfter, resizedTargets, trails, fallback };
 }

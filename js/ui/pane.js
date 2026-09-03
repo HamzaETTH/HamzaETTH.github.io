@@ -331,13 +331,13 @@ async function buildPane() {
     updateGravityLimitState();
   });
   const bindGravityAccelerationLimit = globalWellsFolder.addBinding(PARAMS, 'gravityWellAccelerationLimit', {
-    min: 0, step: 0.1, label: 'Maximum Acceleration'
+    min: 0, max: 10, step: 0.1, label: 'Maximum Acceleration'
   }).on('change', () => applyParamsToNetwork(pn, PARAMS));
   const bindGravityForceMultiplier = globalWellsFolder.addBinding(PARAMS, 'gravityWellForceMultiplier', {
-    min: 0, step: 0.1, label: 'Global Force'
+    min: 0, max: 5, step: 0.1, label: 'Global Force'
   }).on('change', () => applyParamsToNetwork(pn, PARAMS));
   const bindGravitySpin = globalWellsFolder.addBinding(PARAMS, 'gravityWellSpin', {
-    step: 0.05, label: 'Particle Spin'
+    min: -1, max: 1, step: 0.05, label: 'Particle Spin'
   }).on('change', () => applyParamsToNetwork(pn, PARAMS));
 
   function updateGravityLimitState() {
@@ -363,7 +363,7 @@ async function buildPane() {
     min: 24, max: 500, step: 1, label: 'Radius'
   }).on('change', () => pn.updateSelectedGravityWell({ radius: WELL_PARAMS.radius }));
   const bindWellStrength = selectedWellFolder.addBinding(WELL_PARAMS, 'strength', {
-    step: 0.5, label: 'Strength'
+    min: -100, max: 100, step: 0.5, label: 'Strength'
   }).on('change', () => pn.updateSelectedGravityWell({ strength: WELL_PARAMS.strength }));
   const bindWellInnerColor = selectedWellFolder.addBinding(WELL_PARAMS, 'innerColor', {
     view: 'color', label: 'Inner Color'
@@ -386,10 +386,10 @@ async function buildPane() {
     min: 0, max: 500, step: 1, label: 'Capture / Gather Radius'
   }).on('change', () => applyParamsToNetwork(pn, PARAMS));
   const bindCaptureForceMultiplier = captureFolder.addBinding(PARAMS, 'cursorCaptureForceMultiplier', {
-    min: 0, step: 0.1, label: 'Capture Pull'
+    min: 0, max: 5, step: 0.1, label: 'Capture Pull'
   }).on('change', () => applyParamsToNetwork(pn, PARAMS));
   const bindCaptureMaxSpeed = captureFolder.addBinding(PARAMS, 'cursorCaptureMaxSpeed', {
-    min: 0, step: 0.01, label: 'Captured Max Speed'
+    min: 0, max: 10, step: 0.01, label: 'Captured Max Speed'
   }).on('change', () => applyParamsToNetwork(pn, PARAMS));
 
   function syncGravityWellControls() {
