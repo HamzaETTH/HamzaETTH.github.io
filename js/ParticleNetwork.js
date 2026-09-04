@@ -737,6 +737,13 @@
       this._cursorCapturePending = null;
       this._cursorCaptureHoldTimer = null;
       this._lastPrimaryEmptyDown = null;
+      this.selectedParticleIndices = new Set();
+      this.selectedGravityWellIds = new Set();
+      this._selectionClipboard = null;
+      this._selectionMarqueeState = null;
+      this._selectionMarqueeElement = null;
+      this._selectionOverlay = null;
+      this._selectionOverlayContext = null;
 
       this.init();
     }),
@@ -931,6 +938,307 @@
 	      this.repulsionForce = null;
 	      if (this._activePointers) this._activePointers.clear();
 	    }),
+	    (b.prototype._clearObjectSelectionState = function() {
+	      var hadSelection = !!(this.selectedGravityWellId ||
+	        (this.selectedGravityWellIds && this.selectedGravityWellIds.size) ||
+	        (this.selectedParticleIndices && this.selectedParticleIndices.size));
+	      this.selectedGravityWellId = null;
+	      if (this.selectedGravityWellIds) this.selectedGravityWellIds.clear();
+	      if (this.selectedParticleIndices) this.selectedParticleIndices.clear();
+	      this._clearSelectionOverlay();
+	      return hadSelection;
+	    }),
+	    (b.prototype.clearObjectSelection = function() {
+	      var changed = this._clearObjectSelectionState();
+	      if (changed) this._emitGravityWellsChange();
+	      return changed;
+	    }),
+	    (b.prototype._selectSingleGravityWellState = function(id) {
+	      var selectedId = this.getGravityWell(id) ? id : null;
+	      this.selectedGravityWellId = selectedId;
+	      if (this.selectedGravityWellIds) {
+	        this.selectedGravityWellIds.clear();
+	        if (selectedId) this.selectedGravityWellIds.add(selectedId);
+	      }
+	      if (this.selectedParticleIndices) this.selectedParticleIndices.clear();
+	      this._clearSelectionOverlay();
+	      return selectedId;
+	    }),
+	    (b.prototype._ensureSelectionMarquee = function() {
+	      if (this._selectionMarqueeElement) return this._selectionMarqueeElement;
+	      var marquee = document.createElement('div');
+	      marquee.className = 'particle-selection-marquee';
+	      marquee.setAttribute('aria-hidden', 'true');
+	      marquee.style.display = 'none';
+	      this.i.appendChild(marquee);
+	      this._selectionMarqueeElement = marquee;
+	      return marquee;
+	    }),
+	    (b.prototype._selectionRectangle = function(state) {
+	      var width = this.i && this.i.size ? this.i.size.width : 0;
+	      var height = this.i && this.i.size ? this.i.size.height : 0;
+	      var startX = Math.max(0, Math.min(width, state.startX));
+	      var startY = Math.max(0, Math.min(height, state.startY));
+	      var currentX = Math.max(0, Math.min(width, state.currentX));
+	      var currentY = Math.max(0, Math.min(height, state.currentY));
+	      return {
+	        left: Math.min(startX, currentX),
+	        top: Math.min(startY, currentY),
+	        right: Math.max(startX, currentX),
+	        bottom: Math.max(startY, currentY),
+	        width: Math.abs(currentX - startX),
+	        height: Math.abs(currentY - startY)
+	      };
+	    }),
+	    (b.prototype._paintSelectionMarquee = function() {
+	      var state = this._selectionMarqueeState;
+	      if (!state) return;
+	      var rect = this._selectionRectangle(state);
+	      var marquee = this._ensureSelectionMarquee();
+	      marquee.style.left = rect.left + 'px';
+	      marquee.style.top = rect.top + 'px';
+	      marquee.style.width = rect.width + 'px';
+	      marquee.style.height = rect.height + 'px';
+	      marquee.style.display = rect.width >= 2 || rect.height >= 2 ? 'block' : 'none';
+	    }),
+	    (b.prototype._beginObjectSelection = function(x, y) {
+	      if (!Number.isFinite(x) || !Number.isFinite(y) || this.gravityWellDraft) return false;
+	      this._clearInteractivePointerForces();
+	      this._stopGravityWellDrag();
+	      this._clearObjectSelectionState();
+	      this._selectionMarqueeState = { startX: x, startY: y, currentX: x, currentY: y };
+	      if (this.canvas) this.canvas.classList.add('object-selection-active');
+	      this._paintSelectionMarquee();
+	      this._emitGravityWellsChange();
+	      return true;
+	    }),
+	    (b.prototype._updateObjectSelection = function(x, y) {
+	      var state = this._selectionMarqueeState;
+	      if (!state || !Number.isFinite(x) || !Number.isFinite(y)) return false;
+	      state.currentX = x;
+	      state.currentY = y;
+	      if (this.p) { this.p.x = x; this.p.y = y; }
+	      this._gravityPointer = { x: x, y: y };
+	      this._paintSelectionMarquee();
+	      return true;
+	    }),
+	    (b.prototype._finishObjectSelection = function(x, y) {
+	      if (!this._selectionMarqueeState) return null;
+	      this._updateObjectSelection(x, y);
+	      var rect = this._selectionRectangle(this._selectionMarqueeState);
+	      var particles = new Set();
+	      var wells = new Set();
+	      for (var i = 0; i < (this.numParticles | 0); i++) {
+	        var particleX = this.posX ? this.posX[i] : this.o[i].x;
+	        var particleY = this.posY ? this.posY[i] : this.o[i].y;
+	        if (particleX >= rect.left && particleX <= rect.right &&
+	            particleY >= rect.top && particleY <= rect.bottom) particles.add(i);
+	      }
+	      if (this.options.gravityWellsEnabled !== false) {
+	        for (var j = 0; j < this.gravityWells.length; j++) {
+	          var well = this.gravityWells[j];
+	          if (well.x >= rect.left && well.x <= rect.right &&
+	              well.y >= rect.top && well.y <= rect.bottom) wells.add(well.id);
+	        }
+	      }
+	      this.selectedParticleIndices = particles;
+	      this.selectedGravityWellIds = wells;
+	      this.selectedGravityWellId = wells.size ? wells.values().next().value : null;
+	      this._selectionMarqueeState = null;
+	      if (this._selectionMarqueeElement) this._selectionMarqueeElement.style.display = 'none';
+	      if (this.canvas) this.canvas.classList.remove('object-selection-active');
+	      this._emitGravityWellsChange();
+	      this._ensureAnimationLoop();
+	      return { particles: particles.size, wells: wells.size };
+	    }),
+	    (b.prototype._cancelObjectSelection = function() {
+	      if (!this._selectionMarqueeState) return false;
+	      this._selectionMarqueeState = null;
+	      if (this._selectionMarqueeElement) this._selectionMarqueeElement.style.display = 'none';
+	      if (this.canvas) this.canvas.classList.remove('object-selection-active');
+	      return true;
+	    }),
+	    (b.prototype.copyObjectSelection = function() {
+	      var particleSnapshots = [];
+	      var wellSnapshots = [];
+	      var points = [];
+	      if (this.selectedParticleIndices) {
+	        this.selectedParticleIndices.forEach(function(index) {
+	          if (index < 0 || index >= this.numParticles) return;
+	          var particle = this.o[index];
+	          var x = this.posX ? this.posX[index] : particle.x;
+	          var y = this.posY ? this.posY[index] : particle.y;
+	          particleSnapshots.push({
+	            x: x,
+	            y: y,
+	            velocityX: this.velX ? this.velX[index] : particle.velocity.x,
+	            velocityY: this.velY ? this.velY[index] : particle.velocity.y,
+	            size: particle.size,
+	            hue: particle.hue,
+	            particleColor: particle.particleColor
+	          });
+	          points.push({ x: x, y: y });
+	        }, this);
+	      }
+	      var selectedWellIds = new Set(this.selectedGravityWellIds || []);
+	      if (this.selectedGravityWellId) selectedWellIds.add(this.selectedGravityWellId);
+	      selectedWellIds.forEach(function(id) {
+	        var well = this.getGravityWell(id);
+	        if (!well) return;
+	        wellSnapshots.push(Object.assign({}, well));
+	        points.push({ x: well.x, y: well.y });
+	      }, this);
+	      if (!points.length) return null;
+	      var minX = points[0].x, maxX = points[0].x;
+	      var minY = points[0].y, maxY = points[0].y;
+	      for (var i = 1; i < points.length; i++) {
+	        minX = Math.min(minX, points[i].x);
+	        maxX = Math.max(maxX, points[i].x);
+	        minY = Math.min(minY, points[i].y);
+	        maxY = Math.max(maxY, points[i].y);
+	      }
+	      this._selectionClipboard = {
+	        anchorX: (minX + maxX) / 2,
+	        anchorY: (minY + maxY) / 2,
+	        minX: minX,
+	        maxX: maxX,
+	        minY: minY,
+	        maxY: maxY,
+	        particles: particleSnapshots,
+	        wells: wellSnapshots
+	      };
+	      return { particles: particleSnapshots.length, wells: wellSnapshots.length };
+	    }),
+	    (b.prototype.pasteObjectSelection = function() {
+	      var clipboard = this._selectionClipboard;
+	      if (!clipboard || (!clipboard.particles.length && !clipboard.wells.length)) return null;
+	      var pointer = this._gravityPointer || (this.p && Number.isFinite(this.p.x) && Number.isFinite(this.p.y) ? this.p : null);
+	      if (!pointer) pointer = { x: this.i.size.width / 2, y: this.i.size.height / 2 };
+	      var anchorX = pointer.x;
+	      var anchorY = pointer.y;
+	      var groupWidth = clipboard.maxX - clipboard.minX;
+	      var groupHeight = clipboard.maxY - clipboard.minY;
+	      if (groupWidth <= this.i.size.width) {
+	        anchorX = Math.max(clipboard.anchorX - clipboard.minX,
+	          Math.min(this.i.size.width - (clipboard.maxX - clipboard.anchorX), anchorX));
+	      }
+	      if (groupHeight <= this.i.size.height) {
+	        anchorY = Math.max(clipboard.anchorY - clipboard.minY,
+	          Math.min(this.i.size.height - (clipboard.maxY - clipboard.anchorY), anchorY));
+	      }
+	      var shiftX = anchorX - clipboard.anchorX;
+	      var shiftY = anchorY - clipboard.anchorY;
+	      var start = this.numParticles | 0;
+	      var particleCount = clipboard.particles.length;
+	      var target = start + particleCount;
+	      this._ensureParticleCapacity(target);
+	      var copies = new Array(particleCount);
+	      for (var i = 0; i < particleCount; i++) {
+	        var snapshot = clipboard.particles[i];
+	        var particle = new c(this);
+	        var index = start + i;
+	        particle.index = index;
+	        particle.x = snapshot.x + shiftX;
+	        particle.y = snapshot.y + shiftY;
+	        particle.velocity.x = snapshot.velocityX;
+	        particle.velocity.y = snapshot.velocityY;
+	        particle.size = snapshot.size;
+	        particle.hue = snapshot.hue;
+	        particle.particleColor = snapshot.particleColor;
+	        copies[i] = particle;
+	        this.posX[index] = particle.x;
+	        this.posY[index] = particle.y;
+	        this.velX[index] = particle.velocity.x;
+	        this.velY[index] = particle.velocity.y;
+	        this.sizeA[index] = particle.size;
+	      }
+	      if (copies.length) {
+	        if (this.p && this.o[start] === this.p) Array.prototype.splice.apply(this.o, [start, 0].concat(copies));
+	        else Array.prototype.push.apply(this.o, copies);
+	        this.numParticles = target;
+	        if (this.p) this.p.index = target;
+	      }
+	      var pastedWellIds = new Set();
+	      for (var j = 0; j < clipboard.wells.length; j++) {
+	        var wellSnapshot = clipboard.wells[j];
+	        var pastedWell = Object.assign({}, wellSnapshot, {
+	          id: 'gravity-well-' + this._nextGravityWellId++,
+	          x: Math.max(0, Math.min(this.i.size.width, wellSnapshot.x + shiftX)),
+	          y: Math.max(0, Math.min(this.i.size.height, wellSnapshot.y + shiftY)),
+	          radius: this._clampGravityWellRadius(wellSnapshot.radius)
+	        });
+	        this.gravityWells.push(pastedWell);
+	        pastedWellIds.add(pastedWell.id);
+	      }
+	      this.selectedParticleIndices = new Set();
+	      for (var k = 0; k < particleCount; k++) this.selectedParticleIndices.add(start + k);
+	      this.selectedGravityWellIds = pastedWellIds;
+	      this.selectedGravityWellId = pastedWellIds.size ? pastedWellIds.values().next().value : null;
+	      if (this.performanceMonitor && this.performanceMonitor.setParticleCount) {
+	        this.performanceMonitor.setParticleCount(this.numParticles);
+	      }
+	      this._emitGravityWellsChange();
+	      this._ensureAnimationLoop();
+	      return { particles: particleCount, wells: pastedWellIds.size };
+	    }),
+	    (b.prototype._ensureSelectionOverlay = function() {
+	      if (!this._selectionOverlay) {
+	        var overlay = document.createElement('canvas');
+	        overlay.className = 'particle-selection-overlay';
+	        overlay.style.position = 'absolute';
+	        overlay.style.top = '0';
+	        overlay.style.left = '0';
+	        overlay.style.zIndex = '23';
+	        overlay.style.pointerEvents = 'none';
+	        this.i.appendChild(overlay);
+	        this._selectionOverlay = overlay;
+	        this._selectionOverlayContext = overlay.getContext('2d');
+	      }
+	      var dpr = window.devicePixelRatio || 1;
+	      var width = this.i.size.width;
+	      var height = this.i.size.height;
+	      var backingWidth = Math.max(1, Math.floor(width * dpr));
+	      var backingHeight = Math.max(1, Math.floor(height * dpr));
+	      if (this._selectionOverlay.width !== backingWidth || this._selectionOverlay.height !== backingHeight) {
+	        this._selectionOverlay.width = backingWidth;
+	        this._selectionOverlay.height = backingHeight;
+	        this._selectionOverlay.style.width = width + 'px';
+	        this._selectionOverlay.style.height = height + 'px';
+	      }
+	      this._selectionOverlay.style.display = 'block';
+	      this._selectionOverlayContext.setTransform(dpr, 0, 0, dpr, 0, 0);
+	      this._selectionOverlayContext.clearRect(0, 0, width, height);
+	      return this._selectionOverlayContext;
+	    }),
+	    (b.prototype._clearSelectionOverlay = function() {
+	      if (!this._selectionOverlay || !this._selectionOverlayContext || !this.i) return;
+	      var dpr = window.devicePixelRatio || 1;
+	      this._selectionOverlayContext.setTransform(dpr, 0, 0, dpr, 0, 0);
+	      this._selectionOverlayContext.clearRect(0, 0, this.i.size.width, this.i.size.height);
+	      this._selectionOverlay.style.display = 'none';
+	    }),
+	    (b.prototype._drawSelectedParticles = function() {
+	      if (!this.selectedParticleIndices || !this.selectedParticleIndices.size) {
+	        this._clearSelectionOverlay();
+	        return;
+	      }
+	      var context = this._ensureSelectionOverlay();
+	      context.save();
+	      context.globalCompositeOperation = 'source-over';
+	      context.globalAlpha = 1;
+	      context.strokeStyle = 'rgba(92, 184, 255, 0.96)';
+	      context.lineWidth = 1;
+	      context.beginPath();
+	      this.selectedParticleIndices.forEach(function(index) {
+	        if (index < 0 || index >= this.numParticles) return;
+	        var particle = this.o[index];
+	        var radius = Math.max(4, (particle.size || this.options.particleSize || 2) + 3);
+	        context.moveTo(particle.x + radius, particle.y);
+	        context.arc(particle.x, particle.y, radius, 0, Math.PI * 2);
+	      }, this);
+	      context.stroke();
+	      context.restore();
+	    }),
 	    (b.prototype.getGravityWell = function(id) {
       for (var i = 0; i < this.gravityWells.length; i++) {
         if (this.gravityWells[i].id === id) return this.gravityWells[i];
@@ -954,14 +1262,14 @@
         outerColor: defaults.outerColor
       };
       this.gravityWells.push(well);
-      this.selectedGravityWellId = well.id;
+      this._selectSingleGravityWellState(well.id);
       this.gravityWellDraft = null;
       this._emitGravityWellsChange();
       this._ensureAnimationLoop();
       return well;
     }),
     (b.prototype.selectGravityWell = function(id) {
-      this.selectedGravityWellId = this.getGravityWell(id) ? id : null;
+      this._selectSingleGravityWellState(id);
       this._emitGravityWellsChange();
       return this.getSelectedGravityWell();
     }),
@@ -986,7 +1294,7 @@
       if (!well) return null;
       var strength = Number.isFinite(well.strength) ? well.strength : this.options.gravityWellStrength || 12;
       if (strength === 0) strength = this.options.gravityWellStrength || 12;
-      this.selectedGravityWellId = well.id;
+      this._selectSingleGravityWellState(well.id);
       return this.updateGravityWell(well.id, { strength: -strength });
     }),
     (b.prototype.removeGravityWell = function(id) {
@@ -997,7 +1305,12 @@
       if (index < 0) return false;
       if (this._gravityWellDrag && this._gravityWellDrag.id === id) this._stopGravityWellDrag();
       this.gravityWells.splice(index, 1);
-      if (this.selectedGravityWellId === id) this.selectedGravityWellId = null;
+      if (this.selectedGravityWellIds) this.selectedGravityWellIds.delete(id);
+      if (this.selectedGravityWellId === id) {
+        this.selectedGravityWellId = this.selectedGravityWellIds && this.selectedGravityWellIds.size
+          ? this.selectedGravityWellIds.values().next().value
+          : null;
+      }
       if (this.gravityWellDraft && this.gravityWellDraft.editId === id) this.gravityWellDraft = null;
       this._emitGravityWellsChange();
       return true;
@@ -1020,6 +1333,7 @@
       this._stopGravityWellDrag();
       this.gravityWells.length = 0;
       this.selectedGravityWellId = null;
+      if (this.selectedGravityWellIds) this.selectedGravityWellIds.clear();
       this.gravityWellDraft = null;
       this._gravityPointerId = null;
       this._clearGravityWellOverlay();
@@ -1037,7 +1351,7 @@
 	      var pointer = this._gravityPointer || { x: this.i.size.width / 2, y: this.i.size.height / 2 };
 	      this._clearInteractivePointerForces();
 	      this.options.gravityWellsEnabled = true;
-	      this.selectedGravityWellId = null;
+	      this._clearObjectSelectionState();
       this.gravityWellDraft = {
         type: type,
         x: keyboardPlacement ? pointer.x : null,
@@ -1070,9 +1384,10 @@
       return this.gravityWellDraft;
     }),
     (b.prototype.cancelGravityWellPlacement = function() {
+      if (this._cancelObjectSelection()) return true;
       if (this._gravityWellDrag) {
         this._stopGravityWellDrag();
-        this.selectedGravityWellId = null;
+        this._clearObjectSelectionState();
         this._emitGravityWellsChange();
         return true;
       }
@@ -1082,8 +1397,7 @@
         this._emitGravityWellsChange();
         return true;
       }
-      if (this.selectedGravityWellId) {
-        this.selectedGravityWellId = null;
+      if (this._clearObjectSelectionState()) {
         this._emitGravityWellsChange();
         return true;
       }
@@ -1130,7 +1444,7 @@
     (b.prototype._startGravityWellDrag = function(well, x, y, pointerId) {
       if (!well) return false;
       this._clearInteractivePointerForces();
-      this.selectedGravityWellId = well.id;
+      this._selectSingleGravityWellState(well.id);
       this._gravityWellDrag = {
         id: well.id,
         pointerId: pointerId,
@@ -1244,7 +1558,9 @@
       for (var i = 0; i < this.gravityWells.length; i++) {
         var well = this.gravityWells[i];
         if (draft && draft.editId === well.id) continue;
-        visible.push(Object.assign(prepareWell(well), { selected: well.id === selectedId }));
+        visible.push(Object.assign(prepareWell(well), {
+          selected: well.id === selectedId || !!(this.selectedGravityWellIds && this.selectedGravityWellIds.has(well.id))
+        }));
       }
       if (draft && Number.isFinite(draft.x) && Number.isFinite(draft.y)) {
         visible.push(Object.assign(prepareWell(draft), { draft: true, selected: true }));
@@ -1541,6 +1857,9 @@
         this.g.setTransform(this.dpr, 0, 0, this.dpr, 0, 0);
 
         // Rebuild particles (use CSS logical dimensions)
+        if (this.selectedParticleIndices) this.selectedParticleIndices.clear();
+        this._cancelObjectSelection();
+        this._clearSelectionOverlay();
         this.o = [];
         var logicalArea = w * h;
         for (var a = 0; a < logicalArea / this.options.density; a++) {
@@ -1698,12 +2017,14 @@
         window.addEventListener('blur', function() {
           this._stopMiddleMouseSpawn();
           this._stopGravityWellDrag();
+          this._cancelObjectSelection();
           this._clearInteractivePointerForces();
         }.bind(this));
         document.addEventListener('visibilitychange', function() {
           if (document.hidden) {
             this._stopMiddleMouseSpawn();
             this._stopGravityWellDrag();
+            this._cancelObjectSelection();
             this._clearInteractivePointerForces();
           }
         }.bind(this));
@@ -1775,6 +2096,12 @@
       this.canvas.addEventListener('mousemove', function(evt) {
         var pos = this._mapToLogicalCanvas(evt);
         this._gravityPointerInsideCanvas = true;
+        if (this._selectionMarqueeState) {
+          this._updateObjectSelection(pos.x, pos.y);
+          evt.preventDefault();
+          evt.stopImmediatePropagation();
+          return;
+        }
         this._handleGravityWellPointerMove(pos.x, pos.y);
         if (!this.gravityWellDraft && !this._gravityWellDrag) {
           this.canvas.classList.toggle('gravity-well-hover', !!this._hitTestGravityWellVisual(pos.x, pos.y));
@@ -1787,12 +2114,24 @@
       }.bind(this), true);
 
       window.addEventListener('mousemove', function(evt) {
+        if (this._selectionMarqueeState && evt.target !== this.canvas) {
+          var selectionPos = this._mapToLogicalCanvas(evt);
+          this._updateObjectSelection(selectionPos.x, selectionPos.y);
+          evt.preventDefault();
+          return;
+        }
         if (!this._gravityWellDrag || this._gravityWellDrag.pointerId !== 'mouse' || evt.target === this.canvas) return;
         var pos = this._mapToLogicalCanvas(evt);
         this._handleGravityWellPointerMove(pos.x, pos.y);
       }.bind(this), true);
 
       window.addEventListener('mouseup', function(evt) {
+        if (evt.button === 0 && this._selectionMarqueeState) {
+          var selectionPos = this._mapToLogicalCanvas(evt);
+          this._finishObjectSelection(selectionPos.x, selectionPos.y);
+          evt.preventDefault();
+          return;
+        }
         if (evt.button === 0) this._stopGravityWellDrag('mouse');
       }.bind(this));
 
@@ -1806,7 +2145,14 @@
           return;
         }
         var pos = this._mapToLogicalCanvas(evt);
+        if (evt.button === 0 && (evt.ctrlKey || evt.metaKey) && !this.gravityWellDraft) {
+          this._beginObjectSelection(pos.x, pos.y);
+          evt.preventDefault();
+          evt.stopImmediatePropagation();
+          return;
+        }
         if (evt.button === 0 && !this.gravityWellDraft) {
+          this.clearObjectSelection();
           var visualHit = this._hitTestGravityWellVisual(pos.x, pos.y);
           if (!visualHit) {
             var now = performance.now();
@@ -1835,6 +2181,13 @@
 
       this.canvas.addEventListener('mouseup', function(evt) {
         if (evt.button === 1) return;
+        if (evt.button === 0 && this._selectionMarqueeState) {
+          var selectionPos = this._mapToLogicalCanvas(evt);
+          this._finishObjectSelection(selectionPos.x, selectionPos.y);
+          evt.preventDefault();
+          evt.stopImmediatePropagation();
+          return;
+        }
         if (evt.button === 0 && (this._cursorCapturePending || this._cursorCaptureActive)) {
           this._stopCursorCapture();
           evt.preventDefault();
@@ -1929,7 +2282,7 @@
           var position = this._mapToLogicalCanvas(event);
           var hoveredWell = this._hitTestGravityWellVisual(position.x, position.y);
           if (hoveredWell) {
-            this.selectedGravityWellId = hoveredWell.id;
+            this._selectSingleGravityWellState(hoveredWell.id);
             var currentStrength = Number.isFinite(hoveredWell.strength) ? hoveredWell.strength : 0;
             var strengthDirection = currentStrength < 0 ? -1 : 1;
             var strengthMagnitude = Math.abs(currentStrength);
@@ -2328,6 +2681,8 @@
         }
       }
 
+      this._drawSelectedParticles();
+
       // Optional simple particle collisions (elastic bounce)
       if (options.particleCollision) {
         var radius = (this.options.particleSize || 2);
@@ -2420,6 +2775,11 @@
         newObjects[a] = np;
       }
       this.o = newObjects;
+      if (this.selectedParticleIndices) {
+        this.selectedParticleIndices.forEach(function(index) {
+          if (index >= target) this.selectedParticleIndices.delete(index);
+        }, this);
+      }
       // Re-init SoA and grid
       this._initSoAFromObjects(target);
       this.initGrid();

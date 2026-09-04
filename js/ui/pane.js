@@ -9,6 +9,47 @@ let paneBuildPromise = null;
 let activeUi = null;
 let lifecycleGeneration = 0;
 
+function describeObjectSelection(action, result) {
+  if (!result || (!result.particles && !result.wells)) return action === 'Copied' ? 'Nothing selected' : 'Nothing to paste';
+  const parts = [];
+  if (result.particles) parts.push(`${result.particles} particle${result.particles === 1 ? '' : 's'}`);
+  if (result.wells) parts.push(`${result.wells} well${result.wells === 1 ? '' : 's'}`);
+  return `${action} ${parts.join(' + ')}`;
+}
+
+function showObjectSelectionToast(message) {
+  if (window.hotkeyManager && typeof window.hotkeyManager.showToast === 'function') {
+    window.hotkeyManager.showToast(message, { duration: 1500 });
+  }
+}
+
+function isEditableHotkeyTarget(event) {
+  const target = event && event.target;
+  return Boolean(target && target.closest && target.closest('input, textarea, select, [contenteditable="true"]'));
+}
+
+function handleContextualControlsHotkey(pn, event, toggleControls) {
+  if (event && event.repeat) return;
+  if (event && (event.ctrlKey || event.metaKey)) {
+    if (isEditableHotkeyTarget(event)) return;
+    const result = pn && typeof pn.copyObjectSelection === 'function' ? pn.copyObjectSelection() : null;
+    if (result) {
+      event.preventDefault();
+      showObjectSelectionToast(describeObjectSelection('Copied', result));
+    }
+    return;
+  }
+  toggleControls();
+}
+
+function handlePasteSelectionHotkey(pn, event) {
+  if (!event || (!event.ctrlKey && !event.metaKey) || event.repeat) return;
+  if (isEditableHotkeyTarget(event)) return;
+  event.preventDefault();
+  const result = pn && typeof pn.pasteObjectSelection === 'function' ? pn.pasteObjectSelection() : null;
+  showObjectSelectionToast(describeObjectSelection('Pasted', result));
+}
+
 function recommendedParticleForceMaximum(pn) {
   const particleCount = Number.isFinite(pn && pn.numParticles) ? Math.max(0, pn.numParticles) : 0;
   const distance = Number.isFinite(pn && pn.options && pn.options.particleInteractionDistance)
@@ -713,9 +754,9 @@ async function buildPane() {
 
   // Hotkey handler functions
   const hotkeyHandlers = {
-    // C - Toggle Controls
-    handleToggleControls: function(context) {
-      togglePane();
+    // C - Toggle controls or copy selection
+    handleToggleControls: function(context, event) {
+      handleContextualControlsHotkey(pn, event, togglePane);
     },
 
     // P - Toggle Performance Overlay (merged from both handlers)
@@ -830,7 +871,8 @@ async function buildPane() {
     
     window.hotkeyManager.setContext(context);
     
-    window.hotkeyManager.register('c', hotkeyHandlers.handleToggleControls, 'Toggle Controls');
+    window.hotkeyManager.register('c', hotkeyHandlers.handleToggleControls, 'Copy Selection (Ctrl+C) / Toggle Controls', { preventDefault: false });
+    window.hotkeyManager.register('v', (context, event) => handlePasteSelectionHotkey(pn, event), 'Paste Selection (Ctrl+V)', { preventDefault: false });
     window.hotkeyManager.register('p', hotkeyHandlers.handlePerformanceOverlay, 'Performance Overlay');
     window.hotkeyManager.register('r', hotkeyHandlers.handleRandomize, 'Randomize Visuals');
     window.hotkeyManager.register('d', hotkeyHandlers.handleReset, 'Reset to Default');
@@ -955,7 +997,10 @@ function registerBootstrapHotkeys() {
     applyParamsToNetwork
   });
 
-  manager.register('c', () => invokePaneAction(ui => ui.togglePane()), 'Toggle Controls');
+  manager.register('c', (context, event) => {
+    handleContextualControlsHotkey(pn, event, () => invokePaneAction(ui => ui.togglePane()));
+  }, 'Copy Selection (Ctrl+C) / Toggle Controls', { preventDefault: false });
+  manager.register('v', (context, event) => handlePasteSelectionHotkey(pn, event), 'Paste Selection (Ctrl+V)', { preventDefault: false });
   manager.register('p', () => {
     const monitor = pn.performanceMonitor;
     if (!monitor || !pn.options) return;

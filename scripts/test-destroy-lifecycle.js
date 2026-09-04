@@ -202,7 +202,11 @@ async function main() {
               old._lineDetailCoverage == null && old._lineDetailTileOccupancy == null &&
               old._lineDetailTileSegments == null && old._lineDetailTileScratch == null &&
               old._blackHoleLineTintStrength == null && old._blackHoleLineTintR == null &&
-              old._blackHoleLineTintG == null && old._blackHoleLineTintB == null,
+              old._blackHoleLineTintG == null && old._blackHoleLineTintB == null &&
+              old.selectedParticleIndices == null && old.selectedGravityWellIds == null &&
+              old._selectionClipboard == null && old._selectionMarqueeElement == null &&
+              old._selectionMarqueeState == null && old._selectionOverlay == null &&
+              old._selectionOverlayContext == null,
             listenersReleased: old.__lifecycleListeners.length === 0,
             globalsReleased: window.particleInstance === null && window.hotkeyManager === null &&
               window.__PN_ACTIVE_MONITOR__ === null && window._benchmarkRunner == null &&
@@ -278,7 +282,7 @@ async function main() {
       'window:resize', 'window:keydown', 'window:keyup',
       'document:contextmenu', 'document:keydown', 'document:keyup', 'document:visibilitychange'
     ];
-    const expectedHotkeys = ['b', 'c', 'd', 'delete', 'escape', 'h', 'l', 'm', 'p', 'r', 'w'];
+    const expectedHotkeys = ['b', 'c', 'd', 'delete', 'escape', 'h', 'l', 'm', 'p', 'r', 'v', 'w'];
     const assertions = options.expect === 'baseline' ? {
       teardownContractsMissing: missingContracts,
       detachedEngineStayedRetained: Boolean(evidence &&
