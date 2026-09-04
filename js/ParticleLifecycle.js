@@ -112,6 +112,7 @@
       this._cursorCapturePending = null;
       this._cursorCaptureHoldTimer = null;
       this._lastPrimaryEmptyDown = null;
+      this._selectionMarqueeState = null;
       this._gravityWellDrag = null;
       this.p = null;
 
@@ -120,6 +121,8 @@
       if (this._gravityWellOverlay && this._gravityWellOverlay.parentNode) this._gravityWellOverlay.parentNode.removeChild(this._gravityWellOverlay);
       if (this._gravityWellRadiusLabel && this._gravityWellRadiusLabel.parentNode) this._gravityWellRadiusLabel.parentNode.removeChild(this._gravityWellRadiusLabel);
       if (this._gravityWellStrengthLabel && this._gravityWellStrengthLabel.parentNode) this._gravityWellStrengthLabel.parentNode.removeChild(this._gravityWellStrengthLabel);
+      if (this._selectionMarqueeElement && this._selectionMarqueeElement.parentNode) this._selectionMarqueeElement.parentNode.removeChild(this._selectionMarqueeElement);
+      if (this._selectionOverlay && this._selectionOverlay.parentNode) this._selectionOverlay.parentNode.removeChild(this._selectionOverlay);
       if (this.canvas && this.canvas.parentNode) this.canvas.parentNode.removeChild(this.canvas);
       if (this.k && this.k.parentNode) this.k.parentNode.removeChild(this.k);
       if (this.i) {
@@ -140,6 +143,13 @@
       this.gravityWellDraft = null;
       this._gravityWellDrag = null;
       this.selectedGravityWellId = null;
+      this.selectedGravityWellIds = null;
+      this.selectedParticleIndices = null;
+      this._selectionClipboard = null;
+      this._selectionMarqueeElement = null;
+      this._selectionMarqueeState = null;
+      this._selectionOverlayContext = null;
+      this._selectionOverlay = null;
       this._gravityWellOverlayContext = null;
       this._gravityWellOverlay = null;
       this._gravityWellRadiusLabel = null;
