@@ -66,6 +66,7 @@
 
   var gravityPointerStorageKey = 'pn_gravity_pointer';
   var mobileGravityWellRadius = 60;
+  var mobileGravityWellInfluenceScale = 2;
   var mobileWellAdjustDeadZone = 12;
   var mobileWellStrengthPixelsPerStep = 8;
 
@@ -764,6 +765,9 @@
       this._restoreGravityPointerFromSession();
       this._gravityWellDrag = null;
       this._mobileGesture = null;
+      this._mobileLayoutMedia = window.matchMedia
+        ? window.matchMedia('(hover: none) and (pointer: coarse)')
+        : null;
       this.gravityWellAccelerationCapped = this.options.gravityWellAccelerationCapped !== false;
       this.gravityWellAccelerationLimit = Number.isFinite(this.options.gravityWellAccelerationLimit)
         ? Math.max(0, this.options.gravityWellAccelerationLimit)
@@ -3409,6 +3413,7 @@
         ? Math.max(0, this.options.gravityWellForceMultiplier)
         : 1;
       var gravitySpin = Number.isFinite(this.options.gravityWellSpin) ? this.options.gravityWellSpin : 0.2;
+      var limitMobileGravityWellRange = !!(this._mobileLayoutMedia && this._mobileLayoutMedia.matches);
       for (var i = 0; i < n; i++) {
 	        var capturedByCursor = !!(capturedParticles && capturedParticles[i]);
 	        var x = this.posX[i] + (capturedByCursor ? captureShiftX : 0);
@@ -3450,6 +3455,8 @@
 
 	            var gravityDistance = Math.sqrt(gravityDistanceSq);
 	            if (gravityDistance < 0.0001) continue;
+	            if (limitMobileGravityWellRange &&
+	                gravityDistance > wellRadius * mobileGravityWellInfluenceScale) continue;
 	            var softenedRadius = Math.max(12, wellRadius * 0.12);
 	            var softenedSq = gravityDistanceSq + softenedRadius * softenedRadius;
 	            var gravityMagnitude = wellStrength * wellRadius * wellRadius / softenedSq * 0.012 * gravityForceMultiplier;

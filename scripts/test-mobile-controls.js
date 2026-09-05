@@ -129,6 +129,24 @@ async function dragPaletteToken(page, type, destination, pointerId) {
   }, { type, destination, pointerId });
 }
 
+async function dragExistingWellToToken(page, well, type, pointerId) {
+  const destination = await page.evaluate(type => {
+    const canvasRect = window.particleInstance.canvas.getBoundingClientRect();
+    const tokenRect = document.querySelector(`[data-hole-type="${type}"]`).getBoundingClientRect();
+    return {
+      x: tokenRect.left + tokenRect.width / 2 - canvasRect.left,
+      y: tokenRect.top + tokenRect.height / 2 - canvasRect.top
+    };
+  }, type);
+  await sendCanvasPointer(page, 'pointerdown', pointerId, well);
+  await sendCanvasPointer(page, 'pointermove', pointerId, destination);
+  await sendCanvasPointer(page, 'pointermove', pointerId, destination);
+  const ready = await page.evaluate(type =>
+    document.querySelector(`[data-hole-type="${type}"]`).classList.contains('is-delete-target'), type);
+  await sendCanvasPointer(page, 'pointerup', pointerId, destination, 0);
+  return ready;
+}
+
 async function resetSingleParticle(page) {
   await page.evaluate(() => {
     const pn = window.particleInstance;
@@ -176,6 +194,37 @@ async function runGestures(page) {
   await sendCanvasPointer(page, 'pointerup', 2, { x: 240, y: 320 }, 0);
   await sendCanvasPointer(page, 'pointerup', 1, { x: 200, y: 280 }, 0);
   assert(twoFingerVelocity < 0, `two fingers should push outward, got vx=${twoFingerVelocity}`);
+
+  const mobileWellInfluence = await page.evaluate(() => {
+    const pn = window.particleInstance;
+    const previousSpin = pn.options.gravityWellSpin;
+    const sample = (type, distance) => {
+      pn.clearGravityWells();
+      pn.addGravityWell(type, 195, 422, 60);
+      pn.posX[0] = 195 + distance;
+      pn.posY[0] = 422;
+      pn.velX[0] = 0;
+      pn.velY[0] = 0;
+      pn.options.gravityWellSpin = 0;
+      pn._updateSoA();
+      return pn.velX[0];
+    };
+    const result = {
+      mobileLayout: pn._mobileLayoutMedia?.matches === true,
+      blackInside: sample('black', 100),
+      blackOutside: sample('black', 150),
+      whiteInside: sample('white', 100),
+      whiteOutside: sample('white', 150)
+    };
+    pn.options.gravityWellSpin = previousSpin;
+    pn.clearGravityWells();
+    return result;
+  });
+  assert.strictEqual(mobileWellInfluence.mobileLayout, true);
+  assert(mobileWellInfluence.blackInside < 0, 'black hole should absorb inside the mobile influence radius');
+  assert.strictEqual(mobileWellInfluence.blackOutside, 0, 'black hole should stop beyond its mobile influence radius');
+  assert(mobileWellInfluence.whiteInside > 0, 'white hole should repel inside the mobile influence radius');
+  assert.strictEqual(mobileWellInfluence.whiteOutside, 0, 'white hole should stop beyond its mobile influence radius');
 
   const movedWell = await page.evaluate(() => {
     const pn = window.particleInstance;
@@ -330,6 +379,7 @@ async function runGestures(page) {
   return {
     oneFingerVelocity,
     twoFingerVelocity,
+    mobileWellInfluence,
     moved,
     wellAdjust: { withinTolerance, larger, smaller, faster, slower, resumedMode, reversedFaster, reversedSlower },
     strengthBefore,
@@ -375,6 +425,16 @@ async function runPalette(page) {
   assert.deepStrictEqual(wells.map(well => well.type), ['black', 'white']);
   assert(wells.every(well => well.radius === 60), `mobile well default radius should be 60px: ${JSON.stringify(wells)}`);
 
+  const blackDeleteReady = await dragExistingWellToToken(page, wells[0], 'black', 33);
+  assert.strictEqual(blackDeleteReady, true, 'black-hole icon did not show delete feedback');
+  const afterBlackDelete = await page.evaluate(() => window.particleInstance.gravityWells.map(well => well.type));
+  assert.deepStrictEqual(afterBlackDelete, ['white'], 'dropping a black hole on its icon should delete it');
+
+  const whiteDeleteReady = await dragExistingWellToToken(page, wells[1], 'white', 34);
+  assert.strictEqual(whiteDeleteReady, true, 'white-hole icon did not show delete feedback');
+  const afterWhiteDelete = await page.evaluate(() => window.particleInstance.gravityWells.map(well => well.type));
+  assert.deepStrictEqual(afterWhiteDelete, [], 'dropping a white hole on its icon should delete it');
+
   const countBefore = await page.evaluate(() => window.particleInstance.numParticles);
   await tapControl(page, '[data-mobile-count="increase"]', 41);
   const countAfter = await page.evaluate(() => window.particleInstance.numParticles);
@@ -406,7 +466,17 @@ async function runPalette(page) {
   });
   assert.deepStrictEqual(recreated, { roots: 1, count: recreated.count, readout: recreated.count });
 
-  return { layout, wells, countBefore, countAfter, readout, repeatedCount, minimumCount, recreated };
+  return {
+    layout,
+    wells,
+    deleted: { blackDeleteReady, afterBlackDelete, whiteDeleteReady, afterWhiteDelete },
+    countBefore,
+    countAfter,
+    readout,
+    repeatedCount,
+    minimumCount,
+    recreated
+  };
 }
 
 async function runDesktop(browser, url, browserErrors) {
@@ -422,8 +492,23 @@ async function runDesktop(browser, url, browserErrors) {
     return !root || getComputedStyle(root).display === 'none';
   });
   assert.strictEqual(hidden, true, 'mobile controls should be hidden on desktop');
+  const distantWellVelocity = await page.evaluate(() => {
+    const pn = window.particleInstance;
+    pn.options.velocity = 0;
+    pn.options.gravityWellSpin = 0;
+    pn.setParticleCount(1);
+    pn.clearGravityWells();
+    pn.addGravityWell('black', 400, 360, 60);
+    pn.posX[0] = 550;
+    pn.posY[0] = 360;
+    pn.velX[0] = 0;
+    pn.velY[0] = 0;
+    pn._updateSoA();
+    return pn.velX[0];
+  });
+  assert(distantWellVelocity < 0, 'desktop gravity wells should retain their existing unbounded falloff');
   await context.close();
-  return { hidden };
+  return { hidden, distantWellVelocity };
 }
 
 async function runLandscape(browser, options, browserErrors) {

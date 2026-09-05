@@ -21,6 +21,7 @@
 | Top-right palette | Drag white token onto canvas | Place one persistent white hole at the drop point. |
 | Existing hole | Drag with one finger | Move and select that hole. |
 | Existing hole | Hold it with one finger, then move a second finger anywhere on the canvas | Move the second finger up/down to enlarge/shrink the hole at 1 radius px per pointer px and right/left to increase/decrease its strength-derived speed by 0.5 per 8 pointer px. Each axis has a 12 px dead zone before those changes begin. |
+| Existing hole | Drag it onto its matching top-right hole icon | Highlight the icon as a delete target, then remove the hole on release. This behavior exists only while the phone palette is visible. |
 | Existing hole | Hold for 700 ms, then drag vertically | Up increases force magnitude; down decreases it. Preserve the current force sign so the gesture never silently reverses the hole. |
 | Count control | Tap `-` or `+` | Decrease or increase the particle target by 25 percent, with a minimum step of 16 particles. |
 | Count control | Hold `-` or `+` | Repeat the same count step at a controlled interval until release or cancellation. |
@@ -69,6 +70,8 @@ Place a known well, then verify:
 
 - one-finger movement changes its center but not its radius or strength;
 - a second finger anywhere on the canvas changes radius vertically and strength-derived speed horizontally, while movement inside the 12 px per-axis dead zone changes neither;
+- a dragged existing black or white hole is deleted when released on its matching palette icon, with visible delete-target feedback;
+- default 60 px phone wells affect particles only within 120 px, while desktop wells keep their existing unbounded inverse-square falloff;
 - a 700 ms hold followed by an upward drag increases strength magnitude;
 - a downward strength drag decreases magnitude without changing its sign;
 - pointer cancellation clears timers, captures, drafts, and gesture state.
@@ -310,6 +313,8 @@ Expected: only the planned additions plus the user's pre-existing edits are pres
 - On touch-primary mobile, one finger visibly pulls particles inward and two fingers visibly push them outward.
 - A visitor can drag either hole token from the top-right palette, drop it once, and keep the resulting hole after releasing.
 - Existing holes support one-finger move, dead-zone-protected two-axis second-finger radius/speed adjustment, and 700 ms hold plus vertical strength adjustment without accidental mode switching.
+- Dragging an existing hole onto its matching phone palette icon clearly marks the delete target and removes the hole on release.
+- Phone wells limit their attraction or repulsion to twice their visible radius; desktop wells retain the existing unbounded falloff.
 - Three-finger tap randomizes the same visual family as `R` while preserving particle size and count.
 - Particle count has explicit, understandable, repeatable phone controls and the displayed count stays synchronized.
 - All mobile gesture paths clean up on release, cancellation, blur, hidden document, destroy, and recreate.

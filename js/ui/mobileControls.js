@@ -92,6 +92,43 @@ export function mountMobileControls(pn, actions = {}) {
     return insideCanvas && !insidePalette;
   }
 
+  function clearExistingWellDeleteTarget() {
+    root.classList.remove('is-delete-ready');
+    blackHole.classList.remove('is-delete-target');
+    whiteHole.classList.remove('is-delete-target');
+  }
+
+  function existingWellDragForPointer(event) {
+    const activeDrag = pn._gravityWellDrag;
+    if (!activeDrag || activeDrag.pointerId !== event.pointerId) return null;
+    return pn.getGravityWell(activeDrag.id);
+  }
+
+  function matchingDeleteTarget(event, well) {
+    if (!well || typeof document.elementFromPoint !== 'function') return null;
+    const element = document.elementFromPoint(event.clientX, event.clientY);
+    const button = element?.closest?.('.mobile-hole-token[data-hole-type]');
+    return button?.dataset.holeType === well.type ? button : null;
+  }
+
+  function trackExistingWellDeleteTarget(event) {
+    const well = existingWellDragForPointer(event);
+    clearExistingWellDeleteTarget();
+    if (!well) return;
+    root.classList.add('is-delete-ready');
+    const target = matchingDeleteTarget(event, well);
+    if (target) target.classList.add('is-delete-target');
+  }
+
+  function dropExistingWellOnDeleteTarget(event) {
+    const well = existingWellDragForPointer(event);
+    const target = matchingDeleteTarget(event, well);
+    clearExistingWellDeleteTarget();
+    if (!well || !target) return;
+    pn.removeGravityWell(well.id);
+    event.preventDefault();
+  }
+
   function beginHoleDrag(event) {
     if (destroyed || event.button > 0 || drag) return;
     const button = event.currentTarget;
@@ -181,6 +218,7 @@ export function mountMobileControls(pn, actions = {}) {
   function handleVisibilityChange() {
     if (document.hidden) {
       stopCountRepeat();
+      clearExistingWellDeleteTarget();
       if (drag) pn.cancelGravityWellPlacement();
       drag = null;
       root.classList.remove('is-dragging');
@@ -189,6 +227,7 @@ export function mountMobileControls(pn, actions = {}) {
 
   function handleWindowBlur() {
     stopCountRepeat();
+    clearExistingWellDeleteTarget();
     if (drag) pn.cancelGravityWellPlacement();
     drag = null;
     root.classList.remove('is-dragging');
@@ -207,8 +246,11 @@ export function mountMobileControls(pn, actions = {}) {
   root.addEventListener('pointerdown', setActive);
   root.addEventListener('focusin', setActive);
   window.addEventListener('pointermove', moveHoleDrag, { passive: false });
+  window.addEventListener('pointermove', trackExistingWellDeleteTarget, { capture: true, passive: false });
   window.addEventListener('pointerup', commitHoleDrag, { passive: false });
+  window.addEventListener('pointerup', dropExistingWellOnDeleteTarget, true);
   window.addEventListener('pointercancel', cancelHoleDrag, { passive: false });
+  window.addEventListener('pointercancel', clearExistingWellDeleteTarget, true);
   window.addEventListener('particle-count-change', updateCount);
   window.addEventListener('particle-mobile-randomize', handleRandomize);
   window.addEventListener('blur', handleWindowBlur);
@@ -222,6 +264,7 @@ export function mountMobileControls(pn, actions = {}) {
       destroyed = true;
       if (idleTimer != null) clearTimeout(idleTimer);
       stopCountRepeat();
+      clearExistingWellDeleteTarget();
       if (drag && pn && !pn._destroyed) pn.cancelGravityWellPlacement();
       drag = null;
       blackHole.removeEventListener('pointerdown', beginHoleDrag);
@@ -237,8 +280,11 @@ export function mountMobileControls(pn, actions = {}) {
       root.removeEventListener('pointerdown', setActive);
       root.removeEventListener('focusin', setActive);
       window.removeEventListener('pointermove', moveHoleDrag, { passive: false });
+      window.removeEventListener('pointermove', trackExistingWellDeleteTarget, true);
       window.removeEventListener('pointerup', commitHoleDrag, { passive: false });
+      window.removeEventListener('pointerup', dropExistingWellOnDeleteTarget, true);
       window.removeEventListener('pointercancel', cancelHoleDrag, { passive: false });
+      window.removeEventListener('pointercancel', clearExistingWellDeleteTarget, true);
       window.removeEventListener('particle-count-change', updateCount);
       window.removeEventListener('particle-mobile-randomize', handleRandomize);
       window.removeEventListener('blur', handleWindowBlur);
