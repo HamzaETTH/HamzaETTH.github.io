@@ -41,6 +41,8 @@ function handleContextualControlsHotkey(pn, event, toggleControls) {
     }
     return;
   }
+  if (pn && typeof pn.randomizeGravityWellColorsUnderPointer === 'function' &&
+      pn.randomizeGravityWellColorsUnderPointer()) return;
   toggleControls();
 }
 
@@ -756,7 +758,7 @@ async function buildPane() {
 
   // Hotkey handler functions
   const hotkeyHandlers = {
-    // C - Toggle controls or copy selection
+    // C - Recolor hovered gravity well, otherwise toggle controls
     handleToggleControls: function(context, event) {
       handleContextualControlsHotkey(pn, event, togglePane);
     },
@@ -873,7 +875,7 @@ async function buildPane() {
     
     window.hotkeyManager.setContext(context);
     
-    window.hotkeyManager.register('c', hotkeyHandlers.handleToggleControls, 'Copy Selection (Ctrl+C) / Toggle Controls', { preventDefault: false });
+    window.hotkeyManager.register('c', hotkeyHandlers.handleToggleControls, 'Copy Selection (Ctrl+C) / Recolor Hovered Hole / Toggle Controls', { preventDefault: false });
     window.hotkeyManager.register('v', (context, event) => handlePasteSelectionHotkey(pn, event), 'Paste Selection (Ctrl+V)', { preventDefault: false });
     window.hotkeyManager.register('p', hotkeyHandlers.handlePerformanceOverlay, 'Performance Overlay');
     window.hotkeyManager.register('r', hotkeyHandlers.handleRandomize, 'Randomize Visuals');
@@ -1007,7 +1009,7 @@ function registerBootstrapHotkeys() {
 
   manager.register('c', (context, event) => {
     handleContextualControlsHotkey(pn, event, () => invokePaneAction(ui => ui.togglePane()));
-  }, 'Copy Selection (Ctrl+C) / Toggle Controls', { preventDefault: false });
+  }, 'Copy Selection (Ctrl+C) / Recolor Hovered Hole / Toggle Controls', { preventDefault: false });
   manager.register('v', (context, event) => handlePasteSelectionHotkey(pn, event), 'Paste Selection (Ctrl+V)', { preventDefault: false });
   manager.register('p', () => {
     const monitor = pn.performanceMonitor;

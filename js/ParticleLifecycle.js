@@ -110,6 +110,7 @@
       this._cursorCaptureActive = false;
       this._cursorCapturePoint = null;
       this._cursorCaptureAppliedPoint = null;
+      this._cursorCapturedParticles = null;
       this._cursorCapturePending = null;
       this._cursorCaptureHoldTimer = null;
       this._lastPrimaryEmptyDown = null;
@@ -154,6 +155,7 @@
       this._selectionOverlay = null;
       this._gravityWellOverlayContext = null;
       this._gravityWellOverlay = null;
+      this._gravityWellMeasurements = null;
       this._gravityWellRadiusLabel = null;
       this._gravityWellStrengthLabel = null;
       this._gravityWellStrengthLabelTimer = null;
