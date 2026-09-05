@@ -172,7 +172,7 @@ async function resetSingleParticle(page) {
   });
 }
 
-async function runGestures(page) {
+async function runGestures(page, screenshotDir) {
   await resetSingleParticle(page);
   await sendCanvasPointer(page, 'pointerdown', 1, { x: 220, y: 300 });
   const oneFingerVelocity = await page.evaluate(() => {
@@ -383,6 +383,97 @@ async function runGestures(page) {
   assert(mobileOrbitEnvelopes.whiteHole.distance > 120 && mobileOrbitEnvelopes.whiteHole.radialVelocity > 0,
     'mobile white-hole motion should remain unconstrained outside its influence radius');
 
+  const mobileSnapIds = await page.evaluate(() => {
+    const pn = window.particleInstance;
+    pn.clearGravityWells();
+    const active = pn.addGravityWell('black', 120, 420, 60);
+    const targetX = pn.addGravityWell('white', 260, 240, 60);
+    const targetY = pn.addGravityWell('black', 360, 650, 60);
+    return { active: active.id, targetX: targetX.id, targetY: targetY.id };
+  });
+  await sendCanvasPointer(page, 'pointerdown', 1, { x: 120, y: 420 });
+  await sendCanvasPointer(page, 'pointermove', 1, { x: 250, y: 640 });
+  await page.evaluate(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))));
+  const mobileSnapEntered = await page.evaluate(ids => {
+    const pn = window.particleInstance;
+    const well = pn.getGravityWell(ids.active);
+    return {
+      x: well.x,
+      y: well.y,
+      state: pn._gravityWellSnapState ? { ...pn._gravityWellSnapState } : null,
+      guide: pn._getGravityWellGuideState ? pn._getGravityWellGuideState() : null,
+      measurements: pn._getGravityWellMeasurements().map(measurement => ({ ...measurement })),
+      layout: pn._gravityWellOverlayLayout ? JSON.parse(JSON.stringify(pn._gravityWellOverlayLayout)) : null,
+      overlay: pn._gravityWellOverlay ? {
+        width: pn._gravityWellOverlay.width,
+        height: pn._gravityWellOverlay.height,
+        cssWidth: pn._gravityWellOverlay.style.width,
+        cssHeight: pn._gravityWellOverlay.style.height
+      } : null
+    };
+  }, mobileSnapIds);
+  if (screenshotDir) {
+    fs.mkdirSync(screenshotDir, { recursive: true });
+    await page.screenshot({ path: path.join(screenshotDir, 'drag-info-phone-dpr2.png') });
+  }
+  const mobileAdjustOrigin = { x: 80, y: 780 };
+  await sendCanvasPointer(page, 'pointerdown', 2, mobileAdjustOrigin);
+  await sendCanvasPointer(page, 'pointermove', 2, { x: mobileAdjustOrigin.x, y: mobileAdjustOrigin.y - 48 });
+  const mobileRadiusOnly = await page.evaluate(id => {
+    const pn = window.particleInstance;
+    const well = pn.getGravityWell(id);
+    return {
+      x: well.x,
+      y: well.y,
+      radius: well.radius,
+      snap: pn._gravityWellSnapState ? { ...pn._gravityWellSnapState } : null,
+      guide: pn._getGravityWellGuideState ? pn._getGravityWellGuideState() : null
+    };
+  }, mobileSnapIds.active);
+  await sendCanvasPointer(page, 'pointerup', 2, { x: mobileAdjustOrigin.x, y: mobileAdjustOrigin.y - 48 }, 0);
+  await sendCanvasPointer(page, 'pointermove', 1, { x: 275, y: 665 });
+  const mobileSnapHeld = await page.evaluate(id => {
+    const well = window.particleInstance.getGravityWell(id);
+    return { x: well.x, y: well.y };
+  }, mobileSnapIds.active);
+  await sendCanvasPointer(page, 'pointermove', 1, { x: 277, y: 670 });
+  await sendCanvasPointer(page, 'pointermove', 1, { x: 273, y: 663 });
+  const mobileOutsideEntry = await page.evaluate(id => {
+    const well = window.particleInstance.getGravityWell(id);
+    return { x: well.x, y: well.y };
+  }, mobileSnapIds.active);
+  await sendCanvasPointer(page, 'pointercancel', 1, { x: 273, y: 663 }, 0);
+  await page.evaluate(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))));
+  const mobileSnapCancelled = await page.evaluate(() => {
+    const pn = window.particleInstance;
+    return { snap: pn._gravityWellSnapState, guide: pn._gravityWellGuideState, drag: pn._gravityWellDrag };
+  });
+  assert.deepStrictEqual({ x: mobileSnapEntered.x, y: mobileSnapEntered.y }, { x: 260, y: 650 },
+    'touch snapping did not use the 12px entry threshold on both axes');
+  assert.strictEqual(mobileSnapEntered.state?.snapXTargetId, mobileSnapIds.targetX);
+  assert.strictEqual(mobileSnapEntered.state?.snapYTargetId, mobileSnapIds.targetY);
+  assert.deepStrictEqual(mobileSnapHeld, { x: 260, y: 650 }, 'touch snapping did not hold through the 16px release threshold');
+  assert.deepStrictEqual(mobileOutsideEntry, { x: 273, y: 663 }, 'touch snapping reacquired outside the 12px entry threshold');
+  assert(mobileSnapEntered.guide && mobileSnapEntered.guide.xLabel === 'X 260 px' &&
+    mobileSnapEntered.guide.yLabel === 'Y 650 px', 'touch drag did not expose coordinate guides');
+  assert(mobileSnapEntered.measurements.every(measurement => measurement.radiusLabel && measurement.behaviorLabel),
+    'touch drag measurements did not expose target metadata');
+  assert(mobileRadiusOnly.x === 260 && mobileRadiusOnly.y === 650 && mobileRadiusOnly.radius > 60 &&
+    mobileRadiusOnly.snap?.snapXTargetId === mobileSnapIds.targetX &&
+    mobileRadiusOnly.snap?.snapYTargetId === mobileSnapIds.targetY &&
+    mobileRadiusOnly.guide?.xLabel === 'X 260 px' && mobileRadiusOnly.guide?.yLabel === 'Y 650 px',
+  'radius-only touch adjustment changed the snapped center or cleared annotations');
+  assert(mobileSnapEntered.layout && mobileSnapEntered.layout.guideLabels.length === 2 &&
+    mobileSnapEntered.layout.metadataLabels.length === 2, 'DPR2 touch drag did not paint shared overlay annotations');
+  assert.deepStrictEqual(mobileSnapEntered.overlay, {
+    width: 780,
+    height: 1688,
+    cssWidth: '390px',
+    cssHeight: '844px'
+  }, 'gravity overlay did not keep logical CSS coordinates at DPR2');
+  assert.deepStrictEqual(mobileSnapCancelled, { snap: null, guide: null, drag: null },
+    'touch pointer cancellation left transient snap or guide state behind');
+
   const movedWell = await page.evaluate(() => {
     const pn = window.particleInstance;
     pn.clearGravityWells();
@@ -539,6 +630,8 @@ async function runGestures(page) {
     mobileWellInfluence,
     mobileBlackHoleOrbit,
     mobileOrbitEnvelopes,
+    mobileSnap: { ids: mobileSnapIds, entered: mobileSnapEntered, radiusOnly: mobileRadiusOnly, held: mobileSnapHeld,
+      outsideEntry: mobileOutsideEntry, cancelled: mobileSnapCancelled },
     moved,
     wellAdjust: { withinTolerance, larger, smaller, faster, slower, resumedMode, reversedFaster, reversedSlower },
     strengthBefore,
@@ -574,15 +667,26 @@ async function runPalette(page) {
 
   await page.evaluate(() => window.particleInstance.clearGravityWells());
   await dragPaletteToken(page, 'black', { x: 110, y: 360 }, 31);
-  await dragPaletteToken(page, 'white', { x: 280, y: 540 }, 32);
-  const wells = await page.evaluate(() => window.particleInstance.gravityWells.map(well => ({
-    type: well.type,
-    x: well.x,
-    y: well.y,
-    radius: well.radius
-  })));
+  await dragPaletteToken(page, 'white', { x: 120, y: 540 }, 32);
+  const paletteState = await page.evaluate(() => {
+    const pn = window.particleInstance;
+    return {
+      wells: pn.gravityWells.map(well => ({
+        type: well.type,
+        x: well.x,
+        y: well.y,
+        radius: well.radius
+      })),
+      snap: pn._gravityWellSnapState,
+      guide: pn._gravityWellGuideState
+    };
+  });
+  const wells = paletteState.wells;
   assert.deepStrictEqual(wells.map(well => well.type), ['black', 'white']);
   assert(wells.every(well => well.radius === 60), `mobile well default radius should be 60px: ${JSON.stringify(wells)}`);
+  assert.strictEqual(wells[1].x, wells[0].x, 'mobile palette placement did not share touch snapping');
+  assert.strictEqual(paletteState.snap, null, 'palette commit left snap latches behind');
+  assert.strictEqual(paletteState.guide, null, 'palette commit left guide state behind');
 
   const blackDeleteReady = await dragExistingWellToToken(page, wells[0], 'black', 33);
   assert.strictEqual(blackDeleteReady, true, 'black-hole icon did not show delete feedback');
@@ -754,7 +858,9 @@ async function main() {
   try {
     await load(page, options.url);
     const result = {};
-    if (options.section === 'all' || options.section === 'gestures') result.gestures = await runGestures(page);
+    if (options.section === 'all' || options.section === 'gestures') {
+      result.gestures = await runGestures(page, options.screenshotDir);
+    }
     if (options.section === 'all' || options.section === 'palette') result.palette = await runPalette(page);
     if (options.screenshotDir) {
       fs.mkdirSync(options.screenshotDir, { recursive: true });

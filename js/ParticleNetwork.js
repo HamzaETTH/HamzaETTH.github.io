@@ -71,6 +71,21 @@
   var mobileGravityWellContainmentTolerance = 0.01;
   var mobileWellAdjustDeadZone = 12;
   var mobileWellStrengthPixelsPerStep = 8;
+  var gravityWellMouseSnapDistance = 8;
+  var gravityWellTouchSnapDistance = 12;
+  var gravityWellSnapReleasePadding = 4;
+  var gravityWellAlignmentEpsilon = 0.01;
+
+  function effectiveGravityWellType(well) {
+    var type = well && well.type === 'white' ? 'white' : 'black';
+    var strength = well && Number.isFinite(well.strength) ? well.strength : 0;
+    return strength < 0 ? (type === 'white' ? 'black' : 'white') : type;
+  }
+
+  function formatGravityWellMagnitude(well) {
+    var strength = well && Number.isFinite(well.strength) ? well.strength : 0;
+    return Math.abs(strength).toLocaleString(undefined, { maximumFractionDigits: 2 });
+  }
 
   function mobileWellAxisDelta(delta) {
     var magnitude = Math.abs(delta);
@@ -766,6 +781,9 @@
       this._gravityPointerId = null;
       this._restoreGravityPointerFromSession();
       this._gravityWellDrag = null;
+      this._gravityWellSnapState = null;
+      this._gravityWellGuideState = null;
+      this._gravityWellOverlayLayout = null;
       this._mobileGesture = null;
       this._mobileLayoutMedia = window.matchMedia
         ? window.matchMedia('(hover: none) and (pointer: coarse)')
@@ -904,13 +922,9 @@
         this.i.appendChild(label);
         this._gravityWellStrengthLabel = label;
       }
-      var strength = Number.isFinite(well.strength) ? well.strength : 0;
-      var effectiveType = strength < 0
-        ? (well.type === 'white' ? 'black' : 'white')
-        : well.type;
+      var effectiveType = effectiveGravityWellType(well);
       var behavior = effectiveType === 'white' ? 'Repulsion' : 'Absorption';
-      var magnitude = Math.abs(strength);
-      var formattedMagnitude = magnitude.toLocaleString(undefined, { maximumFractionDigits: 2 });
+      var formattedMagnitude = formatGravityWellMagnitude(well);
       var width = this.i.size.width;
       var height = this.i.size.height;
       var offset = Math.max(30, Math.min(90, well.radius * 0.3));
@@ -1126,7 +1140,7 @@
 	      this._gravityPointer = pos;
 	      this._gravityPointerInsideCanvas = true;
 	      if (this.gravityWellDraft) {
-	        this._handleGravityWellPointerDown(pos.x, pos.y, evt.pointerId);
+	        this._handleGravityWellPointerDown(pos.x, pos.y, evt.pointerId, evt.pointerType, false);
 	        state = this._mobileGesture;
 	        this._activePointers.set(evt.pointerId, {
 	          x: pos.x,
@@ -1169,7 +1183,9 @@
 	          var primary = this._activePointers.get(state.primaryId);
 	          var well = this.getGravityWell(state.wellId);
 	          if (!primary || !well) return true;
-	          if (!this._gravityWellDrag) this._startGravityWellDrag(well, primary.startX, primary.startY, state.primaryId);
+	          if (!this._gravityWellDrag) {
+	            this._startGravityWellDrag(well, primary.startX, primary.startY, state.primaryId);
+	          }
 	          state.mode = 'well-adjust';
 	          state.secondaryId = evt.pointerId;
 	          state.adjustStartX = pos.x;
@@ -1236,11 +1252,11 @@
 	        if (!pendingWell) return true;
 	        this._startGravityWellDrag(pendingWell, pointer.startX, pointer.startY, state.primaryId);
 	        state.mode = 'well-move';
-	        this._handleGravityWellPointerMove(pos.x, pos.y);
+	        this._handleGravityWellPointerMove(pos.x, pos.y, evt.pointerType, false);
 	        return true;
 	      }
 	      if (state.mode === 'well-placement' && evt.pointerId === state.primaryId) {
-	        this._handleGravityWellPointerMove(pos.x, pos.y);
+	        this._handleGravityWellPointerMove(pos.x, pos.y, evt.pointerType, false);
 	        return true;
 	      }
 	      if (state.mode === 'well-move' && evt.pointerId === state.primaryId) {
@@ -1248,7 +1264,7 @@
 	        if (movingWell && !this._gravityWellDrag) {
 	          this._startGravityWellDrag(movingWell, pointer.startX, pointer.startY, state.primaryId);
 	        }
-	        this._handleGravityWellPointerMove(pos.x, pos.y);
+	        this._handleGravityWellPointerMove(pos.x, pos.y, evt.pointerType, false);
 	        return true;
 	      }
 	      if (state.mode === 'well-adjust') {
@@ -1256,7 +1272,9 @@
 	        var secondary = this._activePointers.get(state.secondaryId);
 	        var well = this.getGravityWell(state.wellId);
 	        if (!primary || !secondary || !well) return true;
-	        if (evt.pointerId === state.primaryId) this._handleGravityWellPointerMove(primary.x, primary.y);
+	        if (evt.pointerId === state.primaryId) {
+	          this._handleGravityWellPointerMove(primary.x, primary.y, evt.pointerType, false);
+	        }
 	        var radiusDelta = mobileWellAxisDelta(state.adjustStartY - secondary.y);
 	        var strengthDelta = mobileWellAxisDelta(secondary.x - state.adjustStartX);
 	        var strengthSign = state.adjustStartStrength < 0 ? -1 : 1;
@@ -1311,7 +1329,7 @@
 	        return true;
 	      }
 	      if (state.mode === 'well-placement') {
-	        this._handleGravityWellPointerUp(pos.x, pos.y, evt.pointerId);
+	        this._handleGravityWellPointerUp(pos.x, pos.y, evt.pointerId, evt.pointerType, false);
 	        this._resetMobileGesture(true);
 	        return true;
 	      }
@@ -1322,7 +1340,7 @@
 	        return true;
 	      }
 	      if (state.mode === 'well-move' && evt.pointerId === state.primaryId && this._gravityWellDrag) {
-	        this._handleGravityWellPointerMove(pos.x, pos.y);
+	        this._handleGravityWellPointerMove(pos.x, pos.y, evt.pointerType, false);
 	      }
 	      var keepStrengthLabel = state.mode === 'well-strength';
 	      if (keepStrengthLabel) {
@@ -2009,6 +2027,7 @@
       };
       this.gravityWells.push(well);
       this._selectSingleGravityWellState(well.id);
+      if (this.gravityWellDraft) this._clearGravityWellSnapState();
       this.gravityWellDraft = null;
       this._emitGravityWellsChange();
       this._ensureAnimationLoop();
@@ -2059,6 +2078,7 @@
           : null;
       }
       if (this.gravityWellDraft && this.gravityWellDraft.editId === id) this.gravityWellDraft = null;
+      this._clearGravityWellSnapState();
       this._emitGravityWellsChange();
       return true;
     }),
@@ -2107,11 +2127,13 @@
       if (this.selectedGravityWellIds) this.selectedGravityWellIds.clear();
       this.gravityWellDraft = null;
       this._gravityPointerId = null;
+      this._clearGravityWellSnapState();
       this._clearGravityWellOverlay();
       this._emitGravityWellsChange();
     }),
     (b.prototype.setGravityWellsEnabled = function(enabled) {
       this.options.gravityWellsEnabled = !!enabled;
+      if (!enabled) this._clearGravityWellSnapState();
       this._emitGravityWellsChange();
       if (enabled) this._ensureAnimationLoop();
       else this._clearGravityWellOverlay();
@@ -2124,6 +2146,7 @@
 	      this._hideGravityWellStrengthLabel();
 	      this.options.gravityWellsEnabled = true;
 	      this._clearObjectSelectionState();
+      this._clearGravityWellSnapState();
       this.gravityWellDraft = {
         type: type,
         x: keyboardPlacement ? pointer.x : null,
@@ -2137,23 +2160,33 @@
         sizedByPointer: false,
         editId: null
       };
+      if (keyboardPlacement) {
+        var positioned = this._resolveGravityWellSnappedPosition(
+          this.gravityWellDraft.x,
+          this.gravityWellDraft.y,
+          null,
+          'mouse',
+          false
+        );
+        this.gravityWellDraft.x = positioned.x;
+        this.gravityWellDraft.y = positioned.y;
+      }
       this._emitGravityWellsChange();
 	      this._ensureAnimationLoop();
 	      return this.gravityWellDraft;
 	    }),
 	    (b.prototype.beginGravityWellPaletteDrag = function(type, x, y) {
 	      var draft = this.beginGravityWellPlacement(type, true, mobileGravityWellRadius);
-	      draft.x = x;
-	      draft.y = y;
 	      draft.phase = 'positioning';
-	      this._emitGravityWellsChange();
+	      this.updateGravityWellPaletteDrag(x, y);
 	      return draft;
 	    }),
 	    (b.prototype.updateGravityWellPaletteDrag = function(x, y) {
 	      var draft = this.gravityWellDraft;
 	      if (!draft || draft.phase !== 'positioning') return false;
-	      draft.x = Math.max(0, Math.min(this.i.size.width, x));
-	      draft.y = Math.max(0, Math.min(this.i.size.height, y));
+	      var positioned = this._resolveGravityWellSnappedPosition(x, y, draft.editId, 'touch', false);
+	      draft.x = positioned.x;
+	      draft.y = positioned.y;
 	      this._emitGravityWellsChange();
 	      return true;
 	    }),
@@ -2165,6 +2198,7 @@
       var selected = this.getSelectedGravityWell();
       if (!selected) return null;
       this._hideGravityWellStrengthLabel();
+      this._clearGravityWellSnapState();
       this.gravityWellDraft = Object.assign({}, selected, {
         phase: 'awaiting',
         dragging: false,
@@ -2188,6 +2222,7 @@
       if (this.gravityWellDraft) {
         this.gravityWellDraft = null;
         this._gravityPointerId = null;
+        this._clearGravityWellSnapState();
         this._emitGravityWellsChange();
         return true;
       }
@@ -2202,6 +2237,7 @@
       if (!draft || !Number.isFinite(draft.x) || !Number.isFinite(draft.y)) return null;
       this.gravityWellDraft = null;
       this._gravityPointerId = null;
+      this._clearGravityWellSnapState();
       if (draft.editId) {
         this.selectedGravityWellId = draft.editId;
         return this.updateGravityWell(draft.editId, draft);
@@ -2235,11 +2271,122 @@
       }
       return null;
     }),
+    (b.prototype._clearGravityWellSnapState = function() {
+      this._gravityWellSnapState = null;
+      this._gravityWellGuideState = null;
+      this._gravityWellOverlayLayout = null;
+      this._gravityWellMeasurements = [];
+    }),
+    (b.prototype._resolveGravityWellSnappedPosition = function(rawX, rawY, excludedId, inputKind, bypassSnap) {
+      var width = this.i.size.width;
+      var height = this.i.size.height;
+      var x = Math.max(0, Math.min(width, rawX));
+      var y = Math.max(0, Math.min(height, rawY));
+      if (this.options.gravityWellsEnabled === false) {
+        this._clearGravityWellSnapState();
+        return { x: x, y: y };
+      }
+      var isTouch = inputKind === 'touch' || inputKind === 'pen';
+      var kind = isTouch ? inputKind : 'mouse';
+      var entryDistance = isTouch ? gravityWellTouchSnapDistance : gravityWellMouseSnapDistance;
+      var releaseDistance = entryDistance + gravityWellSnapReleasePadding;
+      var sourceKey = this._gravityWellDrag
+        ? 'well:' + this._gravityWellDrag.id
+        : (this.gravityWellDraft
+          ? 'draft:' + (this.gravityWellDraft.editId || 'new')
+          : 'direct:' + (excludedId || 'new'));
+      var state = this._gravityWellSnapState;
+      if (!state || state.sourceKey !== sourceKey || state.inputKind !== kind) {
+        state = {
+          sourceKey: sourceKey,
+          inputKind: kind,
+          snapXTargetId: null,
+          snapYTargetId: null
+        };
+      }
+
+      if (kind === 'mouse' && bypassSnap) {
+        state.snapXTargetId = null;
+        state.snapYTargetId = null;
+        this._gravityWellSnapState = state;
+        return { x: x, y: y };
+      }
+
+      var resolveAxis = function(axis, coordinate, otherCoordinate, latchedId) {
+        var latched = latchedId ? this.getGravityWell(latchedId) : null;
+        if (latched && latched.id !== excludedId &&
+            Math.abs(latched[axis] - coordinate) <= releaseDistance) return latched;
+
+        var best = null;
+        var bestAxisDelta = Infinity;
+        var bestCenterDistance = Infinity;
+        var otherAxis = axis === 'x' ? 'y' : 'x';
+        for (var i = 0; i < this.gravityWells.length; i++) {
+          var candidate = this.gravityWells[i];
+          if (candidate.id === excludedId) continue;
+          var axisDelta = Math.abs(candidate[axis] - coordinate);
+          if (axisDelta > entryDistance) continue;
+          var otherDelta = candidate[otherAxis] - otherCoordinate;
+          var centerDistance = axisDelta * axisDelta + otherDelta * otherDelta;
+          if (axisDelta < bestAxisDelta - gravityWellAlignmentEpsilon ||
+              (Math.abs(axisDelta - bestAxisDelta) <= gravityWellAlignmentEpsilon &&
+                centerDistance < bestCenterDistance - gravityWellAlignmentEpsilon)) {
+            best = candidate;
+            bestAxisDelta = axisDelta;
+            bestCenterDistance = centerDistance;
+          }
+        }
+        return best;
+      }.bind(this);
+
+      var xTarget = resolveAxis('x', x, y, state.snapXTargetId);
+      var yTarget = resolveAxis('y', y, x, state.snapYTargetId);
+      state.snapXTargetId = xTarget ? xTarget.id : null;
+      state.snapYTargetId = yTarget ? yTarget.id : null;
+      this._gravityWellSnapState = state;
+      return {
+        x: xTarget ? xTarget.x : x,
+        y: yTarget ? yTarget.y : y
+      };
+    }),
+    (b.prototype._getGravityWellGuideState = function() {
+      if (this.options.gravityWellsEnabled === false) return null;
+      var source = this.gravityWellDraft;
+      var activeId = source && source.editId ? source.editId : null;
+      if (!source && this._gravityWellDrag) {
+        activeId = this._gravityWellDrag.id;
+        source = this.getGravityWell(activeId);
+      }
+      if (!source || !Number.isFinite(source.x) || !Number.isFinite(source.y)) return null;
+
+      var alignedXTargetIds = [];
+      var alignedYTargetIds = [];
+      for (var i = 0; i < this.gravityWells.length; i++) {
+        var well = this.gravityWells[i];
+        if (well.id === activeId) continue;
+        if (Math.abs(well.x - source.x) <= gravityWellAlignmentEpsilon) alignedXTargetIds.push(well.id);
+        if (Math.abs(well.y - source.y) <= gravityWellAlignmentEpsilon) alignedYTargetIds.push(well.id);
+      }
+      var snapState = this._gravityWellSnapState;
+      return {
+        activeId: activeId,
+        x: source.x,
+        y: source.y,
+        radius: Number.isFinite(source.radius) ? source.radius : 0,
+        xLabel: 'X ' + Math.round(source.x) + ' px',
+        yLabel: 'Y ' + Math.round(source.y) + ' px',
+        snapXTargetId: snapState ? snapState.snapXTargetId : null,
+        snapYTargetId: snapState ? snapState.snapYTargetId : null,
+        alignedXTargetIds: alignedXTargetIds,
+        alignedYTargetIds: alignedYTargetIds
+      };
+    }),
     (b.prototype._startGravityWellDrag = function(well, x, y, pointerId) {
       if (!well) return false;
 	      this._clearInteractivePointerForces(pointerId !== 'mouse');
       this._hideGravityWellStrengthLabel();
       this._selectSingleGravityWellState(well.id);
+      this._clearGravityWellSnapState();
       this._gravityWellDrag = {
         id: well.id,
         pointerId: pointerId,
@@ -2258,11 +2405,12 @@
       var drag = this._gravityWellDrag;
       if (!drag || (pointerId != null && drag.pointerId !== pointerId)) return false;
       this._gravityWellDrag = null;
+      this._clearGravityWellSnapState();
       if (this.canvas) this.canvas.classList.remove('gravity-well-dragging');
       this._updateGravityWellRadiusLabel();
       return true;
     }),
-    (b.prototype._handleGravityWellPointerMove = function(x, y) {
+    (b.prototype._handleGravityWellPointerMove = function(x, y, inputKind, bypassSnap) {
       this._gravityPointer = { x: x, y: y };
       var drag = this._gravityWellDrag;
       if (drag) {
@@ -2271,8 +2419,15 @@
           this._stopGravityWellDrag();
           return false;
         }
-        draggedWell.x = Math.max(0, Math.min(this.i.size.width, x - drag.offsetX));
-        draggedWell.y = Math.max(0, Math.min(this.i.size.height, y - drag.offsetY));
+        var draggedPosition = this._resolveGravityWellSnappedPosition(
+          x - drag.offsetX,
+          y - drag.offsetY,
+          drag.id,
+          inputKind || (drag.pointerId === 'mouse' ? 'mouse' : 'touch'),
+          bypassSnap
+        );
+        draggedWell.x = draggedPosition.x;
+        draggedWell.y = draggedPosition.y;
         this._emitGravityWellsChange();
         this._ensureAnimationLoop();
         return true;
@@ -2280,8 +2435,15 @@
       var draft = this.gravityWellDraft;
       if (!draft) return false;
       if (draft.phase === 'positioning') {
-        draft.x = x;
-        draft.y = y;
+        var draftPosition = this._resolveGravityWellSnappedPosition(
+          x,
+          y,
+          draft.editId,
+          inputKind || 'mouse',
+          bypassSnap
+        );
+        draft.x = draftPosition.x;
+        draft.y = draftPosition.y;
         this._emitGravityWellsChange();
         return true;
       }
@@ -2295,17 +2457,23 @@
       this._emitGravityWellsChange();
       return true;
     }),
-    (b.prototype._handleGravityWellPointerDown = function(x, y, pointerId) {
+    (b.prototype._handleGravityWellPointerDown = function(x, y, pointerId, inputKind, bypassSnap) {
       var draft = this.gravityWellDraft;
 	      if (draft) {
 	        this._clearInteractivePointerForces();
 	        if (draft.phase === 'positioning') {
-          draft.x = x;
-          draft.y = y;
+          var positioned = this._resolveGravityWellSnappedPosition(
+            x, y, draft.editId, inputKind || 'mouse', bypassSnap
+          );
+          draft.x = positioned.x;
+          draft.y = positioned.y;
           this._commitGravityWellPlacement();
         } else if (draft.phase === 'awaiting') {
-          draft.x = x;
-          draft.y = y;
+          var centered = this._resolveGravityWellSnappedPosition(
+            x, y, draft.editId, inputKind || 'mouse', bypassSnap
+          );
+          draft.x = centered.x;
+          draft.y = centered.y;
           draft.radius = this._clampGravityWellRadius(draft.radius);
           draft.phase = 'sizing';
           draft.dragging = true;
@@ -2323,15 +2491,15 @@
 	      }
       return false;
     }),
-    (b.prototype._handleGravityWellPointerUp = function(x, y, pointerId) {
+    (b.prototype._handleGravityWellPointerUp = function(x, y, pointerId, inputKind, bypassSnap) {
       if (this._gravityWellDrag && this._gravityWellDrag.pointerId === pointerId) {
-        this._handleGravityWellPointerMove(x, y);
+        this._handleGravityWellPointerMove(x, y, inputKind, bypassSnap);
         this._stopGravityWellDrag(pointerId);
         return true;
       }
       var draft = this.gravityWellDraft;
       if (!draft || !draft.dragging || this._gravityPointerId !== pointerId) return false;
-      this._handleGravityWellPointerMove(x, y);
+      this._handleGravityWellPointerMove(x, y, inputKind, bypassSnap);
       this._commitGravityWellPlacement();
       return true;
     }),
@@ -2359,7 +2527,13 @@
           toX: well.x,
           toY: well.y,
           distance: distance,
-          label: Math.round(distance) + ' px'
+          label: Math.round(distance) + ' px',
+          radius: well.radius,
+          radiusLabel: 'Radius ' + Math.round(well.radius) + ' px',
+          effectiveType: effectiveGravityWellType(well),
+          strengthMagnitude: Math.abs(Number.isFinite(well.strength) ? well.strength : 0),
+          behaviorLabel: (effectiveGravityWellType(well) === 'white' ? 'Repel ' : 'Absorb ') +
+            formatGravityWellMagnitude(well)
         });
       }
       return measurements;
@@ -2371,8 +2545,9 @@
       var visible = [];
       var prepareWell = function(well) {
         var prepared = Object.assign({}, well);
-        if (Number.isFinite(prepared.strength) && prepared.strength < 0) {
-          prepared.type = prepared.type === 'white' ? 'black' : 'white';
+        var effectiveType = effectiveGravityWellType(prepared);
+        if (effectiveType !== prepared.type) {
+          prepared.type = effectiveType;
           prepared.strength = Math.abs(prepared.strength);
           var defaults = this._gravityWellDefaults(prepared.type);
           prepared.innerColor = defaults.innerColor;
@@ -2414,6 +2589,7 @@
         canvas.style.left = '0';
         canvas.style.zIndex = '21';
         canvas.style.pointerEvents = 'none';
+        canvas.setAttribute('aria-hidden', 'true');
         this.i.appendChild(canvas);
         this._gravityWellOverlay = canvas;
         this._gravityWellOverlayContext = canvas.getContext('2d');
@@ -2443,19 +2619,140 @@
       this._gravityWellOverlayContext.clearRect(0, 0, this.i.size.width, this.i.size.height);
       this._gravityWellOverlay.style.display = 'none';
     }),
-    (b.prototype._drawGravityWellMeasurements = function(context, measurements) {
-      if (!context || !measurements || !measurements.length) return;
+    (b.prototype._getGravityWellOverlayLabelRect = function(context, lines, centerX, centerY) {
       var width = this.i.size.width;
       var height = this.i.size.height;
+      var contentWidth = 0;
+      for (var i = 0; i < lines.length; i++) {
+        contentWidth = Math.max(contentWidth, context.measureText(lines[i]).width);
+      }
+      var labelWidth = Math.ceil(contentWidth) + 14;
+      var labelHeight = lines.length > 1 ? lines.length * 14 + 10 : 22;
+      var x = Math.max(labelWidth / 2 + 2, Math.min(width - labelWidth / 2 - 2, centerX));
+      var y = Math.max(labelHeight / 2 + 2, Math.min(height - labelHeight / 2 - 2, centerY));
+      return {
+        x: x - labelWidth / 2,
+        y: y - labelHeight / 2,
+        width: labelWidth,
+        height: labelHeight
+      };
+    }),
+    (b.prototype._drawGravityWellOverlayLabel = function(context, lines, centerX, centerY, options) {
+      options = options || {};
+      context.save();
+      context.globalCompositeOperation = 'source-over';
+      context.font = options.font || '600 12px "Fira Code", monospace';
+      context.textAlign = 'center';
+      context.textBaseline = 'middle';
+      var rect = options.rect || this._getGravityWellOverlayLabelRect(context, lines, centerX, centerY);
+      var labelX = rect.x + rect.width / 2;
+      var labelY = rect.y + rect.height / 2;
+      context.fillStyle = options.background || 'rgba(0,0,0,0.78)';
+      context.beginPath();
+      if (context.roundRect) context.roundRect(rect.x, rect.y, rect.width, rect.height, 4);
+      else context.rect(rect.x, rect.y, rect.width, rect.height);
+      context.fill();
+      if (options.border) {
+        context.strokeStyle = options.border;
+        context.lineWidth = 1;
+        context.stroke();
+      }
+      context.fillStyle = options.color || 'rgba(255,255,255,0.96)';
+      var lineHeight = 14;
+      var firstLineY = labelY - (lines.length - 1) * lineHeight / 2;
+      for (var i = 0; i < lines.length; i++) {
+        context.fillText(lines[i], labelX, firstLineY + i * lineHeight + 0.5);
+      }
+      context.restore();
+      return rect;
+    }),
+    (b.prototype._chooseGravityWellOverlayLabelRect = function(context, lines, candidates, occupied) {
+      var chosen = null;
+      var chosenArea = Infinity;
+      for (var i = 0; i < candidates.length; i++) {
+        var candidate = candidates[i];
+        var rect = this._getGravityWellOverlayLabelRect(context, lines, candidate.x, candidate.y);
+        var overlapArea = this._gravityWellOverlayOverlapArea(rect, occupied);
+        if (overlapArea < chosenArea) {
+          chosen = rect;
+          chosenArea = overlapArea;
+        }
+        if (overlapArea === 0) return rect;
+      }
+      return chosen;
+    }),
+    (b.prototype._gravityWellOverlayOverlapArea = function(rect, occupied) {
+      var area = 0;
+      for (var i = 0; i < occupied.length; i++) {
+        var other = occupied[i];
+        var overlapWidth = Math.max(0, Math.min(rect.x + rect.width, other.x + other.width) - Math.max(rect.x, other.x));
+        var overlapHeight = Math.max(0, Math.min(rect.y + rect.height, other.y + other.height) - Math.max(rect.y, other.y));
+        area += overlapWidth * overlapHeight;
+      }
+      return area;
+    }),
+    (b.prototype._drawGravityWellCoordinateGuides = function(context, guide, occupied, layout) {
+      if (!context || !guide) return;
+      var xAligned = guide.alignedXTargetIds.length > 0;
+      var yAligned = guide.alignedYTargetIds.length > 0;
+      context.save();
+      context.globalCompositeOperation = 'source-over';
+      context.lineCap = 'butt';
+      context.setLineDash([5, 5]);
+      context.lineDashOffset = 0;
+
+      context.lineWidth = xAligned ? 1.5 : 1;
+      context.strokeStyle = xAligned ? 'rgba(102,225,255,0.92)' : 'rgba(102,225,255,0.48)';
+      context.beginPath();
+      context.moveTo(guide.x, 0);
+      context.lineTo(guide.x, guide.y);
+      context.stroke();
+
+      context.lineWidth = yAligned ? 1.5 : 1;
+      context.strokeStyle = yAligned ? 'rgba(255,190,86,0.92)' : 'rgba(255,190,86,0.48)';
+      context.beginPath();
+      context.moveTo(0, guide.y);
+      context.lineTo(guide.x, guide.y);
+      context.stroke();
+      context.restore();
+
+      context.font = '600 12px "Fira Code", monospace';
+      var xCandidates = [
+        { x: guide.x, y: Math.max(18, guide.y / 2) },
+        { x: guide.x, y: Math.max(18, guide.y / 3) }
+      ];
+      var xChosen = this._chooseGravityWellOverlayLabelRect(context, [guide.xLabel], xCandidates, occupied);
+      var xRect = this._drawGravityWellOverlayLabel(
+        context,
+        [guide.xLabel],
+        xChosen.x + xChosen.width / 2,
+        xChosen.y + xChosen.height / 2,
+        { rect: xChosen, border: 'rgba(102,225,255,0.68)', color: 'rgba(220,250,255,0.98)' }
+      );
+      occupied.push(xRect);
+      var yCandidates = [
+        { x: Math.max(28, guide.x / 2), y: guide.y },
+        { x: Math.max(28, guide.x / 3), y: guide.y }
+      ];
+      var yChosen = this._chooseGravityWellOverlayLabelRect(context, [guide.yLabel], yCandidates, occupied);
+      var yRect = this._drawGravityWellOverlayLabel(
+        context,
+        [guide.yLabel],
+        yChosen.x + yChosen.width / 2,
+        yChosen.y + yChosen.height / 2,
+        { rect: yChosen, border: 'rgba(255,190,86,0.68)', color: 'rgba(255,239,211,0.98)' }
+      );
+      occupied.push(yRect);
+      layout.guideLabels.push({ axis: 'x', rect: xRect }, { axis: 'y', rect: yRect });
+    }),
+    (b.prototype._drawGravityWellMeasurements = function(context, measurements, occupied, layout) {
+      if (!context || !measurements || !measurements.length) return;
       context.save();
       context.globalCompositeOperation = 'source-over';
       context.lineCap = 'round';
       context.lineWidth = 1;
       context.strokeStyle = 'rgba(255,255,255,0.46)';
-      context.fillStyle = 'rgba(0,0,0,0.76)';
       context.font = '600 12px "Fira Code", monospace';
-      context.textAlign = 'center';
-      context.textBaseline = 'middle';
 
       for (var i = 0; i < measurements.length; i++) {
         var measurement = measurements[i];
@@ -2477,21 +2774,75 @@
         context.lineTo(measurement.toX + normalX * 5, measurement.toY + normalY * 5);
         context.stroke();
 
-        var labelWidth = Math.ceil(context.measureText(measurement.label).width) + 14;
-        var labelHeight = 22;
-        var labelX = Math.max(labelWidth / 2 + 2, Math.min(width - labelWidth / 2 - 2,
-          (measurement.fromX + measurement.toX) / 2));
-        var labelY = Math.max(labelHeight / 2 + 2, Math.min(height - labelHeight / 2 - 2,
-          (measurement.fromY + measurement.toY) / 2));
-        var left = labelX - labelWidth / 2;
-        var top = labelY - labelHeight / 2;
+      }
+      context.restore();
+
+      for (var labelIndex = 0; labelIndex < measurements.length; labelIndex++) {
+        var labelMeasurement = measurements[labelIndex];
+        var rect = this._drawGravityWellOverlayLabel(
+          context,
+          [labelMeasurement.label],
+          (labelMeasurement.fromX + labelMeasurement.toX) / 2,
+          (labelMeasurement.fromY + labelMeasurement.toY) / 2
+        );
+        occupied.push(rect);
+        layout.distanceLabels.push({ targetId: labelMeasurement.targetId, rect: rect });
+      }
+    }),
+    (b.prototype._drawGravityWellMetadata = function(context, measurements, occupied, layout) {
+      if (!context || !measurements || !measurements.length) return;
+      context.font = '600 12px "Fira Code", monospace';
+      for (var i = 0; i < measurements.length; i++) {
+        var measurement = measurements[i];
+        var lines = [measurement.radiusLabel, measurement.behaviorLabel];
+        var verticalExtent = Math.max(14, measurement.radius * 0.48);
+        var horizontalExtent = Math.max(18, measurement.radius * 0.55);
+        var candidates = [
+          { x: measurement.toX, y: measurement.toY + verticalExtent + 29 },
+          { x: measurement.toX, y: measurement.toY - verticalExtent - 29 },
+          { x: measurement.toX + horizontalExtent + 48, y: measurement.toY },
+          { x: measurement.toX - horizontalExtent - 48, y: measurement.toY }
+        ];
+        var chosen = this._chooseGravityWellOverlayLabelRect(context, lines, candidates, occupied);
+        var rect = this._drawGravityWellOverlayLabel(
+          context,
+          lines,
+          chosen.x + chosen.width / 2,
+          chosen.y + chosen.height / 2,
+          { rect: chosen, background: 'rgba(7,10,18,0.86)', border: 'rgba(255,255,255,0.24)' }
+        );
+        occupied.push(rect);
+        layout.metadataLabels.push({ targetId: measurement.targetId, lines: lines, rect: rect });
+      }
+    }),
+    (b.prototype._drawGravityWellAlignmentHalos = function(context, guide, layout) {
+      if (!context || !guide) return;
+      var xTargets = new Set(guide.alignedXTargetIds);
+      var yTargets = new Set(guide.alignedYTargetIds);
+      var targetIds = [];
+      xTargets.forEach(function(id) { targetIds.push(id); });
+      yTargets.forEach(function(id) { if (!xTargets.has(id)) targetIds.push(id); });
+      context.save();
+      context.globalCompositeOperation = 'lighter';
+      context.lineWidth = 2.5;
+      for (var i = 0; i < targetIds.length; i++) {
+        var id = targetIds[i];
+        var well = this.getGravityWell(id);
+        if (!well) continue;
+        var onX = xTargets.has(id);
+        var onY = yTargets.has(id);
+        var color = onX && onY
+          ? 'rgba(255,255,255,0.96)'
+          : (onX ? 'rgba(102,225,255,0.96)' : 'rgba(255,190,86,0.96)');
+        var coreRadius = Math.max(12, well.radius * 0.23);
+        context.strokeStyle = color;
+        context.shadowColor = color;
+        context.shadowBlur = 12;
         context.beginPath();
-        if (context.roundRect) context.roundRect(left, top, labelWidth, labelHeight, 4);
-        else context.rect(left, top, labelWidth, labelHeight);
-        context.fill();
-        context.fillStyle = 'rgba(255,255,255,0.96)';
-        context.fillText(measurement.label, labelX, labelY + 0.5);
-        context.fillStyle = 'rgba(0,0,0,0.76)';
+        if (context.ellipse) context.ellipse(well.x, well.y, coreRadius, coreRadius * 0.72, 0, 0, Math.PI * 2);
+        else context.arc(well.x, well.y, coreRadius, 0, Math.PI * 2);
+        context.stroke();
+        layout.haloTargetIds.push(id);
       }
       context.restore();
     }),
@@ -2556,11 +2907,21 @@
       var wells = this._frameGravityWells || [];
       if (!wells.length) {
         this._gravityWellMeasurements = [];
+        this._gravityWellGuideState = null;
+        this._gravityWellOverlayLayout = null;
         this._clearGravityWellOverlay();
         return;
       }
       var measurements = this._getGravityWellMeasurements();
+      var guide = this._getGravityWellGuideState();
       this._gravityWellMeasurements = measurements;
+      this._gravityWellGuideState = guide;
+      this._gravityWellOverlayLayout = guide ? {
+        guideLabels: [],
+        distanceLabels: [],
+        metadataLabels: [],
+        haloTargetIds: []
+      } : null;
       var renderer = this.glRenderer;
       var webglRendered = !!(renderer && renderer.gl && renderer.gravityWellRenderer &&
         !renderer.gravityWellCompositionFailed && !renderer.gravityWellRenderer.failed);
@@ -2574,12 +2935,26 @@
         );
       } else if (!webglRendered) {
         context = this._drawGravityWellFallback(wells);
-      } else if (measurements.length) {
+      } else if (guide || measurements.length) {
         context = this._ensureGravityWellOverlay();
       } else {
         this._clearGravityWellOverlay();
       }
-      if (measurements.length) this._drawGravityWellMeasurements(context, measurements);
+      if (!guide) return;
+      var layout = this._gravityWellOverlayLayout;
+      var activeCoreExtent = Math.max(26, guide.radius * 0.34);
+      var occupied = [{
+        x: guide.x - activeCoreExtent,
+        y: guide.y - activeCoreExtent,
+        width: activeCoreExtent * 2,
+        height: activeCoreExtent * 2
+      }];
+      this._drawGravityWellCoordinateGuides(context, guide, occupied, layout);
+      if (measurements.length) {
+        this._drawGravityWellMeasurements(context, measurements, occupied, layout);
+        this._drawGravityWellMetadata(context, measurements, occupied, layout);
+      }
+      this._drawGravityWellAlignmentHalos(context, guide, layout);
     }),
     (b.prototype.init = function () {
       if (
@@ -2938,7 +3313,7 @@
           evt.stopImmediatePropagation();
           return;
         }
-        this._handleGravityWellPointerMove(pos.x, pos.y);
+        this._handleGravityWellPointerMove(pos.x, pos.y, 'mouse', evt.shiftKey);
         if (!this.gravityWellDraft && !this._gravityWellDrag) {
           this.canvas.classList.toggle('gravity-well-hover', !!this._hitTestGravityWellVisual(pos.x, pos.y));
         }
@@ -2966,7 +3341,7 @@
         }
         if (!this._gravityWellDrag || this._gravityWellDrag.pointerId !== 'mouse' || evt.target === this.canvas) return;
         var pos = this._mapToLogicalCanvas(evt);
-        this._handleGravityWellPointerMove(pos.x, pos.y);
+        this._handleGravityWellPointerMove(pos.x, pos.y, 'mouse', evt.shiftKey);
       }.bind(this), true);
 
       window.addEventListener('mouseup', function(evt) {
@@ -3030,7 +3405,7 @@
         } else if (evt.button !== 0) {
           this._lastPrimaryEmptyDown = null;
         }
-        if (!this._handleGravityWellPointerDown(pos.x, pos.y, 'mouse')) return;
+        if (!this._handleGravityWellPointerDown(pos.x, pos.y, 'mouse', 'mouse', evt.shiftKey)) return;
         evt.preventDefault();
         evt.stopImmediatePropagation();
       }.bind(this), true);
@@ -3059,7 +3434,7 @@
           return;
         }
         var pos = this._mapToLogicalCanvas(evt);
-        if (!this._handleGravityWellPointerUp(pos.x, pos.y, 'mouse')) return;
+        if (!this._handleGravityWellPointerUp(pos.x, pos.y, 'mouse', 'mouse', evt.shiftKey)) return;
         evt.preventDefault();
         evt.stopImmediatePropagation();
       }.bind(this), true);

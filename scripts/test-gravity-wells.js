@@ -1272,9 +1272,14 @@ async function runDesktop(browser, options, browserErrors) {
     overlayZ: window.particleInstance._gravityWellOverlay?.style.zIndex,
     trailZ: window.particleInstance.canvas.style.zIndex,
     measurementCount: window.particleInstance._gravityWellMeasurements.length,
+    guideLabelCount: window.particleInstance._gravityWellOverlayLayout?.guideLabels.length || 0,
+    metadataLabelCount: window.particleInstance._gravityWellOverlayLayout?.metadataLabels.length || 0,
     wellCount: window.particleInstance.gravityWells.length,
     velocityFinite: Number.isFinite(window.particleInstance.velX[0]) && Number.isFinite(window.particleInstance.velY[0])
   }));
+  if (options.screenshotDir) {
+    await page.screenshot({ path: path.join(options.screenshotDir, 'trails-gravity-guides.png') });
+  }
   await page.keyboard.press('Escape');
 
   await page.evaluate(() => {
@@ -1295,6 +1300,8 @@ async function runDesktop(browser, options, browserErrors) {
     overlayVisible: window.particleInstance._gravityWellOverlay?.style.display === 'block',
     overlayCanvas: window.particleInstance._gravityWellOverlay instanceof HTMLCanvasElement,
     measurementCount: window.particleInstance._gravityWellMeasurements.length,
+    guideLabelCount: window.particleInstance._gravityWellOverlayLayout?.guideLabels.length || 0,
+    metadataLabelCount: window.particleInstance._gravityWellOverlayLayout?.metadataLabels.length || 0,
     physicsFinite: Number.isFinite(window.particleInstance.velX[0]) && Number.isFinite(window.particleInstance.velY[0])
   }));
   if (options.screenshotDir) {
@@ -1475,8 +1482,10 @@ async function runDesktop(browser, options, browserErrors) {
     resizedTargets: resizedTargets.sceneWidth === resizedTargets.backingWidth && resizedTargets.sceneHeight === resizedTargets.backingHeight &&
       resizedTargets.fieldWidth === Math.ceil(resizedTargets.backingWidth / 2) && resizedTargets.fieldHeight === Math.ceil(resizedTargets.backingHeight / 2),
     trailsStayBelowWells: trails.overlayVisible && Number(trails.overlayZ) > Number(trails.trailZ) && trails.velocityFinite &&
-      trails.measurementCount === trails.wellCount,
-    fallbackIsFunctional: fallback.overlayVisible && fallback.overlayCanvas && fallback.measurementCount === 2 && fallback.physicsFinite
+      trails.measurementCount === trails.wellCount && trails.guideLabelCount === 2 &&
+      trails.metadataLabelCount === trails.wellCount,
+    fallbackIsFunctional: fallback.overlayVisible && fallback.overlayCanvas && fallback.measurementCount === 2 &&
+      fallback.guideLabelCount === 2 && fallback.metadataLabelCount === 2 && fallback.physicsFinite
   };
 
   await context.close();
@@ -1485,6 +1494,359 @@ async function runDesktop(browser, options, browserErrors) {
     panelCapUnlimited, panelCapRestored, sliderControls,
     physics, visibleAnimation,
     resourceAfter, resizedTargets, trails, fallback };
+}
+
+async function runDragInfo(browser, options, browserErrors) {
+  const context = await browser.newContext({ viewport: { width: 1280, height: 720 }, deviceScaleFactor: 1 });
+  const page = await context.newPage();
+  page.on('console', message => {
+    if (message.type() === 'error') browserErrors.push({ surface: 'drag-info', type: 'console', text: message.text() });
+  });
+  page.on('pageerror', error => browserErrors.push({ surface: 'drag-info', type: 'pageerror', text: String(error) }));
+  await load(page, options.url);
+
+  const ids = await page.evaluate(() => {
+    const pn = window.particleInstance;
+    pn.clearGravityWells();
+    const active = pn.addGravityWell('black', 180, 180, 70);
+    const targetX = pn.addGravityWell('black', 400, 140, 60);
+    const targetY = pn.addGravityWell('black', 720, 320, 90);
+    const invertedWhite = pn.addGravityWell('white', 400, 520, 110);
+    pn.updateGravityWell(targetY.id, { strength: -7.5 });
+    pn.updateGravityWell(invertedWhite.id, { strength: -8.25 });
+    return { active: active.id, targetX: targetX.id, targetY: targetY.id, invertedWhite: invertedWhite.id };
+  });
+  await page.mouse.move(180, 180);
+  await page.mouse.down();
+  await page.mouse.move(392, 312);
+  await waitForFrames(page, 3);
+  const snapped = await page.evaluate(ids => {
+    const pn = window.particleInstance;
+    const active = pn.getGravityWell(ids.active);
+    const overlay = pn._gravityWellOverlay;
+    const layout = pn._gravityWellOverlayLayout || null;
+    const metadataRect = layout && layout.metadataLabels && layout.metadataLabels[0]
+      ? layout.metadataLabels[0].rect : null;
+    let metadataAlpha = 0;
+    let alignedGuideOnAlpha = 0;
+    let alignedGuideGapAlpha = 0;
+    if (overlay && metadataRect) {
+      const context = overlay.getContext('2d');
+      const x = Math.max(0, Math.min(overlay.width - 1, Math.round(metadataRect.x + metadataRect.width / 2)));
+      const y = Math.max(0, Math.min(overlay.height - 1, Math.round(metadataRect.y + metadataRect.height / 2)));
+      metadataAlpha = context.getImageData(x, y, 1, 1).data[3];
+      alignedGuideOnAlpha = context.getImageData(400, 2, 1, 1).data[3];
+      alignedGuideGapAlpha = context.getImageData(400, 7, 1, 1).data[3];
+    }
+    return {
+      active: { x: active.x, y: active.y },
+      snap: pn._gravityWellSnapState ? { ...pn._gravityWellSnapState } : null,
+      guide: pn._gravityWellGuideState ? JSON.parse(JSON.stringify(pn._gravityWellGuideState)) : null,
+      measurements: pn._getGravityWellMeasurements().map(measurement => ({ ...measurement })),
+      layout: layout ? JSON.parse(JSON.stringify(layout)) : null,
+      metadataAlpha,
+      alignedGuideOnAlpha,
+      alignedGuideGapAlpha,
+      overlayAriaHidden: overlay && overlay.getAttribute('aria-hidden')
+    };
+  }, ids);
+  if (options.screenshotDir) {
+    await page.screenshot({ path: path.join(options.screenshotDir, 'drag-info-desktop.png') });
+  }
+
+  await page.mouse.move(411, 331);
+  const held = await page.evaluate(id => {
+    const well = window.particleInstance.getGravityWell(id);
+    return { x: well.x, y: well.y };
+  }, ids.active);
+  await page.mouse.move(413, 333);
+  const released = await page.evaluate(id => {
+    const well = window.particleInstance.getGravityWell(id);
+    return { x: well.x, y: well.y };
+  }, ids.active);
+  await page.mouse.move(410, 330);
+  const outsideEntry = await page.evaluate(id => {
+    const well = window.particleInstance.getGravityWell(id);
+    return { x: well.x, y: well.y };
+  }, ids.active);
+
+  await page.keyboard.down('Shift');
+  await page.mouse.move(394, 314);
+  const bypassed = await page.evaluate(id => {
+    const pn = window.particleInstance;
+    const well = pn.getGravityWell(id);
+    return { x: well.x, y: well.y, snap: pn._gravityWellSnapState ? { ...pn._gravityWellSnapState } : null };
+  }, ids.active);
+  await page.keyboard.up('Shift');
+  await page.mouse.move(395, 315);
+  const reacquired = await page.evaluate(id => {
+    const pn = window.particleInstance;
+    const well = pn.getGravityWell(id);
+    return { x: well.x, y: well.y, snap: pn._gravityWellSnapState ? { ...pn._gravityWellSnapState } : null };
+  }, ids.active);
+  await page.mouse.up();
+  await waitForFrames(page, 3);
+  const afterRelease = await page.evaluate(id => {
+    const pn = window.particleInstance;
+    const well = pn.getGravityWell(id);
+    return {
+      x: well.x,
+      y: well.y,
+      drag: pn._gravityWellDrag,
+      snap: pn._gravityWellSnapState,
+      guide: pn._gravityWellGuideState
+    };
+  }, ids.active);
+
+  const tieBreaking = await page.evaluate(() => {
+    const pn = window.particleInstance;
+    function resolve(targets, raw, inputKind) {
+      pn.clearGravityWells();
+      const active = pn.addGravityWell('black', 100, 600, 60);
+      const candidates = targets.map(target => pn.addGravityWell('white', target.x, target.y, 60));
+      pn._startGravityWellDrag(active, active.x, active.y, 'mouse');
+      pn._handleGravityWellPointerMove(raw.x, raw.y, inputKind || 'mouse', false);
+      const state = pn._gravityWellSnapState ? { ...pn._gravityWellSnapState } : null;
+      pn._stopGravityWellDrag('mouse');
+      return { targetIds: candidates.map(candidate => candidate.id), state };
+    }
+    return {
+      axisDelta: resolve([{ x: 500, y: 300 }, { x: 507, y: 300 }], { x: 505, y: 600 }),
+      centerDistance: resolve([{ x: 500, y: 100 }, { x: 510, y: 590 }], { x: 505, y: 600 }),
+      arrayOrder: resolve([{ x: 500, y: 590 }, { x: 510, y: 610 }], { x: 505, y: 600 }),
+      penEntry: resolve([{ x: 512, y: 612 }], { x: 500, y: 600 }, 'pen')
+    };
+  });
+
+  const whiteWellDrag = await page.evaluate(() => {
+    const pn = window.particleInstance;
+    pn.clearGravityWells();
+    const active = pn.addGravityWell('white', 100, 600, 60);
+    const target = pn.addGravityWell('black', 400, 320, 60);
+    pn._startGravityWellDrag(active, active.x, active.y, 'mouse');
+    pn._handleGravityWellPointerMove(394, 314, 'mouse', false);
+    const result = {
+      active: { x: active.x, y: active.y },
+      snap: pn._gravityWellSnapState ? { ...pn._gravityWellSnapState } : null,
+      targetId: target.id,
+      measurementTargetIds: pn._getGravityWellMeasurements().map(measurement => measurement.targetId)
+    };
+    pn._stopGravityWellDrag('mouse');
+    return result;
+  });
+
+  const placementSharing = await page.evaluate(() => {
+    const pn = window.particleInstance;
+    pn.clearGravityWells();
+    const target = pn.addGravityWell('white', 400, 320, 60);
+    pn._gravityPointer.x = 394;
+    pn._gravityPointer.y = 314;
+    pn.beginGravityWellPlacement('black', true);
+    const keyboard = pn.gravityWellDraft ? { x: pn.gravityWellDraft.x, y: pn.gravityWellDraft.y } : null;
+    pn.cancelGravityWellPlacement();
+
+    const selected = pn.addGravityWell('black', 120, 500, 60);
+    pn.selectGravityWell(selected.id);
+    pn.beginSelectedGravityWellPlacement();
+    pn._handleGravityWellPointerDown(394, 314, 'mouse', 'mouse', false);
+    const reposition = pn.gravityWellDraft ? { x: pn.gravityWellDraft.x, y: pn.gravityWellDraft.y } : null;
+    pn.cancelGravityWellPlacement();
+    return { target: { x: target.x, y: target.y }, keyboard, reposition };
+  });
+
+  await page.evaluate(() => {
+    const pn = window.particleInstance;
+    pn.clearGravityWells();
+    pn.addGravityWell('black', 300, 300, 60);
+  });
+  await page.mouse.move(300, 300);
+  await page.mouse.down();
+  await waitForFrames(page, 3);
+  const singleWell = await page.evaluate(() => {
+    const pn = window.particleInstance;
+    const overlay = pn._gravityWellOverlay;
+    const context = overlay && overlay.getContext('2d');
+    return {
+      measurementCount: pn._getGravityWellMeasurements().length,
+      guide: pn._gravityWellGuideState ? { ...pn._gravityWellGuideState } : null,
+      overlayVisible: !!overlay && overlay.style.display !== 'none',
+      guideOnAlpha: context ? context.getImageData(300, 2, 1, 1).data[3] : 0,
+      guideGapAlpha: context ? context.getImageData(300, 7, 1, 1).data[3] : 0
+    };
+  });
+  await page.mouse.up();
+
+  await page.evaluate(() => {
+    const pn = window.particleInstance;
+    pn.clearGravityWells();
+    pn.addGravityWell('white', 400, 320, 60);
+    pn._gravityPointer.x = 394;
+    pn._gravityPointer.y = 314;
+    pn.beginGravityWellPlacement('black', true);
+  });
+  await page.keyboard.press('Escape');
+  await waitForFrames(page, 2);
+  const escapeCleanup = await page.evaluate(() => {
+    const pn = window.particleInstance;
+    return {
+      draft: pn.gravityWellDraft,
+      snap: pn._gravityWellSnapState,
+      guide: pn._gravityWellGuideState,
+      overlayHidden: !pn._gravityWellOverlay || pn._gravityWellOverlay.style.display === 'none'
+    };
+  });
+
+  const commitCleanup = await page.evaluate(() => {
+    const pn = window.particleInstance;
+    pn._gravityPointer.x = 394;
+    pn._gravityPointer.y = 314;
+    pn.beginGravityWellPlacement('black', true);
+    const committed = pn._commitGravityWellPlacement();
+    return {
+      committed: committed ? { x: committed.x, y: committed.y } : null,
+      draft: pn.gravityWellDraft,
+      snap: pn._gravityWellSnapState,
+      guide: pn._gravityWellGuideState
+    };
+  });
+
+  const clearCleanup = await page.evaluate(() => {
+    const pn = window.particleInstance;
+    pn.clearGravityWells();
+    const active = pn.addGravityWell('black', 100, 600, 60);
+    pn.addGravityWell('white', 400, 320, 60);
+    pn._startGravityWellDrag(active, active.x, active.y, 'mouse');
+    pn._handleGravityWellPointerMove(394, 314, 'mouse', false);
+    pn.clearGravityWells();
+    return {
+      wellCount: pn.gravityWells.length,
+      drag: pn._gravityWellDrag,
+      snap: pn._gravityWellSnapState,
+      guide: pn._gravityWellGuideState,
+      overlayHidden: !pn._gravityWellOverlay || pn._gravityWellOverlay.style.display === 'none'
+    };
+  });
+
+  const deletionCleanup = await page.evaluate(() => {
+    const pn = window.particleInstance;
+    const active = pn.addGravityWell('black', 100, 600, 60);
+    pn.addGravityWell('white', 400, 320, 60);
+    pn._startGravityWellDrag(active, active.x, active.y, 'mouse');
+    pn._handleGravityWellPointerMove(394, 314, 'mouse', false);
+    pn.removeGravityWell(active.id);
+    return {
+      drag: pn._gravityWellDrag,
+      snap: pn._gravityWellSnapState,
+      guide: pn._gravityWellGuideState,
+      activeStillExists: !!pn.getGravityWell(active.id)
+    };
+  });
+
+  const destroyCleanup = await page.evaluate(() => {
+    const pn = window.particleInstance;
+    pn.clearGravityWells();
+    const active = pn.addGravityWell('black', 100, 600, 60);
+    pn.addGravityWell('white', 400, 320, 60);
+    pn._startGravityWellDrag(active, active.x, active.y, 'mouse');
+    pn._handleGravityWellPointerMove(394, 314, 'mouse', false);
+    const overlay = pn._gravityWellOverlay;
+    window.destroyParticleExperience();
+    const destroyed = {
+      drag: pn._gravityWellDrag,
+      snap: pn._gravityWellSnapState,
+      guide: pn._gravityWellGuideState,
+      layout: pn._gravityWellOverlayLayout,
+      overlayConnected: !!overlay && overlay.isConnected
+    };
+    const recreated = window.createParticleExperience();
+    return {
+      destroyed,
+      recreated: {
+        snap: recreated._gravityWellSnapState,
+        guide: recreated._gravityWellGuideState,
+        layout: recreated._gravityWellOverlayLayout
+      }
+    };
+  });
+  await page.waitForFunction(() => window.particleInstance && window.particleInstance.glRenderer);
+
+  const metadataById = new Map(snapped.measurements.map(measurement => [measurement.targetId, measurement]));
+  const axisDeltaState = tieBreaking.axisDelta.state;
+  const centerDistanceState = tieBreaking.centerDistance.state;
+  const arrayOrderState = tieBreaking.arrayOrder.state;
+  const overlayLabelRects = snapped.layout
+    ? [...snapped.layout.guideLabels, ...snapped.layout.distanceLabels, ...snapped.layout.metadataLabels]
+      .map(label => label.rect)
+    : [];
+  const overlayLabelsAvoidCollisions = overlayLabelRects.every((rect, index) =>
+    overlayLabelRects.slice(index + 1).every(other =>
+      rect.x + rect.width <= other.x || other.x + other.width <= rect.x ||
+      rect.y + rect.height <= other.y || other.y + other.height <= rect.y));
+  const assertions = {
+    desktopSnapUsesEightPixelEntry: snapped.active.x === 400 && snapped.active.y === 320,
+    desktopSnapUsesFourPixelHysteresis: held.x === 400 && held.y === 320 && released.x === 413 && released.y === 333,
+    desktopOutsideEntryDoesNotSnap: outsideEntry.x === 410 && outsideEntry.y === 330,
+    shiftBypassesDesktopSnap: bypassed.x === 394 && bypassed.y === 314 &&
+      (!bypassed.snap || (!bypassed.snap.snapXTargetId && !bypassed.snap.snapYTargetId)),
+    releasingShiftReacquiresSnap: reacquired.x === 400 && reacquired.y === 320 &&
+      reacquired.snap && reacquired.snap.snapXTargetId === ids.targetX && reacquired.snap.snapYTargetId === ids.targetY,
+    releasePersistsSnapAndCleansTransientState: afterRelease.x === 400 && afterRelease.y === 320 &&
+      afterRelease.drag === null && afterRelease.snap === null && afterRelease.guide === null,
+    coordinateGuidesDescribeOnlyActiveWell: snapped.guide && snapped.guide.activeId === ids.active &&
+      snapped.guide.xLabel === 'X 400 px' && snapped.guide.yLabel === 'Y 320 px' &&
+      snapped.guide.alignedXTargetIds.includes(ids.targetX) &&
+      snapped.guide.alignedXTargetIds.includes(ids.invertedWhite) &&
+      snapped.guide.alignedYTargetIds.includes(ids.targetY),
+    metadataUsesEffectiveSignedBehavior: metadataById.get(ids.targetX)?.radiusLabel === 'Radius 60 px' &&
+      metadataById.get(ids.targetX)?.behaviorLabel === 'Absorb 12' &&
+      metadataById.get(ids.targetY)?.behaviorLabel === 'Repel 7.5' &&
+      metadataById.get(ids.invertedWhite)?.behaviorLabel === 'Absorb 8.25',
+    overlayLayoutPaintsGuidesMetadataAndHalos: snapped.layout && snapped.layout.guideLabels.length === 2 &&
+      snapped.layout.metadataLabels.length === 3 && snapped.layout.haloTargetIds.includes(ids.targetX) &&
+      snapped.layout.haloTargetIds.includes(ids.targetY) && snapped.metadataAlpha > 0,
+    coordinateGuideDashAndAlignmentAreVisible: snapped.alignedGuideOnAlpha > snapped.alignedGuideGapAlpha,
+    alignedGuideIsBrighterThanUnalignedGuide: snapped.alignedGuideOnAlpha > singleWell.guideOnAlpha &&
+      singleWell.guideOnAlpha > singleWell.guideGapAlpha,
+    overlayLabelsAvoidCollisions,
+    overlayIsDecorative: snapped.overlayAriaHidden === 'true',
+    deterministicTieBreakUsesAxisDelta: axisDeltaState &&
+      axisDeltaState.snapXTargetId === tieBreaking.axisDelta.targetIds[1],
+    deterministicTieBreakUsesCenterDistance: centerDistanceState &&
+      centerDistanceState.snapXTargetId === tieBreaking.centerDistance.targetIds[1],
+    deterministicTieBreakUsesArrayOrder: arrayOrderState &&
+      arrayOrderState.snapXTargetId === tieBreaking.arrayOrder.targetIds[0],
+    penUsesTouchSnapThreshold: tieBreaking.penEntry.state?.inputKind === 'pen' &&
+      tieBreaking.penEntry.state?.snapXTargetId === tieBreaking.penEntry.targetIds[0] &&
+      tieBreaking.penEntry.state?.snapYTargetId === tieBreaking.penEntry.targetIds[0],
+    existingWhiteWellUsesSameSnapPath: whiteWellDrag.active.x === 400 && whiteWellDrag.active.y === 320 &&
+      whiteWellDrag.snap?.snapXTargetId === whiteWellDrag.targetId &&
+      whiteWellDrag.snap?.snapYTargetId === whiteWellDrag.targetId &&
+      whiteWellDrag.measurementTargetIds.length === 1 && whiteWellDrag.measurementTargetIds[0] === whiteWellDrag.targetId,
+    placementAndRepositionShareSnapResolver: placementSharing.keyboard?.x === placementSharing.target.x &&
+      placementSharing.keyboard?.y === placementSharing.target.y &&
+      placementSharing.reposition?.x === placementSharing.target.x && placementSharing.reposition?.y === placementSharing.target.y,
+    singleWellStillShowsCoordinateGuides: singleWell.measurementCount === 0 && singleWell.guide &&
+      singleWell.guide.xLabel === 'X 300 px' && singleWell.guide.yLabel === 'Y 300 px' && singleWell.overlayVisible,
+    escapeClearsTransientAnnotations: escapeCleanup.draft === null && escapeCleanup.snap === null &&
+      escapeCleanup.guide === null && escapeCleanup.overlayHidden,
+    commitPersistsSnapAndClearsTransientState: commitCleanup.committed?.x === 400 &&
+      commitCleanup.committed?.y === 320 && commitCleanup.draft === null && commitCleanup.snap === null &&
+      commitCleanup.guide === null,
+    clearAndDeletionCleanTransientState: clearCleanup.wellCount === 0 && clearCleanup.drag === null &&
+      clearCleanup.snap === null && clearCleanup.guide === null && clearCleanup.overlayHidden &&
+      deletionCleanup.drag === null && deletionCleanup.snap === null && deletionCleanup.guide === null &&
+      !deletionCleanup.activeStillExists,
+    destroyAndRecreateCleanTransientState: destroyCleanup.destroyed.drag === null &&
+      destroyCleanup.destroyed.snap === null && destroyCleanup.destroyed.guide === null &&
+      destroyCleanup.destroyed.layout === null && !destroyCleanup.destroyed.overlayConnected &&
+      destroyCleanup.recreated.snap === null && destroyCleanup.recreated.guide === null &&
+      destroyCleanup.recreated.layout === null
+  };
+
+  await context.close();
+  return { assertions, ids, snapped, held, released, outsideEntry, bypassed, reacquired,
+    afterRelease, tieBreaking, whiteWellDrag, placementSharing, singleWell, escapeCleanup, commitCleanup,
+    clearCleanup, deletionCleanup, destroyCleanup };
 }
 
 async function runTouch(browser, options, browserErrors) {
@@ -1658,19 +2020,26 @@ async function main() {
   });
   try {
     const desktop = await runDesktop(browser, options, browserErrors);
+    const dragInfo = await runDragInfo(browser, options, browserErrors);
     const touch = await runTouch(browser, options, browserErrors);
     const reloadCursor = await runReloadCursor(browser, options, browserErrors);
     const rendererSource = fs.readFileSync(path.join(__dirname, '..', 'js', 'GravityWellRendererGL.js'), 'utf8');
     const networkSource = fs.readFileSync(path.join(__dirname, '..', 'js', 'ParticleNetwork.js'), 'utf8');
+    const guideMethodStart = networkSource.indexOf('(b.prototype._drawGravityWellCoordinateGuides');
+    const metadataMethodStart = networkSource.indexOf('(b.prototype._drawGravityWellMeasurements', guideMethodStart);
+    const dashMatches = networkSource.match(/setLineDash/g) || [];
+    const dashIndex = networkSource.indexOf('setLineDash');
     const assertions = {
       ...desktop.assertions,
+      ...dragInfo.assertions,
       ...touch.assertions,
       ...reloadCursor.assertions,
-      noDashedGravityRadius: !rendererSource.includes('selectionRing') && !networkSource.includes('setLineDash'),
+      noDashedGravityRadius: !rendererSource.includes('selectionRing') &&
+        dashMatches.length === 1 && dashIndex > guideMethodStart && dashIndex < metadataMethodStart,
       noBrowserErrors: browserErrors.length === 0
     };
     const passed = Object.values(assertions).every(Boolean);
-    const result = { url: options.url, passed, assertions, browserErrors, desktop, touch, reloadCursor };
+    const result = { url: options.url, passed, assertions, browserErrors, desktop, dragInfo, touch, reloadCursor };
     const json = JSON.stringify(result);
     console.log(json);
     if (options.output) fs.writeFileSync(options.output, JSON.stringify(result, null, 2) + '\n');

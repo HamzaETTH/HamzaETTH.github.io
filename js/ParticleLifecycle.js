@@ -117,6 +117,9 @@
       this._selectionMarqueeState = null;
       this._objectSelectionDrag = null;
       this._gravityWellDrag = null;
+      this._gravityWellSnapState = null;
+      this._gravityWellGuideState = null;
+      this._gravityWellOverlayLayout = null;
       this.p = null;
 
       if (this.performanceMonitor && this.performanceMonitor.destroy) this.performanceMonitor.destroy();
@@ -146,6 +149,9 @@
       this.gravityWells = null;
       this.gravityWellDraft = null;
       this._gravityWellDrag = null;
+      this._gravityWellSnapState = null;
+      this._gravityWellGuideState = null;
+      this._gravityWellOverlayLayout = null;
       this.selectedGravityWellId = null;
       this.selectedGravityWellIds = null;
       this.selectedParticleIndices = null;
