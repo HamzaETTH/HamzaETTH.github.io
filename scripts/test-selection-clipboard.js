@@ -122,6 +122,71 @@ async function main() {
       };
     });
 
+    const groupDragStart = await page.evaluate(() => {
+      const pn = window.particleInstance;
+      pn.options.gravityWellsEnabled = false;
+      if (pn._rafId != null) cancelAnimationFrame(pn._rafId);
+      pn._rafId = null;
+      pn._rafActive = false;
+      return {
+        particles: Array.from(pn.selectedParticleIndices, index => ({
+          index,
+          x: pn.posX[index],
+          y: pn.posY[index]
+        })),
+        wells: Array.from(pn.selectedGravityWellIds, id => {
+          const well = pn.getGravityWell(id);
+          return { id, x: well.x, y: well.y };
+        })
+      };
+    });
+    const dragDelta = { x: 60, y: 40 };
+    await page.mouse.move(groupDragStart.particles[0].x, groupDragStart.particles[0].y);
+    await page.mouse.down({ button: 'left' });
+    await page.mouse.move(
+      groupDragStart.particles[0].x + dragDelta.x,
+      groupDragStart.particles[0].y + dragDelta.y,
+      { steps: 3 }
+    );
+    const groupDragging = await page.evaluate(({ start, delta }) => {
+      const pn = window.particleInstance;
+      return {
+        dragActive: !!pn._objectSelectionDrag,
+        cursor: getComputedStyle(pn.canvas).cursor,
+        forcesClear: !pn.attractionForce && !pn.repulsionForce,
+        particles: start.particles.map(source => ({
+          x: pn.posX[source.index],
+          y: pn.posY[source.index],
+          expectedX: source.x + delta.x,
+          expectedY: source.y + delta.y
+        })),
+        wells: start.wells.map(source => {
+          const well = pn.getGravityWell(source.id);
+          return {
+            x: well.x,
+            y: well.y,
+            expectedX: source.x + delta.x,
+            expectedY: source.y + delta.y
+          };
+        }),
+        selectedParticles: Array.from(pn.selectedParticleIndices),
+        selectedWells: Array.from(pn.selectedGravityWellIds)
+      };
+    }, { start: groupDragStart, delta: dragDelta });
+    await page.mouse.up({ button: 'left' });
+    const groupDragReleased = await page.evaluate(() => {
+      const pn = window.particleInstance;
+      if (pn._rafId != null) cancelAnimationFrame(pn._rafId);
+      pn._rafId = null;
+      pn._rafActive = false;
+      window.__selectionTestEnsureLoop = pn._ensureAnimationLoop;
+      pn._ensureAnimationLoop = function() {};
+      return {
+        dragStopped: !pn._objectSelectionDrag,
+        classCleared: !pn.canvas.classList.contains('object-selection-dragging')
+      };
+    });
+
     const paneBeforeCopy = await page.evaluate(() => {
       const container = document.getElementById('tp-container');
       return !container || getComputedStyle(container).display === 'none';
@@ -219,6 +284,14 @@ async function main() {
       };
     });
 
+    await page.evaluate(() => {
+      const pn = window.particleInstance;
+      pn._ensureAnimationLoop = window.__selectionTestEnsureLoop;
+      delete window.__selectionTestEnsureLoop;
+      pn.options.gravityWellsEnabled = true;
+      pn._ensureAnimationLoop();
+    });
+
     await page.mouse.move(800, 500);
     await page.mouse.wheel(0, -1);
     await page.keyboard.press('Control+c');
@@ -233,6 +306,67 @@ async function main() {
         expectedId
       };
     }, setup.outsideWellId);
+
+    await page.setViewportSize({ width: 1270, height: 710 });
+    await page.waitForFunction(() => {
+      const pn = window.particleInstance;
+      return pn.i.size.width === 1270 && pn.i.size.height === 710 && pn.o.includes(pn.p);
+    });
+    await page.keyboard.press('Control+a');
+    const selectAll = await page.evaluate(() => {
+      const pn = window.particleInstance;
+      return {
+        particleCount: pn.numParticles,
+        wellCount: pn.gravityWells.length,
+        selectedParticles: Array.from(pn.selectedParticleIndices),
+        selectedWells: Array.from(pn.selectedGravityWellIds),
+        primaryWell: pn.selectedGravityWellId,
+        gatherInactive: !pn._gatherActive
+      };
+    });
+    await page.keyboard.press('Delete');
+    const deleted = await page.evaluate(() => {
+      const pn = window.particleInstance;
+      return {
+        particleCount: pn.numParticles,
+        objectCount: pn.o.length,
+        wellCount: pn.gravityWells.length,
+        typedArrayLengths: [pn.posX.length, pn.posY.length, pn.velX.length, pn.velY.length, pn.sizeA.length],
+        pointerIndex: pn.p.index,
+        pointerExcludedFromObjects: !pn.o.includes(pn.p),
+        selectionClear: !pn.selectedParticleIndices.size && !pn.selectedGravityWellIds.size && !pn.selectedGravityWellId,
+        overlayHidden: getComputedStyle(document.querySelector('.particle-selection-overlay')).display === 'none'
+      };
+    });
+
+    const partialDeleteSetup = await page.evaluate(() => {
+      const pn = window.particleInstance;
+      pn.setParticleCount(3);
+      pn.o.forEach((particle, index) => {
+        particle.index = index;
+        particle.hue = 100 + index;
+      });
+      pn._initSoAFromObjects(3);
+      pn.clearGravityWells();
+      const removedWell = pn.addGravityWell('black', 200, 200, 60);
+      const keptWell = pn.addGravityWell('white', 900, 500, 70);
+      pn.selectedParticleIndices = new Set([0, 2]);
+      pn.selectedGravityWellIds = new Set([removedWell.id]);
+      pn.selectedGravityWellId = removedWell.id;
+      return { keptParticleHue: pn.o[1].hue, keptWellId: keptWell.id };
+    });
+    await page.keyboard.press('Delete');
+    const partialDelete = await page.evaluate(expected => {
+      const pn = window.particleInstance;
+      return {
+        particleCount: pn.numParticles,
+        survivorReindexed: pn.o.length === 1 && pn.o[0].index === 0 && pn.o[0].hue === expected.keptParticleHue,
+        typedArrayLengths: [pn.posX.length, pn.posY.length, pn.velX.length, pn.velY.length, pn.sizeA.length],
+        wells: pn.gravityWells.map(well => well.id),
+        expectedWellId: expected.keptWellId,
+        selectionClear: !pn.selectedParticleIndices.size && !pn.selectedGravityWellIds.size && !pn.selectedGravityWellId
+      };
+    }, partialDeleteSetup);
 
     await page.keyboard.press('Escape');
     const escaped = await page.evaluate(() => {
@@ -273,6 +407,13 @@ async function main() {
         selected.wells.length === 1 && selected.wells[0] === setup.selectedWellId &&
         selected.primaryWell === setup.selectedWellId,
       marqueeCleansUpOnRelease: selected.marqueeHidden && selected.selectionOverlayVisible && selected.cursorReset,
+      dragsMixedSelectionAsOneGroup: groupDragging.dragActive && groupDragging.cursor === 'grabbing' &&
+        groupDragging.forcesClear &&
+        groupDragging.particles.every(particle => close(particle.x, particle.expectedX) && close(particle.y, particle.expectedY)) &&
+        groupDragging.wells.every(well => close(well.x, well.expectedX) && close(well.y, well.expectedY)) &&
+        groupDragging.selectedParticles.join(',') === selected.particles.join(',') &&
+        groupDragging.selectedWells.join(',') === selected.wells.join(',') &&
+        groupDragReleased.dragStopped && groupDragReleased.classCleared,
       ctrlCCopiesWithoutOpeningControls: paneBeforeCopy && copied.paneStillHidden &&
         copied.particles === 2 && copied.wells === 1 && copiedBounds &&
         close(copied.anchorX, (copiedBounds.left + copiedBounds.right) / 2) &&
@@ -295,11 +436,38 @@ async function main() {
       singleWellActionCollapsesMarqueeSelection: singleWellCopy.primary === singleWellCopy.expectedId &&
         singleWellCopy.selectedWells.join(',') === singleWellCopy.expectedId && !singleWellCopy.selectedParticles.length &&
         singleWellCopy.copiedWells.join(',') === singleWellCopy.expectedId && singleWellCopy.copiedParticles === 0,
+      ctrlASelectsEveryObjectWithoutGathering: selectAll.gatherInactive &&
+        selectAll.selectedParticles.length === selectAll.particleCount &&
+        selectAll.selectedWells.length === selectAll.wellCount &&
+        selectAll.selectedParticles.every((index, position) => index === position) &&
+        selectAll.selectedWells.includes(selectAll.primaryWell),
+      deleteRemovesEntireSelection: deleted.particleCount === 0 && deleted.objectCount === 0 &&
+        deleted.wellCount === 0 && deleted.typedArrayLengths.every(length => length === 0) &&
+        deleted.pointerIndex === 0 && deleted.pointerExcludedFromObjects && deleted.selectionClear && deleted.overlayHidden,
+      deletePreservesAndReindexesUnselectedObjects: partialDelete.particleCount === 1 &&
+        partialDelete.survivorReindexed && partialDelete.typedArrayLengths.every(length => length === 1) &&
+        partialDelete.wells.join(',') === partialDelete.expectedWellId && partialDelete.selectionClear,
       escapeClearsSelection: escaped.selectionClear && escaped.overlayHidden,
       emptyCtrlCPreservesNativeCopy: !emptyCopy.defaultPrevented,
       noBrowserErrors: browserErrors.length === 0
     };
-    const result = { passed: Object.values(assertions).every(Boolean), assertions, browserErrors, marquee, selected, copied, pasted, edgePaste, singleWellCopy, emptyCopy };
+    const result = {
+      passed: Object.values(assertions).every(Boolean),
+      assertions,
+      browserErrors,
+      marquee,
+      selected,
+      groupDragging,
+      groupDragReleased,
+      copied,
+      pasted,
+      edgePaste,
+      singleWellCopy,
+      selectAll,
+      deleted,
+      partialDelete,
+      emptyCopy
+    };
     console.log(JSON.stringify(result));
     if (!result.passed) process.exitCode = 2;
     await context.close();

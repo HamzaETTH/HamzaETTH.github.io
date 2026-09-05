@@ -115,6 +115,7 @@
       this._cursorCaptureHoldTimer = null;
       this._lastPrimaryEmptyDown = null;
       this._selectionMarqueeState = null;
+      this._objectSelectionDrag = null;
       this._gravityWellDrag = null;
       this.p = null;
 
@@ -151,6 +152,7 @@
       this._selectionClipboard = null;
       this._selectionMarqueeElement = null;
       this._selectionMarqueeState = null;
+      this._objectSelectionDrag = null;
       this._selectionOverlayContext = null;
       this._selectionOverlay = null;
       this._gravityWellOverlayContext = null;

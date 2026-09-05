@@ -793,6 +793,7 @@
       this.selectedGravityWellIds = new Set();
       this._selectionClipboard = null;
       this._selectionMarqueeState = null;
+      this._objectSelectionDrag = null;
       this._selectionMarqueeElement = null;
       this._selectionOverlay = null;
       this._selectionOverlayContext = null;
@@ -1340,6 +1341,7 @@
 	      return true;
 	    }),
 	    (b.prototype._clearObjectSelectionState = function() {
+	      this._stopObjectSelectionDrag();
 	      var hadSelection = !!(this.selectedGravityWellId ||
 	        (this.selectedGravityWellIds && this.selectedGravityWellIds.size) ||
 	        (this.selectedParticleIndices && this.selectedParticleIndices.size));
@@ -1457,6 +1459,160 @@
 	      this._selectionMarqueeState = null;
 	      if (this._selectionMarqueeElement) this._selectionMarqueeElement.style.display = 'none';
 	      if (this.canvas) this.canvas.classList.remove('object-selection-active');
+	      return true;
+	    }),
+	    (b.prototype.selectAllObjects = function() {
+	      if (this.gravityWellDraft) this.cancelGravityWellPlacement();
+	      this._stopObjectSelectionDrag();
+	      var particles = new Set();
+	      var wells = new Set();
+	      for (var i = 0; i < (this.numParticles | 0); i++) particles.add(i);
+	      if (this.options.gravityWellsEnabled !== false) {
+	        for (var j = 0; j < this.gravityWells.length; j++) wells.add(this.gravityWells[j].id);
+	      }
+	      this.selectedParticleIndices = particles;
+	      this.selectedGravityWellIds = wells;
+	      this.selectedGravityWellId = wells.size ? wells.values().next().value : null;
+	      this._emitGravityWellsChange();
+	      this._ensureAnimationLoop();
+	      return { particles: particles.size, wells: wells.size };
+	    }),
+	    (b.prototype.deleteObjectSelection = function() {
+	      var selectedParticles = this.selectedParticleIndices || new Set();
+	      var selectedWells = new Set(this.selectedGravityWellIds || []);
+	      if (this.selectedGravityWellId) selectedWells.add(this.selectedGravityWellId);
+	      var particleCount = 0;
+	      selectedParticles.forEach(function(index) {
+	        if (index >= 0 && index < this.numParticles) particleCount++;
+	      }, this);
+	      var wellCount = 0;
+	      selectedWells.forEach(function(id) {
+	        if (this.getGravityWell(id)) wellCount++;
+	      }, this);
+	      if (!particleCount && !wellCount) return null;
+
+	      if (particleCount) {
+	        this.o = this.o.slice(0, this.numParticles).filter(function(particle, index) {
+	          return !selectedParticles.has(index);
+	        });
+	        for (var i = 0; i < this.o.length; i++) this.o[i].index = i;
+	        this._initSoAFromObjects(this.o.length);
+	        if (this.p) this.p.index = this.numParticles;
+	        this.initGrid();
+	        if (this.performanceMonitor && this.performanceMonitor.setParticleCount) {
+	          this.performanceMonitor.setParticleCount(this.numParticles);
+	        }
+	        window.dispatchEvent(new CustomEvent('particle-count-change', {
+	          detail: { count: this.numParticles }
+	        }));
+	      }
+	      if (wellCount) {
+	        for (var j = this.gravityWells.length - 1; j >= 0; j--) {
+	          if (selectedWells.has(this.gravityWells[j].id)) this.gravityWells.splice(j, 1);
+	        }
+	      }
+	      this._clearObjectSelectionState();
+	      this._emitGravityWellsChange();
+	      this._ensureAnimationLoop();
+	      return { particles: particleCount, wells: wellCount };
+	    }),
+	    (b.prototype._hitTestSelectedObject = function(x, y) {
+	      if (!Number.isFinite(x) || !Number.isFinite(y)) return false;
+	      var selectedWells = this.selectedGravityWellIds || new Set();
+	      for (var i = this.gravityWells.length - 1; i >= 0; i--) {
+	        var well = this.gravityWells[i];
+	        if (!selectedWells.has(well.id)) continue;
+	        var wellRadius = Math.max(1, well.radius);
+	        var normalizedX = (x - well.x) / (wellRadius * 1.5);
+	        var normalizedY = (y - well.y) / (wellRadius * 0.48);
+	        if (normalizedX * normalizedX + normalizedY * normalizedY <= 1) return true;
+	      }
+	      var hit = false;
+	      if (this.selectedParticleIndices) {
+	        this.selectedParticleIndices.forEach(function(index) {
+	          if (hit || index < 0 || index >= this.numParticles) return;
+	          var particle = this.o[index];
+	          var particleX = this.posX ? this.posX[index] : particle.x;
+	          var particleY = this.posY ? this.posY[index] : particle.y;
+	          var radius = Math.max(8, (particle.size || this.options.particleSize || 2) + 5);
+	          var dx = x - particleX;
+	          var dy = y - particleY;
+	          if (dx * dx + dy * dy <= radius * radius) hit = true;
+	        }, this);
+	      }
+	      return hit;
+	    }),
+	    (b.prototype._beginObjectSelectionDrag = function(x, y) {
+	      var selectionCount = (this.selectedParticleIndices ? this.selectedParticleIndices.size : 0) +
+	        (this.selectedGravityWellIds ? this.selectedGravityWellIds.size : 0);
+	      if (selectionCount < 2) return false;
+	      if (!this._hitTestSelectedObject(x, y)) return false;
+	      var particles = [];
+	      var wells = [];
+	      var minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
+	      this.selectedParticleIndices.forEach(function(index) {
+	        if (index < 0 || index >= this.numParticles) return;
+	        var particleX = this.posX ? this.posX[index] : this.o[index].x;
+	        var particleY = this.posY ? this.posY[index] : this.o[index].y;
+	        particles.push({ index: index, x: particleX, y: particleY });
+	        minX = Math.min(minX, particleX); maxX = Math.max(maxX, particleX);
+	        minY = Math.min(minY, particleY); maxY = Math.max(maxY, particleY);
+	      }, this);
+	      this.selectedGravityWellIds.forEach(function(id) {
+	        var well = this.getGravityWell(id);
+	        if (!well) return;
+	        wells.push({ id: id, x: well.x, y: well.y });
+	        minX = Math.min(minX, well.x); maxX = Math.max(maxX, well.x);
+	        minY = Math.min(minY, well.y); maxY = Math.max(maxY, well.y);
+	      }, this);
+	      if (!particles.length && !wells.length) return false;
+	      this._clearInteractivePointerForces();
+	      this._stopGravityWellDrag();
+	      this._objectSelectionDrag = {
+	        startX: x,
+	        startY: y,
+	        minX: minX,
+	        maxX: maxX,
+	        minY: minY,
+	        maxY: maxY,
+	        particles: particles,
+	        wells: wells
+	      };
+	      this._lastPrimaryEmptyDown = null;
+	      if (this.canvas) this.canvas.classList.add('object-selection-dragging');
+	      return true;
+	    }),
+	    (b.prototype._updateObjectSelectionDrag = function(x, y) {
+	      var drag = this._objectSelectionDrag;
+	      if (!drag || !Number.isFinite(x) || !Number.isFinite(y)) return false;
+	      var deltaX = Math.max(-drag.minX, Math.min(this.i.size.width - drag.maxX, x - drag.startX));
+	      var deltaY = Math.max(-drag.minY, Math.min(this.i.size.height - drag.maxY, y - drag.startY));
+	      for (var i = 0; i < drag.particles.length; i++) {
+	        var particle = drag.particles[i];
+	        var nextX = particle.x + deltaX;
+	        var nextY = particle.y + deltaY;
+	        this.posX[particle.index] = nextX;
+	        this.posY[particle.index] = nextY;
+	        this.o[particle.index].x = nextX;
+	        this.o[particle.index].y = nextY;
+	      }
+	      for (var j = 0; j < drag.wells.length; j++) {
+	        var wellSnapshot = drag.wells[j];
+	        var well = this.getGravityWell(wellSnapshot.id);
+	        if (!well) continue;
+	        well.x = wellSnapshot.x + deltaX;
+	        well.y = wellSnapshot.y + deltaY;
+	      }
+	      if (this.p) { this.p.x = x; this.p.y = y; }
+	      this._gravityPointer = { x: x, y: y };
+	      this._emitGravityWellsChange();
+	      this._ensureAnimationLoop();
+	      return true;
+	    }),
+	    (b.prototype._stopObjectSelectionDrag = function() {
+	      if (!this._objectSelectionDrag) return false;
+	      this._objectSelectionDrag = null;
+	      if (this.canvas) this.canvas.classList.remove('object-selection-dragging');
 	      return true;
 	    }),
 	    (b.prototype.copyObjectSelection = function() {
@@ -2546,6 +2702,7 @@
         window.addEventListener('blur', function() {
           this._stopMiddleMouseSpawn();
           this._stopGravityWellDrag();
+          this._stopObjectSelectionDrag();
           this._cancelObjectSelection();
           this._clearInteractivePointerForces();
         }.bind(this));
@@ -2553,6 +2710,7 @@
           if (document.hidden) {
             this._stopMiddleMouseSpawn();
             this._stopGravityWellDrag();
+            this._stopObjectSelectionDrag();
             this._cancelObjectSelection();
             this._clearInteractivePointerForces();
           }
@@ -2568,6 +2726,12 @@
       this.canvas.addEventListener('mousemove', function(evt) {
         var pos = this._mapToLogicalCanvas(evt);
         this._gravityPointerInsideCanvas = true;
+        if (this._objectSelectionDrag) {
+          this._updateObjectSelectionDrag(pos.x, pos.y);
+          evt.preventDefault();
+          evt.stopImmediatePropagation();
+          return;
+        }
         if (this._selectionMarqueeState) {
           this._updateObjectSelection(pos.x, pos.y);
           evt.preventDefault();
@@ -2588,6 +2752,12 @@
       window.addEventListener('pagehide', this._saveGravityPointerForReload.bind(this));
 
       window.addEventListener('mousemove', function(evt) {
+        if (this._objectSelectionDrag && evt.target !== this.canvas) {
+          var dragPos = this._mapToLogicalCanvas(evt);
+          this._updateObjectSelectionDrag(dragPos.x, dragPos.y);
+          evt.preventDefault();
+          return;
+        }
         if (this._selectionMarqueeState && evt.target !== this.canvas) {
           var selectionPos = this._mapToLogicalCanvas(evt);
           this._updateObjectSelection(selectionPos.x, selectionPos.y);
@@ -2600,6 +2770,13 @@
       }.bind(this), true);
 
       window.addEventListener('mouseup', function(evt) {
+        if (evt.button === 0 && this._objectSelectionDrag) {
+          var dragPos = this._mapToLogicalCanvas(evt);
+          this._updateObjectSelectionDrag(dragPos.x, dragPos.y);
+          this._stopObjectSelectionDrag();
+          evt.preventDefault();
+          return;
+        }
         if (evt.button === 0 && this._selectionMarqueeState) {
           var selectionPos = this._mapToLogicalCanvas(evt);
           this._finishObjectSelection(selectionPos.x, selectionPos.y);
@@ -2626,6 +2803,11 @@
           return;
         }
         if (evt.button === 0 && !this.gravityWellDraft) {
+          if (this._beginObjectSelectionDrag(pos.x, pos.y)) {
+            evt.preventDefault();
+            evt.stopImmediatePropagation();
+            return;
+          }
           this.clearObjectSelection();
           var visualHit = this._hitTestGravityWellVisual(pos.x, pos.y);
           if (!visualHit) {
@@ -2655,6 +2837,14 @@
 
       this.canvas.addEventListener('mouseup', function(evt) {
         if (evt.button === 1) return;
+        if (evt.button === 0 && this._objectSelectionDrag) {
+          var dragPos = this._mapToLogicalCanvas(evt);
+          this._updateObjectSelectionDrag(dragPos.x, dragPos.y);
+          this._stopObjectSelectionDrag();
+          evt.preventDefault();
+          evt.stopImmediatePropagation();
+          return;
+        }
         if (evt.button === 0 && this._selectionMarqueeState) {
           var selectionPos = this._mapToLogicalCanvas(evt);
           this._finishObjectSelection(selectionPos.x, selectionPos.y);
@@ -2792,7 +2982,7 @@
             this.forceHueSweep = !this.forceHueSweep;
             if (!this._forceHue) this._forceHue = 0;
             console.warn('[PN] Force hue sweep:', this.forceHueSweep ? 'ON' : 'OFF');
-          } else if (event.key === 'a' || event.key === 'A') {
+          } else if ((event.key === 'a' || event.key === 'A') && !event.ctrlKey && !event.metaKey) {
             // Hold-to-gather: while A is held, attract particles to pointer (use repulsionForce, which is attractive in this codebase)
             this._gatherActive = true;
             if (this.p && Number.isFinite(this.p.x) && Number.isFinite(this.p.y)) {
@@ -3420,6 +3610,7 @@
         ? Math.min(width, height) * mobileGravityWellViewportRadiusScale
         : 0;
       for (var i = 0; i < n; i++) {
+        if (this._objectSelectionDrag && this.selectedParticleIndices.has(i)) continue;
 	        var capturedByCursor = !!(capturedParticles && capturedParticles[i]);
 	        var x = this.posX[i] + (capturedByCursor ? captureShiftX : 0);
 	        var y = this.posY[i] + (capturedByCursor ? captureShiftY : 0);

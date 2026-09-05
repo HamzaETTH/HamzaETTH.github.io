@@ -135,7 +135,7 @@ async function main() {
       afterRepeatToggle.tweakpaneRequestCount = responses.filter(isTweakpaneUrl).length;
     }
 
-    const expectedHotkeys = ['b', 'c', 'd', 'delete', 'escape', 'h', 'l', 'm', 'p', 'r', 'v', 'w'];
+    const expectedHotkeys = ['a', 'b', 'c', 'd', 'delete', 'escape', 'h', 'l', 'm', 'p', 'r', 'v', 'w'];
     const assertions = {
       particleRuntimeHealthy: initial.particleCount > 0 && initial.rafActive &&
         initial.hasWebGl && !initial.webGlContextLost,

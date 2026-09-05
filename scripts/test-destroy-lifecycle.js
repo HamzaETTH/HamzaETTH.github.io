@@ -282,7 +282,7 @@ async function main() {
       'window:resize', 'window:keydown', 'window:keyup',
       'document:contextmenu', 'document:keydown', 'document:keyup', 'document:visibilitychange'
     ];
-    const expectedHotkeys = ['b', 'c', 'd', 'delete', 'escape', 'h', 'l', 'm', 'p', 'r', 'v', 'w'];
+    const expectedHotkeys = ['a', 'b', 'c', 'd', 'delete', 'escape', 'h', 'l', 'm', 'p', 'r', 'v', 'w'];
     const assertions = options.expect === 'baseline' ? {
       teardownContractsMissing: missingContracts,
       detachedEngineStayedRetained: Boolean(evidence &&

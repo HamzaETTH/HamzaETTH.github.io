@@ -63,6 +63,10 @@ section, main {
   cursor: grabbing;
 }
 
+#particle-canvas canvas.object-selection-dragging {
+  cursor: grabbing;
+}
+
 #particle-canvas canvas.object-selection-active {
   cursor: crosshair;
 }

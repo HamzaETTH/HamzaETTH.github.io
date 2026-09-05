@@ -12,7 +12,11 @@ let mobileControls = null;
 let lifecycleGeneration = 0;
 
 function describeObjectSelection(action, result) {
-  if (!result || (!result.particles && !result.wells)) return action === 'Copied' ? 'Nothing selected' : 'Nothing to paste';
+  if (!result || (!result.particles && !result.wells)) {
+    if (action === 'Pasted') return 'Nothing to paste';
+    if (action === 'Selected') return 'Nothing to select';
+    return 'Nothing selected';
+  }
   const parts = [];
   if (result.particles) parts.push(`${result.particles} particle${result.particles === 1 ? '' : 's'}`);
   if (result.wells) parts.push(`${result.wells} well${result.wells === 1 ? '' : 's'}`);
@@ -52,6 +56,23 @@ function handlePasteSelectionHotkey(pn, event) {
   event.preventDefault();
   const result = pn && typeof pn.pasteObjectSelection === 'function' ? pn.pasteObjectSelection() : null;
   showObjectSelectionToast(describeObjectSelection('Pasted', result));
+}
+
+function handleSelectAllHotkey(pn, event) {
+  if (!event || (!event.ctrlKey && !event.metaKey) || event.repeat) return;
+  if (isEditableHotkeyTarget(event)) return;
+  event.preventDefault();
+  const result = pn && typeof pn.selectAllObjects === 'function' ? pn.selectAllObjects() : null;
+  showObjectSelectionToast(describeObjectSelection('Selected', result));
+}
+
+function handleDeleteSelectionHotkey(pn) {
+  const result = pn && typeof pn.deleteObjectSelection === 'function' ? pn.deleteObjectSelection() : null;
+  if (result) {
+    showObjectSelectionToast(describeObjectSelection('Deleted', result));
+    return;
+  }
+  if (pn && typeof pn.removeGravityWellUnderPointer === 'function') pn.removeGravityWellUnderPointer();
 }
 
 function recommendedParticleForceMaximum(pn) {
@@ -877,6 +898,7 @@ async function buildPane() {
     
     window.hotkeyManager.register('c', hotkeyHandlers.handleToggleControls, 'Copy Selection (Ctrl+C) / Recolor Hovered Hole / Toggle Controls', { preventDefault: false });
     window.hotkeyManager.register('v', (context, event) => handlePasteSelectionHotkey(pn, event), 'Paste Selection (Ctrl+V)', { preventDefault: false });
+    window.hotkeyManager.register('a', (context, event) => handleSelectAllHotkey(pn, event), 'Select All (Ctrl+A) / Hold to Gather', { preventDefault: false });
     window.hotkeyManager.register('p', hotkeyHandlers.handlePerformanceOverlay, 'Performance Overlay');
     window.hotkeyManager.register('r', hotkeyHandlers.handleRandomize, 'Randomize Visuals');
     window.hotkeyManager.register('d', hotkeyHandlers.handleReset, 'Reset to Default');
@@ -891,7 +913,7 @@ async function buildPane() {
       const capped = pn.toggleGravityWellAccelerationCap();
       window.hotkeyManager.showToast(`Gravity acceleration: ${capped ? `Capped at ${pn.gravityWellAccelerationLimit}` : 'Unlimited'}`, { duration: 1500 });
     }, 'Toggle Unlimited Gravity Acceleration');
-    window.hotkeyManager.register('delete', () => pn.removeGravityWellUnderPointer(), 'Remove Gravity Well Under Pointer');
+    window.hotkeyManager.register('delete', () => handleDeleteSelectionHotkey(pn), 'Delete Selection / Remove Gravity Well Under Pointer');
     window.hotkeyManager.register('escape', () => pn.cancelGravityWellPlacement(), 'Cancel or Deselect Gravity Well');
     
     console.log('HotkeyManager: All hotkeys registered', Array.from(window.hotkeyManager.handlers.keys()));
@@ -1011,6 +1033,7 @@ function registerBootstrapHotkeys() {
     handleContextualControlsHotkey(pn, event, () => invokePaneAction(ui => ui.togglePane()));
   }, 'Copy Selection (Ctrl+C) / Recolor Hovered Hole / Toggle Controls', { preventDefault: false });
   manager.register('v', (context, event) => handlePasteSelectionHotkey(pn, event), 'Paste Selection (Ctrl+V)', { preventDefault: false });
+  manager.register('a', (context, event) => handleSelectAllHotkey(pn, event), 'Select All (Ctrl+A) / Hold to Gather', { preventDefault: false });
   manager.register('p', () => {
     const monitor = pn.performanceMonitor;
     if (!monitor || !pn.options) return;
@@ -1044,7 +1067,7 @@ function registerBootstrapHotkeys() {
     const capped = pn.toggleGravityWellAccelerationCap();
     manager.showToast(`Gravity acceleration: ${capped ? `Capped at ${pn.gravityWellAccelerationLimit}` : 'Unlimited'}`, { duration: 1500 });
   }, 'Toggle Unlimited Gravity Acceleration');
-  manager.register('delete', () => pn.removeGravityWellUnderPointer(), 'Remove Gravity Well Under Pointer');
+  manager.register('delete', () => handleDeleteSelectionHotkey(pn), 'Delete Selection / Remove Gravity Well Under Pointer');
   manager.register('escape', () => pn.cancelGravityWellPlacement(), 'Cancel or Deselect Gravity Well');
 
   console.log('HotkeyManager: Bootstrap hotkeys registered', Array.from(manager.handlers.keys()));
