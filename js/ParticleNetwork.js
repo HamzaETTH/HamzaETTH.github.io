@@ -720,6 +720,7 @@
       this._gravityPointerInsideCanvas = false;
       this._gravityPointerId = null;
       this._gravityWellDrag = null;
+      this._mobileGesture = null;
       this.gravityWellAccelerationCapped = this.options.gravityWellAccelerationCapped !== false;
       this.gravityWellAccelerationLimit = Number.isFinite(this.options.gravityWellAccelerationLimit)
         ? Math.max(0, this.options.gravityWellAccelerationLimit)
@@ -834,12 +835,21 @@
       this._gravityWellStrengthLabel.dataset.force = effectiveType;
       this._gravityWellStrengthLabel.style.left = Math.max(54, Math.min(width - 54, well.x)) + 'px';
       this._gravityWellStrengthLabel.style.top = Math.max(18, Math.min(height - 18, well.y - offset)) + 'px';
+      this._gravityWellStrengthLabel.style.visibility = 'visible';
       this._gravityWellStrengthLabel.classList.add('is-visible');
       if (this._gravityWellStrengthLabelTimer != null) clearTimeout(this._gravityWellStrengthLabelTimer);
       this._gravityWellStrengthLabelTimer = setTimeout(function() {
         this._gravityWellStrengthLabelTimer = null;
         if (this._gravityWellStrengthLabel) this._gravityWellStrengthLabel.classList.remove('is-visible');
       }.bind(this), 900);
+    }),
+    (b.prototype._hideGravityWellStrengthLabel = function() {
+      if (this._gravityWellStrengthLabelTimer != null) clearTimeout(this._gravityWellStrengthLabelTimer);
+      this._gravityWellStrengthLabelTimer = null;
+      if (this._gravityWellStrengthLabel) {
+        this._gravityWellStrengthLabel.classList.remove('is-visible');
+        this._gravityWellStrengthLabel.style.visibility = 'hidden';
+      }
     }),
     (b.prototype._emitGravityWellsChange = function() {
       this._updateGravityWellRadiusLabel();
@@ -932,11 +942,320 @@
 	      this.repulsionForce = null;
 	      return wasActive;
 	    }),
-	    (b.prototype._clearInteractivePointerForces = function() {
+	    (b.prototype._clearInteractivePointerForces = function(preserveMobilePointers) {
 	      this._stopCursorCapture();
 	      this.attractionForce = null;
 	      this.repulsionForce = null;
+	      if (!preserveMobilePointers) this._resetMobileGesture(true);
+	    }),
+	    (b.prototype._cancelMobileHold = function() {
+	      var state = this._mobileGesture;
+	      if (!state || state.holdTimer == null) return;
+	      clearTimeout(state.holdTimer);
+	      state.holdTimer = null;
+	    }),
+	    (b.prototype._resetMobileGesture = function(stopWellDrag, keepStrengthLabel) {
+	      this._cancelMobileHold();
+	      if (stopWellDrag && this._gravityWellDrag) this._stopGravityWellDrag();
+	      if (!keepStrengthLabel) this._hideGravityWellStrengthLabel();
 	      if (this._activePointers) this._activePointers.clear();
+	      this.attractionForce = null;
+	      this.repulsionForce = null;
+	      this._mobileGesture = {
+	        mode: 'idle',
+	        primaryId: null,
+	        secondaryId: null,
+	        wellId: null,
+	        firstDownTime: 0,
+	        maxPointers: 0,
+	        tapCandidate: false,
+	        holdTimer: null,
+	        pinchStartDistance: 0,
+	        pinchStartRadius: 0,
+	        strengthStartY: 0,
+	        strengthStart: 0
+	      };
+	    }),
+	    (b.prototype._updateMobileForces = function() {
+	      var state = this._mobileGesture;
+	      var count = this._activePointers ? this._activePointers.size : 0;
+	      if (!state || state.mode !== 'canvas-force' || count === 0) {
+	        this.attractionForce = null;
+	        this.repulsionForce = null;
+	        return;
+	      }
+	      var sumX = 0;
+	      var sumY = 0;
+	      var first = null;
+	      this._activePointers.forEach(function(pointer) {
+	        if (!first) first = pointer;
+	        sumX += pointer.x;
+	        sumY += pointer.y;
+	      });
+	      if (count === 1) {
+	        // The legacy channel names are opposite to their physical direction.
+	        if (!this.repulsionForce) this.repulsionForce = { x: first.x, y: first.y };
+	        this.repulsionForce.x = first.x;
+	        this.repulsionForce.y = first.y;
+	        this.attractionForce = null;
+	        this.p.x = first.x;
+	        this.p.y = first.y;
+	        return;
+	      }
+	      var centroidX = sumX / count;
+	      var centroidY = sumY / count;
+	      if (!this.attractionForce) this.attractionForce = { x: centroidX, y: centroidY };
+	      this.attractionForce.x = centroidX;
+	      this.attractionForce.y = centroidY;
+	      this.repulsionForce = null;
+	      this.p.x = centroidX;
+	      this.p.y = centroidY;
+	    }),
+	    (b.prototype._scheduleMobileWellStrength = function() {
+	      var state = this._mobileGesture;
+	      this._cancelMobileHold();
+	      state.holdTimer = setTimeout(function() {
+	        if (!this._mobileGesture || this._mobileGesture !== state || state.mode !== 'well-pending' ||
+	            this._activePointers.size !== 1) return;
+	        var pointer = this._activePointers.get(state.primaryId);
+	        var well = this.getGravityWell(state.wellId);
+	        if (!pointer || !well) return;
+	        var dx = pointer.x - pointer.startX;
+	        var dy = pointer.y - pointer.startY;
+	        if (dx * dx + dy * dy > 100) return;
+	        state.mode = 'well-strength';
+	        state.holdTimer = null;
+	        state.strengthStartY = pointer.y;
+	        state.strengthStart = Number.isFinite(well.strength) ? well.strength : 0;
+	        this._showGravityWellStrengthLabel(well);
+	      }.bind(this), 700);
+	    }),
+	    (b.prototype._handleMobilePointerDown = function(evt) {
+	      var pos = this._mapToLogicalCanvas(evt);
+	      var now = performance.now();
+	      var state = this._mobileGesture;
+	      if (!state) {
+	        this._resetMobileGesture(false);
+	        state = this._mobileGesture;
+	      }
+	      this._activePointers.set(evt.pointerId, {
+	        x: pos.x,
+	        y: pos.y,
+	        startX: pos.x,
+	        startY: pos.y,
+	        downTime: now
+	      });
+	      state.maxPointers = Math.max(state.maxPointers, this._activePointers.size);
+	      this._gravityPointer = pos;
+	      this._gravityPointerInsideCanvas = true;
+	      if (this.gravityWellDraft) {
+	        this._handleGravityWellPointerDown(pos.x, pos.y, evt.pointerId);
+	        state = this._mobileGesture;
+	        this._activePointers.set(evt.pointerId, {
+	          x: pos.x,
+	          y: pos.y,
+	          startX: pos.x,
+	          startY: pos.y,
+	          downTime: now
+	        });
+	        state.mode = 'well-placement';
+	        state.primaryId = evt.pointerId;
+	        state.firstDownTime = now;
+	        state.maxPointers = 1;
+	        return true;
+	      }
+
+	      if (state.mode === 'idle') {
+	        var hit = this._hitTestGravityWellVisual(pos.x, pos.y);
+	        if (hit) {
+	          this._clearObjectSelectionState();
+	          this._selectSingleGravityWellState(hit.id);
+	          state.mode = 'well-pending';
+	          state.primaryId = evt.pointerId;
+	          state.wellId = hit.id;
+	          state.firstDownTime = now;
+	          this._emitGravityWellsChange();
+	          this._scheduleMobileWellStrength();
+	          return true;
+	        }
+	        state.mode = 'canvas-force';
+	        state.primaryId = evt.pointerId;
+	        state.firstDownTime = now;
+	        state.tapCandidate = true;
+	        this._updateMobileForces();
+	        return true;
+	      }
+
+	      if (state.mode === 'well-pending' || state.mode === 'well-move') {
+	        var sameWell = this._hitTestGravityWellVisual(pos.x, pos.y);
+	        if (this._activePointers.size === 2 && sameWell && sameWell.id === state.wellId) {
+	          this._cancelMobileHold();
+	          var primary = this._activePointers.get(state.primaryId);
+	          var well = this.getGravityWell(state.wellId);
+	          if (!primary || !well) return true;
+	          if (!this._gravityWellDrag) this._startGravityWellDrag(well, primary.startX, primary.startY, state.primaryId);
+	          state.mode = 'well-pinch';
+	          state.secondaryId = evt.pointerId;
+	          var pinchDx = pos.x - primary.x;
+	          var pinchDy = pos.y - primary.y;
+	          state.pinchStartDistance = Math.max(1, Math.sqrt(pinchDx * pinchDx + pinchDy * pinchDy));
+	          state.pinchStartRadius = well.radius;
+	          return true;
+	        }
+	        this._cancelMobileHold();
+	        state.mode = 'well-move';
+	        return true;
+	      }
+
+	      if (state.mode === 'canvas-force') {
+	        if (this._activePointers.size === 3 && now - state.firstDownTime <= 180 && state.tapCandidate) {
+	          state.mode = 'three-tap';
+	          this.attractionForce = null;
+	          this.repulsionForce = null;
+	        } else {
+	          if (this._activePointers.size > 3) state.tapCandidate = false;
+	          this._updateMobileForces();
+	        }
+	        return true;
+	      }
+
+	      if (state.mode === 'three-tap') {
+	        state.tapCandidate = false;
+	        state.mode = 'canvas-force';
+	        this._updateMobileForces();
+	      }
+	      return true;
+	    }),
+	    (b.prototype._handleMobilePointerMove = function(evt) {
+	      if (!this._activePointers || !this._activePointers.has(evt.pointerId)) return false;
+	      var pointer = this._activePointers.get(evt.pointerId);
+	      var pos = this._mapToLogicalCanvas(evt);
+	      pointer.x = pos.x;
+	      pointer.y = pos.y;
+	      this._gravityPointer = pos;
+	      var state = this._mobileGesture;
+	      var movedX = pointer.x - pointer.startX;
+	      var movedY = pointer.y - pointer.startY;
+	      var movedSq = movedX * movedX + movedY * movedY;
+
+	      if (state.mode === 'canvas-force') {
+	        if (movedSq > 144) state.tapCandidate = false;
+	        this._updateMobileForces();
+	        return true;
+	      }
+	      if (state.mode === 'three-tap') {
+	        if (movedSq > 144) {
+	          state.tapCandidate = false;
+	          state.mode = 'canvas-force';
+	          this._updateMobileForces();
+	        }
+	        return true;
+	      }
+	      if (state.mode === 'well-pending' && evt.pointerId === state.primaryId) {
+	        if (movedSq <= 100) return true;
+	        this._cancelMobileHold();
+	        var pendingWell = this.getGravityWell(state.wellId);
+	        if (!pendingWell) return true;
+	        this._startGravityWellDrag(pendingWell, pointer.startX, pointer.startY, state.primaryId);
+	        state.mode = 'well-move';
+	        this._handleGravityWellPointerMove(pos.x, pos.y);
+	        return true;
+	      }
+	      if (state.mode === 'well-placement' && evt.pointerId === state.primaryId) {
+	        this._handleGravityWellPointerMove(pos.x, pos.y);
+	        return true;
+	      }
+	      if (state.mode === 'well-move' && evt.pointerId === state.primaryId) {
+	        var movingWell = this.getGravityWell(state.wellId);
+	        if (movingWell && !this._gravityWellDrag) {
+	          this._startGravityWellDrag(movingWell, pointer.startX, pointer.startY, state.primaryId);
+	        }
+	        this._handleGravityWellPointerMove(pos.x, pos.y);
+	        return true;
+	      }
+	      if (state.mode === 'well-pinch') {
+	        var primary = this._activePointers.get(state.primaryId);
+	        var secondary = this._activePointers.get(state.secondaryId);
+	        var well = this.getGravityWell(state.wellId);
+	        if (!primary || !secondary || !well) return true;
+	        if (evt.pointerId === state.primaryId) this._handleGravityWellPointerMove(primary.x, primary.y);
+	        var pinchDx = secondary.x - primary.x;
+	        var pinchDy = secondary.y - primary.y;
+	        var distance = Math.max(1, Math.sqrt(pinchDx * pinchDx + pinchDy * pinchDy));
+	        this.updateGravityWell(well.id, {
+	          radius: this._clampGravityWellRadius(state.pinchStartRadius * distance / state.pinchStartDistance)
+	        });
+	        return true;
+	      }
+	      if (state.mode === 'well-strength' && evt.pointerId === state.primaryId) {
+	        var strengthWell = this.getGravityWell(state.wellId);
+	        if (!strengthWell) return true;
+	        var sign = state.strengthStart < 0 ? -1 : 1;
+	        var magnitude = Math.max(0, Math.min(100,
+	          Math.abs(state.strengthStart) + Math.round((state.strengthStartY - pos.y) / 6) * 0.5));
+	        this.updateGravityWell(strengthWell.id, { strength: sign * magnitude });
+	        this._showGravityWellStrengthLabel(strengthWell);
+	        return true;
+	      }
+	      return true;
+	    }),
+	    (b.prototype._handleMobilePointerUp = function(evt) {
+	      if (!this._activePointers || !this._activePointers.has(evt.pointerId)) return false;
+	      var state = this._mobileGesture;
+	      var pointer = this._activePointers.get(evt.pointerId);
+	      var pos = this._mapToLogicalCanvas(evt);
+	      pointer.x = pos.x;
+	      pointer.y = pos.y;
+
+	      if (state.mode === 'three-tap') {
+	        var movedX = pointer.x - pointer.startX;
+	        var movedY = pointer.y - pointer.startY;
+	        if (movedX * movedX + movedY * movedY > 144) state.tapCandidate = false;
+	        this._activePointers.delete(evt.pointerId);
+	        if (this._activePointers.size === 0) {
+	          var validTap = state.tapCandidate && state.maxPointers === 3 &&
+	            performance.now() - state.firstDownTime <= 350;
+	          this._resetMobileGesture(false);
+	          if (validTap) window.dispatchEvent(new CustomEvent('particle-mobile-randomize'));
+	        }
+	        return true;
+	      }
+	      if (state.mode === 'canvas-force') {
+	        this._activePointers.delete(evt.pointerId);
+	        if (this._activePointers.size === 0) this._resetMobileGesture(false);
+	        else this._updateMobileForces();
+	        return true;
+	      }
+	      if (state.mode === 'well-placement') {
+	        this._handleGravityWellPointerUp(pos.x, pos.y, evt.pointerId);
+	        this._resetMobileGesture(true);
+	        return true;
+	      }
+	      if (state.mode === 'well-pinch' && evt.pointerId === state.secondaryId) {
+	        this._activePointers.delete(evt.pointerId);
+	        state.secondaryId = null;
+	        state.mode = 'well-move';
+	        return true;
+	      }
+	      if (state.mode === 'well-move' && evt.pointerId === state.primaryId && this._gravityWellDrag) {
+	        this._handleGravityWellPointerMove(pos.x, pos.y);
+	      }
+	      var keepStrengthLabel = state.mode === 'well-strength';
+	      if (keepStrengthLabel) {
+	        var strengthWell = this.getGravityWell(state.wellId);
+	        if (strengthWell) this._showGravityWellStrengthLabel(strengthWell);
+	      }
+	      this._resetMobileGesture(true, keepStrengthLabel);
+	      return true;
+	    }),
+	    (b.prototype._handleMobilePointerCancel = function(evt) {
+	      if (!this._activePointers || !this._activePointers.has(evt.pointerId)) return false;
+	      if (this._mobileGesture && this._mobileGesture.mode === 'well-placement') {
+	        this.cancelGravityWellPlacement();
+	        return true;
+	      }
+	      this._resetMobileGesture(true);
+	      return true;
 	    }),
 	    (b.prototype._clearObjectSelectionState = function() {
 	      var hadSelection = !!(this.selectedGravityWellId ||
@@ -1303,6 +1622,7 @@
         if (this.gravityWells[i].id === id) { index = i; break; }
       }
       if (index < 0) return false;
+      if (this._mobileGesture && this._mobileGesture.wellId === id) this._resetMobileGesture(true);
       if (this._gravityWellDrag && this._gravityWellDrag.id === id) this._stopGravityWellDrag();
       this.gravityWells.splice(index, 1);
       if (this.selectedGravityWellIds) this.selectedGravityWellIds.delete(id);
@@ -1330,6 +1650,7 @@
       return this.gravityWellAccelerationCapped;
     }),
     (b.prototype.clearGravityWells = function() {
+      if (this._mobileGesture && this._mobileGesture.mode !== 'idle') this._resetMobileGesture(true);
       this._stopGravityWellDrag();
       this.gravityWells.length = 0;
       this.selectedGravityWellId = null;
@@ -1350,6 +1671,7 @@
 	      var defaults = this._gravityWellDefaults(type);
 	      var pointer = this._gravityPointer || { x: this.i.size.width / 2, y: this.i.size.height / 2 };
 	      this._clearInteractivePointerForces();
+	      this._hideGravityWellStrengthLabel();
 	      this.options.gravityWellsEnabled = true;
 	      this._clearObjectSelectionState();
       this.gravityWellDraft = {
@@ -1366,9 +1688,29 @@
         editId: null
       };
       this._emitGravityWellsChange();
-      this._ensureAnimationLoop();
-      return this.gravityWellDraft;
-    }),
+	      this._ensureAnimationLoop();
+	      return this.gravityWellDraft;
+	    }),
+	    (b.prototype.beginGravityWellPaletteDrag = function(type, x, y) {
+	      var draft = this.beginGravityWellPlacement(type, true);
+	      draft.x = x;
+	      draft.y = y;
+	      draft.phase = 'positioning';
+	      this._emitGravityWellsChange();
+	      return draft;
+	    }),
+	    (b.prototype.updateGravityWellPaletteDrag = function(x, y) {
+	      var draft = this.gravityWellDraft;
+	      if (!draft || draft.phase !== 'positioning') return false;
+	      draft.x = Math.max(0, Math.min(this.i.size.width, x));
+	      draft.y = Math.max(0, Math.min(this.i.size.height, y));
+	      this._emitGravityWellsChange();
+	      return true;
+	    }),
+	    (b.prototype.commitGravityWellPaletteDrag = function(x, y) {
+	      if (!this.updateGravityWellPaletteDrag(x, y)) return null;
+	      return this._commitGravityWellPlacement();
+	    }),
     (b.prototype.beginSelectedGravityWellPlacement = function() {
       var selected = this.getSelectedGravityWell();
       if (!selected) return null;
@@ -1384,6 +1726,7 @@
       return this.gravityWellDraft;
     }),
     (b.prototype.cancelGravityWellPlacement = function() {
+	      if (this._mobileGesture && this._mobileGesture.mode !== 'idle') this._resetMobileGesture(true);
       if (this._cancelObjectSelection()) return true;
       if (this._gravityWellDrag) {
         this._stopGravityWellDrag();
@@ -1443,7 +1786,8 @@
     }),
     (b.prototype._startGravityWellDrag = function(well, x, y, pointerId) {
       if (!well) return false;
-      this._clearInteractivePointerForces();
+	      this._clearInteractivePointerForces(pointerId !== 'mouse');
+      this._hideGravityWellStrengthLabel();
       this._selectSingleGravityWellState(well.id);
       this._gravityWellDrag = {
         id: well.id,
@@ -2029,67 +2373,10 @@
           }
         }.bind(this));
 
-        // Pointer/touch events (unified). Behavior:
-        // - 1 finger: attract toward finger
-        // - 2+ fingers: repel from centroid of touches
+        // Touch interaction is owned by the capture-phase mobile gesture handler below.
         this.canvas.style.touchAction = 'none';
-        this._activePointers = new Map(); // pointerId -> {x,y}
-
-        var updateForcesFromPointers = function() {
-          var count = this._activePointers.size;
-          if (count === 0) {
-            this.attractionForce = null;
-            this.repulsionForce = null;
-            return;
-          }
-          // Compute position: first pointer for 1-finger, centroid for 2+
-          var sumX = 0, sumY = 0, first = null;
-          this._activePointers.forEach(function(pos){
-            if (!first) first = pos;
-            sumX += pos.x; sumY += pos.y;
-          });
-          if (count === 1) {
-            var fx = first.x, fy = first.y;
-            if (!this.attractionForce) this.attractionForce = { x: fx, y: fy };
-            this.attractionForce.x = fx; this.attractionForce.y = fy;
-            this.repulsionForce = null;
-            this.p.x = fx; this.p.y = fy;
-          } else {
-            var cx = sumX / count, cy = sumY / count;
-            if (!this.repulsionForce) this.repulsionForce = { x: cx, y: cy };
-            this.repulsionForce.x = cx; this.repulsionForce.y = cy;
-            this.attractionForce = null;
-            this.p.x = cx; this.p.y = cy;
-          }
-        }.bind(this);
-
-        this.canvas.addEventListener('pointerdown', function(evt){
-          if (evt.pointerType !== 'touch' && evt.pointerType !== 'pen') return; // leave mouse to existing handlers
-          var pos = this._mapToCanvas(evt);
-          this._activePointers.set(evt.pointerId, { x: pos.x, y: pos.y });
-          try { this.canvas.setPointerCapture && this.canvas.setPointerCapture(evt.pointerId); } catch(e) {}
-          updateForcesFromPointers();
-          evt.preventDefault();
-        }.bind(this), { passive: false });
-
-        this.canvas.addEventListener('pointermove', function(evt){
-          if (!this._activePointers.has(evt.pointerId)) return;
-          var pos = this._mapToCanvas(evt);
-          this._activePointers.set(evt.pointerId, { x: pos.x, y: pos.y });
-          updateForcesFromPointers();
-          evt.preventDefault();
-        }.bind(this), { passive: false });
-
-        var clearPointer = function(evt){
-          if (!this._activePointers.has(evt.pointerId)) return;
-          this._activePointers.delete(evt.pointerId);
-          updateForcesFromPointers();
-          evt.preventDefault();
-        }.bind(this);
-
-        this.canvas.addEventListener('pointerup', clearPointer, { passive: false });
-        this.canvas.addEventListener('pointercancel', clearPointer, { passive: false });
-        this.canvas.addEventListener('pointerleave', clearPointer, { passive: false });
+        this._activePointers = new Map();
+        this._resetMobileGesture(false);
       }
 
       // Gravity-well placement and core selection take precedence over normal forces.
@@ -2212,9 +2499,7 @@
 
       this.canvas.addEventListener('pointerdown', function(evt) {
         if (evt.pointerType !== 'touch' && evt.pointerType !== 'pen') return;
-        var pos = this._mapToLogicalCanvas(evt);
-        this._gravityPointer = pos;
-        if (!this._handleGravityWellPointerDown(pos.x, pos.y, evt.pointerId)) return;
+        this._handleMobilePointerDown(evt);
         try { this.canvas.setPointerCapture && this.canvas.setPointerCapture(evt.pointerId); } catch (_) {}
         evt.preventDefault();
         evt.stopImmediatePropagation();
@@ -2222,26 +2507,24 @@
 
       this.canvas.addEventListener('pointermove', function(evt) {
         if (evt.pointerType !== 'touch' && evt.pointerType !== 'pen') return;
-        var pos = this._mapToLogicalCanvas(evt);
-        var handled = this._handleGravityWellPointerMove(pos.x, pos.y);
-        if (!handled) return;
+        if (!this._handleMobilePointerMove(evt)) return;
         evt.preventDefault();
         evt.stopImmediatePropagation();
       }.bind(this), { capture: true, passive: false });
 
       this.canvas.addEventListener('pointerup', function(evt) {
         if (evt.pointerType !== 'touch' && evt.pointerType !== 'pen') return;
-        var pos = this._mapToLogicalCanvas(evt);
-        if (!this._handleGravityWellPointerUp(pos.x, pos.y, evt.pointerId)) return;
+        if (!this._handleMobilePointerUp(evt)) return;
         evt.preventDefault();
         evt.stopImmediatePropagation();
       }.bind(this), { capture: true, passive: false });
 
       this.canvas.addEventListener('pointercancel', function(evt) {
-        if (this._stopGravityWellDrag(evt.pointerId)) return;
-        if (this._gravityPointerId !== evt.pointerId) return;
-        this.cancelGravityWellPlacement();
-      }.bind(this), true);
+        if (evt.pointerType !== 'touch' && evt.pointerType !== 'pen') return;
+        if (!this._handleMobilePointerCancel(evt)) return;
+        evt.preventDefault();
+        evt.stopImmediatePropagation();
+      }.bind(this), { capture: true, passive: false });
 
       // RAF control flags
       this._rafActive = false;
@@ -2761,11 +3044,10 @@
         this.performanceMonitor.update();
       }
     }),
-    (b.prototype.adjustParticleCount = function (increase) {
-      // SoA-aware particle count change
+    (b.prototype.setParticleCount = function (target) {
       var currentCount = this.numParticles|0;
-      var target = increase ? currentCount * 2 : Math.floor(currentCount / 2);
-      target = Math.max(0, target);
+      target = Number.isFinite(target) ? Math.max(0, Math.round(target)) : currentCount;
+      if (target === currentCount) return currentCount;
       var newObjects = new Array(target);
       var copyCount = Math.min(currentCount, target);
       for (var i = 0; i < copyCount; i++) newObjects[i] = this.o[i];
@@ -2782,10 +3064,20 @@
       }
       // Re-init SoA and grid
       this._initSoAFromObjects(target);
+      if (this.p) this.p.index = target;
       this.initGrid();
       if (this.performanceMonitor && this.performanceMonitor.setParticleCount) {
         this.performanceMonitor.setParticleCount(this.numParticles);
       }
+      window.dispatchEvent(new CustomEvent('particle-count-change', {
+        detail: { count: this.numParticles }
+      }));
+      this._ensureAnimationLoop();
+      return this.numParticles;
+    }),
+    (b.prototype.adjustParticleCount = function (increase) {
+      var currentCount = this.numParticles|0;
+      return this.setParticleCount(increase ? currentCount * 2 : Math.floor(currentCount / 2));
     }),
     (b.prototype._ensureParticleCapacity = function(required) {
       var currentCapacity = this.posX ? this.posX.length : 0;

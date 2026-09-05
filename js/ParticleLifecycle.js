@@ -100,6 +100,7 @@
       Array.prototype.forEach.call(document.body.children, function (node) {
         if (node.textContent === 'Attract: HOLD A' && node.style.position === 'fixed') node.remove();
       });
+      if (this._cancelMobileHold) this._cancelMobileHold();
       if (this._activePointers) this._activePointers.clear();
       this.attractionForce = null;
       this.repulsionForce = null;
@@ -139,6 +140,7 @@
       this.sizeA = null;
       this.numParticles = 0;
       this._activePointers = null;
+      this._mobileGesture = null;
       this.gravityWells = null;
       this.gravityWellDraft = null;
       this._gravityWellDrag = null;

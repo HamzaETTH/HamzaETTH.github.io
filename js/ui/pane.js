@@ -1,5 +1,6 @@
 import { rgbArrayToHex, randInt, rand01, randBool, randHex } from './utils.js';
 import { applyParamsToNetwork } from './applyParams.js';
+import { mountMobileControls } from './mobileControls.js';
 
 const TWEAKPANE_URL = 'https://cdn.jsdelivr.net/npm/tweakpane@4.0.5/dist/tweakpane.min.js';
 const PARTICLE_FORCE_SLIDER_STEP = 0.05;
@@ -7,6 +8,7 @@ const PARTICLE_FORCE_RECOMMENDED_MIN = 1.5;
 const PARTICLE_FORCE_RECOMMENDED_MAX = 5;
 let paneBuildPromise = null;
 let activeUi = null;
+let mobileControls = null;
 let lifecycleGeneration = 0;
 
 function describeObjectSelection(action, result) {
@@ -664,9 +666,9 @@ async function buildPane() {
 
   // Randomize visuals (no interaction, no background, no speed, no particle amount)
 
-  function randomizeVisualParams() {
+  function randomizeVisualParams({ preserveParticleSize = false } = {}) {
     // Particles
-    PARAMS.particleSize = randInt(1, 6);
+    if (!preserveParticleSize) PARAMS.particleSize = randInt(1, 6);
     if (!PARAMS.particleColorCycling) {
       PARAMS.particleColor = randHex();
     }
@@ -997,6 +999,12 @@ function registerBootstrapHotkeys() {
     applyParamsToNetwork
   });
 
+  if (mobileControls) mobileControls.destroy();
+  mobileControls = mountMobileControls(pn, {
+    randomizeVisuals: () => invokePaneAction(ui =>
+      ui.randomizeVisualParams({ preserveParticleSize: true }))
+  });
+
   manager.register('c', (context, event) => {
     handleContextualControlsHotkey(pn, event, () => invokePaneAction(ui => ui.togglePane()));
   }, 'Copy Selection (Ctrl+C) / Toggle Controls', { preventDefault: false });
@@ -1042,6 +1050,8 @@ function registerBootstrapHotkeys() {
 
 function destroySettingsOwnership() {
   lifecycleGeneration++;
+  if (mobileControls) mobileControls.destroy();
+  mobileControls = null;
   if (activeUi) activeUi.destroy();
   activeUi = null;
   window.particleSettingsUi = null;
