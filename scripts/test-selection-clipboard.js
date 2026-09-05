@@ -199,21 +199,60 @@ async function main() {
       return {
         particles: clipboard?.particles.length,
         wells: clipboard?.wells.length,
-        anchorX: clipboard?.anchorX,
-        anchorY: clipboard?.anchorY,
+        particleSources: clipboard?.particleSources?.length,
+        wellSourceIds: clipboard?.wellSourceIds?.slice(),
         paneStillHidden: !container || getComputedStyle(container).display === 'none',
-        snapshot: clipboard ? JSON.parse(JSON.stringify(clipboard)) : null
+        snapshot: clipboard ? {
+          particles: clipboard.particles.map(particle => ({ ...particle })),
+          wells: clipboard.wells.map(well => ({ ...well }))
+        } : null
       };
     });
 
-    const destination = { x: 900, y: 300 };
-    await page.mouse.move(destination.x, destination.y);
-    await page.keyboard.press('Control+v');
-    const pasted = await page.evaluate(({ setup, destination }) => {
+    const firstLiveSources = await page.evaluate(selectedWellId => {
       const pn = window.particleInstance;
-      const clipboard = pn._selectionClipboard;
+      const particles = [
+        { x: 520, y: 180, velocityX: 1.25, velocityY: -1.5, size: 6, hue: 45, particleColor: '#aa5500' },
+        { x: 710, y: 360, velocityX: -2.25, velocityY: 0.75, size: 4, hue: 275, particleColor: '#0055aa' }
+      ];
+      particles.forEach((value, index) => {
+        const particle = pn.o[index];
+        particle.x = value.x;
+        particle.y = value.y;
+        particle.velocity.x = value.velocityX;
+        particle.velocity.y = value.velocityY;
+        particle.size = value.size;
+        particle.hue = value.hue;
+        particle.particleColor = value.particleColor;
+        pn.posX[index] = value.x;
+        pn.posY[index] = value.y;
+        pn.velX[index] = value.velocityX;
+        pn.velY[index] = value.velocityY;
+        pn.sizeA[index] = value.size;
+      });
+      const well = pn.getGravityWell(selectedWellId);
+      Object.assign(well, {
+        type: 'white',
+        x: 610,
+        y: 270,
+        strength: -41,
+        radius: 135,
+        innerColor: '#11cc88',
+        outerColor: '#4422ee'
+      });
+      return {
+        particles,
+        well: { ...well },
+        knownWellIds: pn.gravityWells.map(candidate => candidate.id)
+      };
+    }, setup.selectedWellId);
+    const firstPointer = { x: 1000, y: 100 };
+    await page.mouse.move(firstPointer.x, firstPointer.y);
+    await page.keyboard.press('Control+v');
+    const firstPaste = await page.evaluate(({ expected, firstPointer }) => {
+      const pn = window.particleInstance;
       const start = 4;
-      const copiedParticles = clipboard.particles.map((snapshot, offset) => {
+      const particles = expected.particles.map((source, offset) => {
         const index = start + offset;
         const particle = pn.o[index];
         return {
@@ -223,66 +262,170 @@ async function main() {
           vx: pn.velX[index],
           vy: pn.velY[index],
           size: pn.sizeA[index],
+          objectX: particle.x,
+          objectY: particle.y,
+          objectVx: particle.velocity.x,
+          objectVy: particle.velocity.y,
           objectSize: particle.size,
           hue: particle.hue,
           particleColor: particle.particleColor,
-          expectedX: snapshot.x + destination.x - clipboard.anchorX,
-          expectedY: snapshot.y + destination.y - clipboard.anchorY,
-          expectedVx: snapshot.velocityX,
-          expectedVy: snapshot.velocityY,
-          expectedHue: snapshot.hue,
-          expectedParticleColor: snapshot.particleColor
+          source
         };
       });
-      const pastedWell = pn.gravityWells.find(well =>
-        well.id !== setup.selectedWellId && well.id !== setup.outsideWellId
-      );
+      const well = pn.gravityWells.find(candidate => !expected.knownWellIds.includes(candidate.id));
       return {
         particleCount: pn.numParticles,
         objectCount: pn.o.length,
         wellCount: pn.gravityWells.length,
-        particles: copiedParticles,
-        well: pastedWell ? { ...pastedWell } : null,
-        expectedWell: {
-          x: clipboard.wells[0].x + destination.x - clipboard.anchorX,
-          y: clipboard.wells[0].y + destination.y - clipboard.anchorY,
-          source: clipboard.wells[0]
-        },
+        particles,
+        well: well ? { ...well } : null,
+        expectedWell: expected.well,
+        pointer: firstPointer,
         selectedParticles: Array.from(pn.selectedParticleIndices),
         selectedWells: Array.from(pn.selectedGravityWellIds),
         primaryWell: pn.selectedGravityWellId,
-        typedArrayCapacity: pn.posX.length
+        typedArrayCapacity: pn.posX.length,
+        clipboardStillLinked: pn._selectionClipboard.particleSources?.every((source, index) => source === pn.o[index]) &&
+          pn._selectionClipboard.wellSourceIds?.[0] === expected.well.id
       };
-    }, { setup, destination });
+    }, { expected: firstLiveSources, firstPointer });
 
-    const edgePaste = await page.evaluate(() => {
+    const secondLiveSources = await page.evaluate(selectedWellId => {
+      const pn = window.particleInstance;
+      const particles = [
+        { x: -35, y: 745, velocityX: 3.5, velocityY: -0.25, size: 7, hue: 120, particleColor: '#22dd44' },
+        { x: 1325, y: -25, velocityX: -1.75, velocityY: 2.5, size: 8, hue: 330, particleColor: '#dd2244' }
+      ];
+      particles.forEach((value, index) => {
+        const particle = pn.o[index];
+        particle.x = value.x;
+        particle.y = value.y;
+        particle.velocity.x = value.velocityX;
+        particle.velocity.y = value.velocityY;
+        particle.size = value.size;
+        particle.hue = value.hue;
+        particle.particleColor = value.particleColor;
+        pn.posX[index] = value.x;
+        pn.posY[index] = value.y;
+        pn.velX[index] = value.velocityX;
+        pn.velY[index] = value.velocityY;
+        pn.sizeA[index] = value.size;
+      });
+      const well = pn.getGravityWell(selectedWellId);
+      Object.assign(well, {
+        type: 'black',
+        x: 1350,
+        y: 755,
+        strength: 58,
+        radius: 145,
+        innerColor: '#eecc11',
+        outerColor: '#1188cc'
+      });
+      return {
+        particles,
+        well: { ...well },
+        knownWellIds: pn.gravityWells.map(candidate => candidate.id)
+      };
+    }, setup.selectedWellId);
+    await page.mouse.move(1, 1);
+    await page.keyboard.press('Control+v');
+    const secondPaste = await page.evaluate(expected => {
+      const pn = window.particleInstance;
+      const start = 6;
+      const particles = expected.particles.map((source, offset) => {
+        const index = start + offset;
+        const particle = pn.o[index];
+        return {
+          x: pn.posX[index], y: pn.posY[index],
+          vx: pn.velX[index], vy: pn.velY[index],
+          size: pn.sizeA[index], objectSize: particle.size,
+          hue: particle.hue, particleColor: particle.particleColor,
+          source
+        };
+      });
+      const well = pn.gravityWells.find(candidate => !expected.knownWellIds.includes(candidate.id));
+      return {
+        particleCount: pn.numParticles,
+        wellCount: pn.gravityWells.length,
+        particles,
+        well: well ? { ...well } : null,
+        expectedWell: expected.well,
+        selectedParticles: Array.from(pn.selectedParticleIndices),
+        selectedWells: Array.from(pn.selectedGravityWellIds),
+        primaryWell: pn.selectedGravityWellId
+      };
+    }, secondLiveSources);
+
+    const fallbackPaste = await page.evaluate(selectedWellId => {
       const pn = window.particleInstance;
       const clipboard = pn._selectionClipboard;
-      const particleStart = pn.numParticles;
-      const knownWellIds = new Set(pn.gravityWells.map(well => well.id));
-      pn._gravityPointer = { x: 1, y: 1 };
-      pn.pasteObjectSelection();
-      const particles = clipboard.particles.map((snapshot, offset) => ({
-        sourceX: snapshot.x,
-        sourceY: snapshot.y,
-        x: pn.posX[particleStart + offset],
-        y: pn.posY[particleStart + offset]
-      }));
-      const well = pn.gravityWells.find(candidate => !knownWellIds.has(candidate.id));
-      const points = [...particles.map(particle => ({ x: particle.x, y: particle.y })), { x: well.x, y: well.y }];
-      const sourcePoints = [...clipboard.particles.map(particle => ({ x: particle.x, y: particle.y })), clipboard.wells[0]];
-      return {
-        allCentersVisible: points.every(point => point.x >= 0 && point.x <= pn.i.size.width && point.y >= 0 && point.y <= pn.i.size.height),
-        sourceDeltas: sourcePoints.slice(1).map(point => ({
-          x: point.x - sourcePoints[0].x,
-          y: point.y - sourcePoints[0].y
-        })),
-        pastedDeltas: points.slice(1).map(point => ({
-          x: point.x - points[0].x,
-          y: point.y - points[0].y
-        }))
+      const frozen = {
+        particles: clipboard.particles.map(particle => ({ ...particle })),
+        wells: clipboard.wells.map(well => ({ ...well }))
       };
-    });
+      const originalCount = pn.numParticles;
+      pn.setParticleCount(originalCount + 1);
+      const replacement = pn.o.pop();
+      replacement.index = 0;
+      pn.o[0] = replacement;
+      pn._initSoAFromObjects(originalCount);
+      if (pn.p) pn.p.index = originalCount;
+
+      const remainingSource = clipboard.particleSources?.[1];
+      const remainingIndex = pn.o.indexOf(remainingSource);
+      if (remainingIndex >= 0) {
+        Object.assign(remainingSource, {
+          x: 1111,
+          y: 612,
+          size: 9,
+          hue: 199,
+          particleColor: '#abcdef'
+        });
+        remainingSource.velocity.x = 7;
+        remainingSource.velocity.y = -7;
+        pn.posX[remainingIndex] = remainingSource.x;
+        pn.posY[remainingIndex] = remainingSource.y;
+        pn.velX[remainingIndex] = remainingSource.velocity.x;
+        pn.velY[remainingIndex] = remainingSource.velocity.y;
+        pn.sizeA[remainingIndex] = remainingSource.size;
+      }
+      Object.assign(pn.getGravityWell(selectedWellId), {
+        type: 'white',
+        x: 999,
+        y: 611,
+        strength: -73,
+        radius: 155,
+        innerColor: '#123456',
+        outerColor: '#fedcba'
+      });
+      const start = pn.numParticles;
+      const knownWellIds = pn.gravityWells.map(well => well.id);
+      pn._gravityPointer = { x: 640, y: 700 };
+      pn.pasteObjectSelection();
+      const particles = frozen.particles.map((source, offset) => {
+        const index = start + offset;
+        const particle = pn.o[index];
+        return {
+          x: pn.posX[index], y: pn.posY[index],
+          vx: pn.velX[index], vy: pn.velY[index],
+          size: pn.sizeA[index], objectSize: particle.size,
+          hue: particle.hue, particleColor: particle.particleColor,
+          source
+        };
+      });
+      const well = pn.gravityWells.find(candidate => !knownWellIds.includes(candidate.id));
+      return {
+        particleCount: pn.numParticles,
+        wellCount: pn.gravityWells.length,
+        particles,
+        well: well ? { ...well } : null,
+        expectedWell: frozen.wells[0],
+        oneSourceMissing: !pn.o.includes(clipboard.particleSources?.[0]) && remainingIndex >= 0,
+        selectedParticles: Array.from(pn.selectedParticleIndices),
+        selectedWells: Array.from(pn.selectedGravityWellIds),
+        primaryWell: pn.selectedGravityWellId
+      };
+    }, setup.selectedWellId);
 
     await page.evaluate(() => {
       const pn = window.particleInstance;
@@ -387,16 +530,16 @@ async function main() {
       return { defaultPrevented: event.defaultPrevented };
     });
 
-    const copiedPoints = copied.snapshot ? [
-      ...copied.snapshot.particles.map(particle => ({ x: particle.x, y: particle.y })),
-      ...copied.snapshot.wells.map(well => ({ x: well.x, y: well.y }))
-    ] : [];
-    const copiedBounds = copiedPoints.length ? {
-      left: Math.min(...copiedPoints.map(point => point.x)),
-      right: Math.max(...copiedPoints.map(point => point.x)),
-      top: Math.min(...copiedPoints.map(point => point.y)),
-      bottom: Math.max(...copiedPoints.map(point => point.y))
-    } : null;
+    const matchesParticleSnapshot = particle =>
+      close(particle.x, particle.source.x) && close(particle.y, particle.source.y) &&
+      close(particle.vx, particle.source.velocityX) && close(particle.vy, particle.source.velocityY) &&
+      particle.size === particle.source.size && particle.objectSize === particle.source.size &&
+      particle.hue === particle.source.hue && particle.particleColor === particle.source.particleColor;
+    const matchesWellSnapshot = paste => paste.well && paste.expectedWell &&
+      paste.well.id !== paste.expectedWell.id && paste.well.type === paste.expectedWell.type &&
+      close(paste.well.x, paste.expectedWell.x) && close(paste.well.y, paste.expectedWell.y) &&
+      paste.well.radius === paste.expectedWell.radius && paste.well.strength === paste.expectedWell.strength &&
+      paste.well.innerColor === paste.expectedWell.innerColor && paste.well.outerColor === paste.expectedWell.outerColor;
 
     const assertions = {
       marqueeMatchesDesktopSelection: marquee.display === 'block' && marquee.borderStyle === 'dashed' &&
@@ -415,24 +558,30 @@ async function main() {
         groupDragging.selectedWells.join(',') === selected.wells.join(',') &&
         groupDragReleased.dragStopped && groupDragReleased.classCleared,
       ctrlCCopiesWithoutOpeningControls: paneBeforeCopy && copied.paneStillHidden &&
-        copied.particles === 2 && copied.wells === 1 && copiedBounds &&
-        close(copied.anchorX, (copiedBounds.left + copiedBounds.right) / 2) &&
-        close(copied.anchorY, (copiedBounds.top + copiedBounds.bottom) / 2),
-      ctrlVPastesExactParticles: pasted.particleCount === 6 && pasted.objectCount === 6 &&
-        pasted.typedArrayCapacity >= 6 && pasted.particles.every(particle =>
-          close(particle.x, particle.expectedX) && close(particle.y, particle.expectedY) &&
-          close(particle.vx, particle.expectedVx) && close(particle.vy, particle.expectedVy) &&
-          particle.size === particle.objectSize && particle.hue === particle.expectedHue &&
-          particle.particleColor === particle.expectedParticleColor),
-      ctrlVPastesExactWell: pasted.wellCount === 3 && pasted.well &&
-        pasted.well.id !== pasted.expectedWell.source.id && pasted.well.type === pasted.expectedWell.source.type &&
-        close(pasted.well.x, pasted.expectedWell.x) && close(pasted.well.y, pasted.expectedWell.y) &&
-        pasted.well.radius === pasted.expectedWell.source.radius && pasted.well.strength === pasted.expectedWell.source.strength &&
-        pasted.well.innerColor === pasted.expectedWell.source.innerColor && pasted.well.outerColor === pasted.expectedWell.source.outerColor,
-      pastedObjectsBecomeSelection: pasted.selectedParticles.join(',') === '4,5' && pasted.selectedWells.length === 1 &&
-        pasted.selectedWells[0] === pasted.well.id && pasted.primaryWell === pasted.well.id,
-      edgePasteKeepsGroupTogether: edgePaste.allCentersVisible && edgePaste.sourceDeltas.every((delta, index) =>
-        close(delta.x, edgePaste.pastedDeltas[index].x) && close(delta.y, edgePaste.pastedDeltas[index].y)),
+        copied.particles === 2 && copied.wells === 1 && copied.particleSources === 2 &&
+        copied.wellSourceIds?.join(',') === setup.selectedWellId,
+      ctrlVPastesLatestParticleState: firstPaste.particleCount === 6 && firstPaste.objectCount === 6 &&
+        firstPaste.typedArrayCapacity >= 6 && firstPaste.particles.every(matchesParticleSnapshot) &&
+        firstPaste.particles.every(particle => close(particle.objectX, particle.source.x) &&
+          close(particle.objectY, particle.source.y) && close(particle.objectVx, particle.source.velocityX) &&
+          close(particle.objectVy, particle.source.velocityY)),
+      ctrlVPastesLatestWellState: firstPaste.wellCount === 3 && matchesWellSnapshot(firstPaste),
+      pasteIgnoresPointerTranslation: firstPaste.particles.every(particle =>
+        !close(particle.x, firstPaste.pointer.x) || !close(particle.y, firstPaste.pointer.y)) &&
+        (!close(firstPaste.well.x, firstPaste.pointer.x) || !close(firstPaste.well.y, firstPaste.pointer.y)),
+      repeatedCtrlVResamplesOriginals: secondPaste.particleCount === 8 && secondPaste.wellCount === 4 &&
+        secondPaste.particles.every(matchesParticleSnapshot) && matchesWellSnapshot(secondPaste) &&
+        secondPaste.particles.some(particle => particle.x < 0 || particle.x > 1280 || particle.y < 0 || particle.y > 720) &&
+        (secondPaste.well.x < 0 || secondPaste.well.x > 1280 || secondPaste.well.y < 0 || secondPaste.well.y > 720),
+      missingSourceUsesWholeFrozenSnapshot: fallbackPaste.oneSourceMissing && fallbackPaste.particleCount === 10 &&
+        fallbackPaste.wellCount === 5 && fallbackPaste.particles.every(matchesParticleSnapshot) &&
+        matchesWellSnapshot(fallbackPaste),
+      clipboardStaysLinkedToOriginals: firstPaste.clipboardStillLinked,
+      pastedObjectsBecomeSelection: firstPaste.selectedParticles.join(',') === '4,5' &&
+        firstPaste.selectedWells.join(',') === firstPaste.well.id && firstPaste.primaryWell === firstPaste.well.id &&
+        secondPaste.selectedParticles.join(',') === '6,7' && secondPaste.selectedWells.join(',') === secondPaste.well.id &&
+        secondPaste.primaryWell === secondPaste.well.id && fallbackPaste.selectedParticles.join(',') === '8,9' &&
+        fallbackPaste.selectedWells.join(',') === fallbackPaste.well.id && fallbackPaste.primaryWell === fallbackPaste.well.id,
       singleWellActionCollapsesMarqueeSelection: singleWellCopy.primary === singleWellCopy.expectedId &&
         singleWellCopy.selectedWells.join(',') === singleWellCopy.expectedId && !singleWellCopy.selectedParticles.length &&
         singleWellCopy.copiedWells.join(',') === singleWellCopy.expectedId && singleWellCopy.copiedParticles === 0,
@@ -460,8 +609,11 @@ async function main() {
       groupDragging,
       groupDragReleased,
       copied,
-      pasted,
-      edgePaste,
+      firstLiveSources,
+      firstPaste,
+      secondLiveSources,
+      secondPaste,
+      fallbackPaste,
       singleWellCopy,
       selectAll,
       deleted,

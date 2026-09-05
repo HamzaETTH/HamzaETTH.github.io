@@ -1616,25 +1616,26 @@
 	      return true;
 	    }),
 	    (b.prototype.copyObjectSelection = function() {
+	      var particleSources = [];
 	      var particleSnapshots = [];
+	      var wellSourceIds = [];
 	      var wellSnapshots = [];
-	      var points = [];
 	      if (this.selectedParticleIndices) {
 	        this.selectedParticleIndices.forEach(function(index) {
 	          if (index < 0 || index >= this.numParticles) return;
 	          var particle = this.o[index];
 	          var x = this.posX ? this.posX[index] : particle.x;
 	          var y = this.posY ? this.posY[index] : particle.y;
+	          particleSources.push(particle);
 	          particleSnapshots.push({
 	            x: x,
 	            y: y,
 	            velocityX: this.velX ? this.velX[index] : particle.velocity.x,
 	            velocityY: this.velY ? this.velY[index] : particle.velocity.y,
-	            size: particle.size,
+	            size: this.sizeA ? this.sizeA[index] : particle.size,
 	            hue: particle.hue,
 	            particleColor: particle.particleColor
 	          });
-	          points.push({ x: x, y: y });
 	        }, this);
 	      }
 	      var selectedWellIds = new Set(this.selectedGravityWellIds || []);
@@ -1642,25 +1643,13 @@
 	      selectedWellIds.forEach(function(id) {
 	        var well = this.getGravityWell(id);
 	        if (!well) return;
+	        wellSourceIds.push(id);
 	        wellSnapshots.push(Object.assign({}, well));
-	        points.push({ x: well.x, y: well.y });
 	      }, this);
-	      if (!points.length) return null;
-	      var minX = points[0].x, maxX = points[0].x;
-	      var minY = points[0].y, maxY = points[0].y;
-	      for (var i = 1; i < points.length; i++) {
-	        minX = Math.min(minX, points[i].x);
-	        maxX = Math.max(maxX, points[i].x);
-	        minY = Math.min(minY, points[i].y);
-	        maxY = Math.max(maxY, points[i].y);
-	      }
+	      if (!particleSnapshots.length && !wellSnapshots.length) return null;
 	      this._selectionClipboard = {
-	        anchorX: (minX + maxX) / 2,
-	        anchorY: (minY + maxY) / 2,
-	        minX: minX,
-	        maxX: maxX,
-	        minY: minY,
-	        maxY: maxY,
+	        particleSources: particleSources,
+	        wellSourceIds: wellSourceIds,
 	        particles: particleSnapshots,
 	        wells: wellSnapshots
 	      };
@@ -1669,34 +1658,65 @@
 	    (b.prototype.pasteObjectSelection = function() {
 	      var clipboard = this._selectionClipboard;
 	      if (!clipboard || (!clipboard.particles.length && !clipboard.wells.length)) return null;
-	      var pointer = this._gravityPointer || (this.p && Number.isFinite(this.p.x) && Number.isFinite(this.p.y) ? this.p : null);
-	      if (!pointer) pointer = { x: this.i.size.width / 2, y: this.i.size.height / 2 };
-	      var anchorX = pointer.x;
-	      var anchorY = pointer.y;
-	      var groupWidth = clipboard.maxX - clipboard.minX;
-	      var groupHeight = clipboard.maxY - clipboard.minY;
-	      if (groupWidth <= this.i.size.width) {
-	        anchorX = Math.max(clipboard.anchorX - clipboard.minX,
-	          Math.min(this.i.size.width - (clipboard.maxX - clipboard.anchorX), anchorX));
+	      var particleSnapshots = clipboard.particles;
+	      var wellSnapshots = clipboard.wells;
+	      var particleSources = clipboard.particleSources;
+	      var wellSourceIds = clipboard.wellSourceIds;
+	      var liveParticleIndices = [];
+	      var liveWells = [];
+	      var useLiveSources = Array.isArray(particleSources) && Array.isArray(wellSourceIds) &&
+	        particleSources.length === particleSnapshots.length && wellSourceIds.length === wellSnapshots.length;
+	      if (useLiveSources && particleSources.length) {
+	        var particleIndices = new Map();
+	        for (var sourceIndex = 0; sourceIndex < this.numParticles; sourceIndex++) {
+	          particleIndices.set(this.o[sourceIndex], sourceIndex);
+	        }
+	        for (var sourceParticleIndex = 0; sourceParticleIndex < particleSources.length; sourceParticleIndex++) {
+	          var liveIndex = particleIndices.get(particleSources[sourceParticleIndex]);
+	          if (!Number.isInteger(liveIndex)) {
+	            useLiveSources = false;
+	            break;
+	          }
+	          liveParticleIndices.push(liveIndex);
+	        }
 	      }
-	      if (groupHeight <= this.i.size.height) {
-	        anchorY = Math.max(clipboard.anchorY - clipboard.minY,
-	          Math.min(this.i.size.height - (clipboard.maxY - clipboard.anchorY), anchorY));
+	      if (useLiveSources) {
+	        for (var sourceWellIndex = 0; sourceWellIndex < wellSourceIds.length; sourceWellIndex++) {
+	          var liveWell = this.getGravityWell(wellSourceIds[sourceWellIndex]);
+	          if (!liveWell) {
+	            useLiveSources = false;
+	            break;
+	          }
+	          liveWells.push(liveWell);
+	        }
 	      }
-	      var shiftX = anchorX - clipboard.anchorX;
-	      var shiftY = anchorY - clipboard.anchorY;
+	      if (useLiveSources) {
+	        particleSnapshots = liveParticleIndices.map(function(index) {
+	          var particle = this.o[index];
+	          return {
+	            x: this.posX ? this.posX[index] : particle.x,
+	            y: this.posY ? this.posY[index] : particle.y,
+	            velocityX: this.velX ? this.velX[index] : particle.velocity.x,
+	            velocityY: this.velY ? this.velY[index] : particle.velocity.y,
+	            size: this.sizeA ? this.sizeA[index] : particle.size,
+	            hue: particle.hue,
+	            particleColor: particle.particleColor
+	          };
+	        }, this);
+	        wellSnapshots = liveWells.map(function(well) { return Object.assign({}, well); });
+	      }
 	      var start = this.numParticles | 0;
-	      var particleCount = clipboard.particles.length;
+	      var particleCount = particleSnapshots.length;
 	      var target = start + particleCount;
 	      this._ensureParticleCapacity(target);
 	      var copies = new Array(particleCount);
 	      for (var i = 0; i < particleCount; i++) {
-	        var snapshot = clipboard.particles[i];
+	        var snapshot = particleSnapshots[i];
 	        var particle = new c(this);
 	        var index = start + i;
 	        particle.index = index;
-	        particle.x = snapshot.x + shiftX;
-	        particle.y = snapshot.y + shiftY;
+	        particle.x = snapshot.x;
+	        particle.y = snapshot.y;
 	        particle.velocity.x = snapshot.velocityX;
 	        particle.velocity.y = snapshot.velocityY;
 	        particle.size = snapshot.size;
@@ -1716,13 +1736,10 @@
 	        if (this.p) this.p.index = target;
 	      }
 	      var pastedWellIds = new Set();
-	      for (var j = 0; j < clipboard.wells.length; j++) {
-	        var wellSnapshot = clipboard.wells[j];
+	      for (var j = 0; j < wellSnapshots.length; j++) {
+	        var wellSnapshot = wellSnapshots[j];
 	        var pastedWell = Object.assign({}, wellSnapshot, {
-	          id: 'gravity-well-' + this._nextGravityWellId++,
-	          x: Math.max(0, Math.min(this.i.size.width, wellSnapshot.x + shiftX)),
-	          y: Math.max(0, Math.min(this.i.size.height, wellSnapshot.y + shiftY)),
-	          radius: this._clampGravityWellRadius(wellSnapshot.radius)
+	          id: 'gravity-well-' + this._nextGravityWellId++
 	        });
 	        this.gravityWells.push(pastedWell);
 	        pastedWellIds.add(pastedWell.id);
