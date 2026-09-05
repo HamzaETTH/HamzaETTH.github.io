@@ -192,13 +192,66 @@ async function runGestures(page) {
   assert(moved.x > 200 && moved.y > 435, 'one-finger well drag did not move the well');
   assert.strictEqual(moved.radius, 80);
 
+  const adjustOrigin = { x: 150, y: 700 };
   await sendCanvasPointer(page, 'pointerdown', 1, { x: moved.x, y: moved.y });
-  await sendCanvasPointer(page, 'pointerdown', 2, { x: moved.x + 40, y: moved.y });
-  await sendCanvasPointer(page, 'pointermove', 2, { x: moved.x + 90, y: moved.y });
-  await sendCanvasPointer(page, 'pointerup', 2, { x: moved.x + 90, y: moved.y }, 0);
+  await sendCanvasPointer(page, 'pointerdown', 2, adjustOrigin);
+  await sendCanvasPointer(page, 'pointermove', 2, { x: adjustOrigin.x + 8, y: adjustOrigin.y - 8 });
+  const withinTolerance = await page.evaluate(id => {
+    const pn = window.particleInstance;
+    const well = pn.getGravityWell(id);
+    return { mode: pn._mobileGesture.mode, radius: well.radius, strength: well.strength };
+  }, movedWell);
+  assert.deepStrictEqual(withinTolerance, { mode: 'well-adjust', radius: 80, strength: 12 });
+
+  await sendCanvasPointer(page, 'pointermove', 2, { x: adjustOrigin.x, y: adjustOrigin.y - 72 });
+  const larger = await page.evaluate(id => {
+    const well = window.particleInstance.getGravityWell(id);
+    return { radius: well.radius, strength: well.strength };
+  }, movedWell);
+  assert(larger.radius > 120, `upward second-finger movement did not increase radius, got ${larger.radius}`);
+  assert.strictEqual(larger.strength, 12, 'vertical movement should not change strength');
+
+  await sendCanvasPointer(page, 'pointermove', 2, { x: adjustOrigin.x, y: adjustOrigin.y + 52 });
+  const smaller = await page.evaluate(id => {
+    const well = window.particleInstance.getGravityWell(id);
+    return { radius: well.radius, strength: well.strength };
+  }, movedWell);
+  assert(smaller.radius < 60, `downward second-finger movement did not decrease radius, got ${smaller.radius}`);
+  assert.strictEqual(smaller.strength, 12, 'vertical movement should not change strength');
+
+  await sendCanvasPointer(page, 'pointermove', 2, { x: adjustOrigin.x + 76, y: adjustOrigin.y });
+  const faster = await page.evaluate(id => {
+    const well = window.particleInstance.getGravityWell(id);
+    return { radius: well.radius, strength: well.strength };
+  }, movedWell);
+  assert(Math.abs(faster.strength) > 12, `rightward second-finger movement did not increase speed, got ${faster.strength}`);
+  assert.strictEqual(faster.radius, 80, 'horizontal movement should not change radius');
+
+  await sendCanvasPointer(page, 'pointermove', 2, { x: adjustOrigin.x - 76, y: adjustOrigin.y });
+  const slower = await page.evaluate(id => {
+    const well = window.particleInstance.getGravityWell(id);
+    return { radius: well.radius, strength: well.strength };
+  }, movedWell);
+  assert(Math.abs(slower.strength) < 12, `leftward second-finger movement did not decrease speed, got ${slower.strength}`);
+  assert.strictEqual(slower.radius, 80, 'horizontal movement should not change radius');
+  assert.strictEqual(Math.sign(slower.strength), Math.sign(faster.strength));
+
+  await sendCanvasPointer(page, 'pointerup', 2, { x: adjustOrigin.x - 76, y: adjustOrigin.y }, 0);
+  const resumedMode = await page.evaluate(() => window.particleInstance._mobileGesture.mode);
+  assert.strictEqual(resumedMode, 'well-move', 'releasing the second finger should resume one-finger well movement');
   await sendCanvasPointer(page, 'pointerup', 1, { x: moved.x, y: moved.y }, 0);
-  const resized = await page.evaluate(id => window.particleInstance.getGravityWell(id).radius, movedWell);
-  assert(resized > 100, `two-finger resize did not increase radius, got ${resized}`);
+
+  await page.evaluate(id => window.particleInstance.updateGravityWell(id, { radius: 80, strength: -12 }), movedWell);
+  await sendCanvasPointer(page, 'pointerdown', 1, { x: moved.x, y: moved.y });
+  await sendCanvasPointer(page, 'pointerdown', 2, adjustOrigin);
+  await sendCanvasPointer(page, 'pointermove', 2, { x: adjustOrigin.x + 76, y: adjustOrigin.y });
+  const reversedFaster = await page.evaluate(id => window.particleInstance.getGravityWell(id).strength, movedWell);
+  assert(reversedFaster < -12, `rightward movement should increase reversed-well speed, got ${reversedFaster}`);
+  await sendCanvasPointer(page, 'pointermove', 2, { x: adjustOrigin.x - 76, y: adjustOrigin.y });
+  const reversedSlower = await page.evaluate(id => window.particleInstance.getGravityWell(id).strength, movedWell);
+  assert(reversedSlower > -12 && reversedSlower < 0, `leftward movement should decrease reversed-well speed, got ${reversedSlower}`);
+  await sendCanvasPointer(page, 'pointerup', 2, { x: adjustOrigin.x - 76, y: adjustOrigin.y }, 0);
+  await sendCanvasPointer(page, 'pointerup', 1, { x: moved.x, y: moved.y }, 0);
 
   const strengthBefore = await page.evaluate(id => window.particleInstance.getGravityWell(id).strength, movedWell);
   const strengthPoint = await page.evaluate(id => {
@@ -278,7 +331,7 @@ async function runGestures(page) {
     oneFingerVelocity,
     twoFingerVelocity,
     moved,
-    resized,
+    wellAdjust: { withinTolerance, larger, smaller, faster, slower, resumedMode, reversedFaster, reversedSlower },
     strengthBefore,
     strengthAfter,
     strengthDecreased,
@@ -313,8 +366,14 @@ async function runPalette(page) {
   await page.evaluate(() => window.particleInstance.clearGravityWells());
   await dragPaletteToken(page, 'black', { x: 110, y: 360 }, 31);
   await dragPaletteToken(page, 'white', { x: 280, y: 540 }, 32);
-  const wells = await page.evaluate(() => window.particleInstance.gravityWells.map(well => ({ type: well.type, x: well.x, y: well.y })));
+  const wells = await page.evaluate(() => window.particleInstance.gravityWells.map(well => ({
+    type: well.type,
+    x: well.x,
+    y: well.y,
+    radius: well.radius
+  })));
   assert.deepStrictEqual(wells.map(well => well.type), ['black', 'white']);
+  assert(wells.every(well => well.radius === 60), `mobile well default radius should be 60px: ${JSON.stringify(wells)}`);
 
   const countBefore = await page.evaluate(() => window.particleInstance.numParticles);
   await tapControl(page, '[data-mobile-count="increase"]', 41);

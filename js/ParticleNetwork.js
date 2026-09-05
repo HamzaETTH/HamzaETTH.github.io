@@ -65,6 +65,15 @@
   }
 
   var gravityPointerStorageKey = 'pn_gravity_pointer';
+  var mobileGravityWellRadius = 60;
+  var mobileWellAdjustDeadZone = 12;
+  var mobileWellStrengthPixelsPerStep = 8;
+
+  function mobileWellAxisDelta(delta) {
+    var magnitude = Math.abs(delta);
+    if (magnitude <= mobileWellAdjustDeadZone) return 0;
+    return (magnitude - mobileWellAdjustDeadZone) * (delta < 0 ? -1 : 1);
+  }
 
   var glLineColor1Scratch = new Float32Array(4);
   var glLineColor2Scratch = new Float32Array(4);
@@ -1028,8 +1037,10 @@
 	        maxPointers: 0,
 	        tapCandidate: false,
 	        holdTimer: null,
-	        pinchStartDistance: 0,
-	        pinchStartRadius: 0,
+	        adjustStartX: 0,
+	        adjustStartY: 0,
+	        adjustStartRadius: 0,
+	        adjustStartStrength: 0,
 	        strengthStartY: 0,
 	        strengthStart: 0
 	      };
@@ -1144,24 +1155,25 @@
 	        return true;
 	      }
 
-	      if (state.mode === 'well-pending' || state.mode === 'well-move') {
-	        var sameWell = this._hitTestGravityWellVisual(pos.x, pos.y);
-	        if (this._activePointers.size === 2 && sameWell && sameWell.id === state.wellId) {
+	      if (state.mode === 'well-pending' || state.mode === 'well-move' || state.mode === 'well-strength') {
+	        if (this._activePointers.size === 2) {
 	          this._cancelMobileHold();
 	          var primary = this._activePointers.get(state.primaryId);
 	          var well = this.getGravityWell(state.wellId);
 	          if (!primary || !well) return true;
 	          if (!this._gravityWellDrag) this._startGravityWellDrag(well, primary.startX, primary.startY, state.primaryId);
-	          state.mode = 'well-pinch';
+	          state.mode = 'well-adjust';
 	          state.secondaryId = evt.pointerId;
-	          var pinchDx = pos.x - primary.x;
-	          var pinchDy = pos.y - primary.y;
-	          state.pinchStartDistance = Math.max(1, Math.sqrt(pinchDx * pinchDx + pinchDy * pinchDy));
-	          state.pinchStartRadius = well.radius;
+	          state.adjustStartX = pos.x;
+	          state.adjustStartY = pos.y;
+	          state.adjustStartRadius = well.radius;
+	          state.adjustStartStrength = Number.isFinite(well.strength) ? well.strength : 0;
 	          return true;
 	        }
-	        this._cancelMobileHold();
-	        state.mode = 'well-move';
+	        if (state.mode !== 'well-strength') {
+	          this._cancelMobileHold();
+	          state.mode = 'well-move';
+	        }
 	        return true;
 	      }
 
@@ -1231,18 +1243,24 @@
 	        this._handleGravityWellPointerMove(pos.x, pos.y);
 	        return true;
 	      }
-	      if (state.mode === 'well-pinch') {
+	      if (state.mode === 'well-adjust') {
 	        var primary = this._activePointers.get(state.primaryId);
 	        var secondary = this._activePointers.get(state.secondaryId);
 	        var well = this.getGravityWell(state.wellId);
 	        if (!primary || !secondary || !well) return true;
 	        if (evt.pointerId === state.primaryId) this._handleGravityWellPointerMove(primary.x, primary.y);
-	        var pinchDx = secondary.x - primary.x;
-	        var pinchDy = secondary.y - primary.y;
-	        var distance = Math.max(1, Math.sqrt(pinchDx * pinchDx + pinchDy * pinchDy));
-	        this.updateGravityWell(well.id, {
-	          radius: this._clampGravityWellRadius(state.pinchStartRadius * distance / state.pinchStartDistance)
-	        });
+	        var radiusDelta = mobileWellAxisDelta(state.adjustStartY - secondary.y);
+	        var strengthDelta = mobileWellAxisDelta(secondary.x - state.adjustStartX);
+	        var strengthSign = state.adjustStartStrength < 0 ? -1 : 1;
+	        var strengthMagnitude = Math.max(0, Math.min(100,
+	          Math.abs(state.adjustStartStrength) +
+	          Math.round(strengthDelta / mobileWellStrengthPixelsPerStep) * 0.5));
+	        var nextRadius = this._clampGravityWellRadius(state.adjustStartRadius + radiusDelta);
+	        var nextStrength = strengthSign * strengthMagnitude;
+	        if (nextRadius !== well.radius || nextStrength !== well.strength) {
+	          this.updateGravityWell(well.id, { radius: nextRadius, strength: nextStrength });
+	          if (strengthDelta !== 0) this._showGravityWellStrengthLabel(well);
+	        }
 	        return true;
 	      }
 	      if (state.mode === 'well-strength' && evt.pointerId === state.primaryId) {
@@ -1289,7 +1307,7 @@
 	        this._resetMobileGesture(true);
 	        return true;
 	      }
-	      if (state.mode === 'well-pinch' && evt.pointerId === state.secondaryId) {
+	      if (state.mode === 'well-adjust' && evt.pointerId === state.secondaryId) {
 	        this._activePointers.delete(evt.pointerId);
 	        state.secondaryId = null;
 	        state.mode = 'well-move';
@@ -1736,7 +1754,7 @@
       if (enabled) this._ensureAnimationLoop();
       else this._clearGravityWellOverlay();
     }),
-	    (b.prototype.beginGravityWellPlacement = function(type, keyboardPlacement) {
+	    (b.prototype.beginGravityWellPlacement = function(type, keyboardPlacement, radiusOverride) {
 	      type = type === 'white' ? 'white' : 'black';
 	      var defaults = this._gravityWellDefaults(type);
 	      var pointer = this._gravityPointer || { x: this.i.size.width / 2, y: this.i.size.height / 2 };
@@ -1748,7 +1766,7 @@
         type: type,
         x: keyboardPlacement ? pointer.x : null,
         y: keyboardPlacement ? pointer.y : null,
-        radius: defaults.radius,
+        radius: Number.isFinite(radiusOverride) ? this._clampGravityWellRadius(radiusOverride) : defaults.radius,
         strength: defaults.strength,
         innerColor: defaults.innerColor,
         outerColor: defaults.outerColor,
@@ -1762,7 +1780,7 @@
 	      return this.gravityWellDraft;
 	    }),
 	    (b.prototype.beginGravityWellPaletteDrag = function(type, x, y) {
-	      var draft = this.beginGravityWellPlacement(type, true);
+	      var draft = this.beginGravityWellPlacement(type, true, mobileGravityWellRadius);
 	      draft.x = x;
 	      draft.y = y;
 	      draft.phase = 'positioning';

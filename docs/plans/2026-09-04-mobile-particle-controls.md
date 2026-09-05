@@ -20,7 +20,7 @@
 | Top-right palette | Drag black token onto canvas | Place one persistent black hole at the drop point. |
 | Top-right palette | Drag white token onto canvas | Place one persistent white hole at the drop point. |
 | Existing hole | Drag with one finger | Move and select that hole. |
-| Existing hole | Add a second finger on the same hole | Resize the hole using the distance between the two fingers; the first finger remains the position anchor. |
+| Existing hole | Hold it with one finger, then move a second finger anywhere on the canvas | Move the second finger up/down to enlarge/shrink the hole at 1 radius px per pointer px and right/left to increase/decrease its strength-derived speed by 0.5 per 8 pointer px. Each axis has a 12 px dead zone before those changes begin. |
 | Existing hole | Hold for 700 ms, then drag vertically | Up increases force magnitude; down decreases it. Preserve the current force sign so the gesture never silently reverses the hole. |
 | Count control | Tap `-` or `+` | Decrease or increase the particle target by 25 percent, with a minimum step of 16 particles. |
 | Count control | Hold `-` or `+` | Repeat the same count step at a controlled interval until release or cancellation. |
@@ -68,7 +68,7 @@ At a 390 by 844 mobile viewport, assert that the two hole tokens and count contr
 Place a known well, then verify:
 
 - one-finger movement changes its center but not its radius or strength;
-- a second finger on that well changes radius within the existing 24 to 500 clamp;
+- a second finger anywhere on the canvas changes radius vertically and strength-derived speed horizontally, while movement inside the 12 px per-axis dead zone changes neither;
 - a 700 ms hold followed by an upward drag increases strength magnitude;
 - a downward strength drag decreases magnitude without changing its sign;
 - pointer cancellation clears timers, captures, drafts, and gesture state.
@@ -134,7 +134,7 @@ Expected: PASS, including the existing wheel count update and force-slider synch
 
 **Step 1: Add one mobile gesture state object**
 
-Initialize one `_mobileGesture` owner with active pointer records, mode, candidate timestamps, movement origins, selected well ID, starting radius/strength, and timer IDs. Use explicit modes such as `canvas-force`, `three-tap`, `well-pending`, `well-move`, `well-pinch`, and `well-strength` so only one behavior can own a pointer sequence.
+Initialize one `_mobileGesture` owner with active pointer records, mode, candidate timestamps, movement origins, selected well ID, starting radius/strength, and timer IDs. Use explicit modes such as `canvas-force`, `three-tap`, `well-pending`, `well-move`, `well-adjust`, and `well-strength` so only one behavior can own a pointer sequence.
 
 **Step 2: Add one cleanup path**
 
@@ -152,9 +152,9 @@ When three empty-canvas touches form a valid candidate, clear transient forces a
 
 On first touch over a well, select it and enter `well-pending`. Start the 700 ms timer but do not move the well yet. Movement beyond 10 pixels before the timer enters `well-move`; timer completion while still within slop enters `well-strength`. In strength mode, quantize vertical travel to 0.5-point increments, clamp magnitude to 0 through 100, preserve the starting sign, and reuse `_showGravityWellStrengthLabel()` for feedback.
 
-**Step 6: Add anchored two-finger resizing**
+**Step 6: Add two-axis second-finger adjustment**
 
-If a second touch begins on the same well while in `well-pending` or `well-move`, cancel the hold timer and enter `well-pinch`. Keep the first pointer as the center/move anchor and compute radius from the current inter-pointer distance relative to the starting distance. Clamp with `_clampGravityWellRadius()` and keep the existing radius label updated.
+If a second touch begins anywhere on the canvas while a well is held, cancel the hold timer and enter `well-adjust`. Keep the first pointer as the center/move anchor. Relative to the second touch origin, vertical travel changes radius at 1:1 and horizontal travel changes strength magnitude by 0.5 per 8 px without changing its sign. Apply an independent 12 px dead zone to each axis before scaling, clamp radius with `_clampGravityWellRadius()`, clamp strength magnitude to 0 through 100, and keep the existing labels updated.
 
 **Step 7: Verify the gesture-state test subset**
 
@@ -164,7 +164,7 @@ Run:
 rtk node scripts/test-mobile-controls.js http://127.0.0.1:8000 --section gestures
 ```
 
-Expected: PASS for force direction, gesture priority, well move/pinch/strength, three-finger recognition, and cancellation cleanup.
+Expected: PASS for force direction, gesture priority, well move/adjust/strength, three-finger recognition, and cancellation cleanup.
 
 ### Task 4: Add the Phone-Only Palette
 
@@ -186,7 +186,7 @@ Create a fixed `nav` or `div` with an accessible label, two real buttons for bla
 
 **Step 3: Implement palette drag placement**
 
-On a hole token's pointerdown, capture the pointer, begin an existing gravity-well draft, and update the draft from window pointer moves mapped into canvas coordinates. On release inside the canvas, commit one well at the drop point with the configured default radius and strength. On release outside the canvas or on cancellation, cancel the draft. Suppress the canvas attract/repel gesture for this pointer sequence.
+On a hole token's pointerdown, capture the pointer, begin an existing gravity-well draft at the mobile-only 60 px default radius, and update the draft from window pointer moves mapped into canvas coordinates. On release inside the canvas, commit one well at the drop point. On release outside the canvas or on cancellation, cancel the draft. Suppress the canvas attract/repel gesture for this pointer sequence.
 
 Add small public placement wrappers to `ParticleNetwork.js` if needed; do not make the UI module depend directly on underscore-prefixed private methods.
 
@@ -309,7 +309,7 @@ Expected: only the planned additions plus the user's pre-existing edits are pres
 
 - On touch-primary mobile, one finger visibly pulls particles inward and two fingers visibly push them outward.
 - A visitor can drag either hole token from the top-right palette, drop it once, and keep the resulting hole after releasing.
-- Existing holes support one-finger move, anchored two-finger resize, and 700 ms hold plus vertical strength adjustment without accidental mode switching.
+- Existing holes support one-finger move, dead-zone-protected two-axis second-finger radius/speed adjustment, and 700 ms hold plus vertical strength adjustment without accidental mode switching.
 - Three-finger tap randomizes the same visual family as `R` while preserving particle size and count.
 - Particle count has explicit, understandable, repeatable phone controls and the displayed count stays synchronized.
 - All mobile gesture paths clean up on release, cancellation, blur, hidden document, destroy, and recreate.
