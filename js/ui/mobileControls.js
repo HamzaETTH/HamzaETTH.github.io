@@ -1,5 +1,8 @@
 let activeMobileControls = null;
 const MOBILE_MIN_PARTICLE_COUNT = 16;
+const MOBILE_MAX_PARTICLE_COUNT = 5000;
+const COUNT_HOLD_DURATION_MS = 550;
+const COUNT_HOLD_TOLERANCE_PX = 12;
 
 function createButton(label, attributes = {}) {
   const button = document.createElement('button');
@@ -41,24 +44,80 @@ export function mountMobileControls(pn, actions = {}) {
     'data-mobile-count': 'decrease'
   });
   decrease.textContent = '-';
+  const countTrigger = createButton('', {
+    'class': 'mobile-particle-count-trigger',
+    'aria-haspopup': 'dialog',
+    'aria-controls': 'mobile-particle-count-dialog',
+    'data-mobile-particle-count-trigger': ''
+  });
   const count = document.createElement('output');
   count.setAttribute('aria-label', 'Particle count');
   count.setAttribute('aria-live', 'polite');
   count.setAttribute('data-mobile-particle-count', '');
   count.textContent = String(pn.numParticles || 0);
+  countTrigger.appendChild(count);
   const increase = createButton('Increase particle count', {
     'data-mobile-count': 'increase'
   });
   increase.textContent = '+';
-  countControls.append(decrease, count, increase);
+  countControls.append(decrease, countTrigger, increase);
   root.append(holeBank, countControls);
-  document.body.appendChild(root);
+
+  const dialog = document.createElement('dialog');
+  dialog.id = 'mobile-particle-count-dialog';
+  dialog.className = 'mobile-particle-count-dialog';
+  dialog.setAttribute('aria-labelledby', 'mobile-particle-count-title');
+  dialog.setAttribute('data-mobile-particle-count-dialog', '');
+
+  const form = document.createElement('form');
+  form.className = 'mobile-particle-count-form';
+  form.noValidate = true;
+  const title = document.createElement('h2');
+  title.id = 'mobile-particle-count-title';
+  title.textContent = 'Set particle count';
+  const label = document.createElement('label');
+  label.htmlFor = 'mobile-particle-count-input';
+  label.textContent = `Exact count (${MOBILE_MIN_PARTICLE_COUNT}-${MOBILE_MAX_PARTICLE_COUNT.toLocaleString('en-US')})`;
+  const input = document.createElement('input');
+  input.id = 'mobile-particle-count-input';
+  input.type = 'text';
+  input.inputMode = 'numeric';
+  input.pattern = '[0-9]*';
+  input.enterKeyHint = 'done';
+  input.autocomplete = 'off';
+  input.spellcheck = false;
+  input.setAttribute('aria-describedby', 'mobile-particle-count-error');
+  input.setAttribute('data-mobile-particle-count-input', '');
+  const error = document.createElement('p');
+  error.id = 'mobile-particle-count-error';
+  error.className = 'mobile-particle-count-error';
+  error.setAttribute('role', 'alert');
+  error.setAttribute('aria-live', 'assertive');
+  error.setAttribute('data-mobile-particle-count-error', '');
+  const dialogActions = document.createElement('div');
+  dialogActions.className = 'mobile-particle-count-actions';
+  const cancelDialog = createButton('Cancel');
+  cancelDialog.textContent = 'Cancel';
+  cancelDialog.setAttribute('data-mobile-particle-count-cancel', '');
+  const submitDialog = document.createElement('button');
+  submitDialog.type = 'submit';
+  submitDialog.textContent = 'OK';
+  submitDialog.setAttribute('data-mobile-particle-count-submit', '');
+  dialogActions.append(cancelDialog, submitDialog);
+  form.append(title, label, input, error, dialogActions);
+  dialog.appendChild(form);
+
+  document.body.append(root, dialog);
 
   let destroyed = false;
   let idleTimer = null;
   let drag = null;
   let repeatDelay = null;
   let repeatInterval = null;
+  let countHold = null;
+  let suppressCountClick = false;
+  let suppressCountClickTimer = null;
+  let restoreFocusAfterDialog = true;
 
   function setActive() {
     if (destroyed) return;
@@ -66,7 +125,8 @@ export function mountMobileControls(pn, actions = {}) {
     if (idleTimer != null) clearTimeout(idleTimer);
     idleTimer = setTimeout(() => {
       idleTimer = null;
-      if (!drag && repeatDelay == null && repeatInterval == null && !root.matches(':focus-within')) {
+      if (!drag && !countHold && !dialog.open && repeatDelay == null && repeatInterval == null &&
+          !root.matches(':focus-within')) {
         root.classList.remove('is-active');
       }
     }, 1400);
@@ -173,20 +233,189 @@ export function mountMobileControls(pn, actions = {}) {
     finishHoleDrag(event, true);
   }
 
+  function renderCount(value = pn.numParticles) {
+    const current = Number.isFinite(Number(value)) ? Math.trunc(Number(value)) : 0;
+    count.textContent = String(current);
+    countTrigger.setAttribute('aria-label', `Set exact particle count, currently ${current}`);
+    decrease.disabled = current <= MOBILE_MIN_PARTICLE_COUNT;
+    increase.disabled = current >= MOBILE_MAX_PARTICLE_COUNT;
+  }
+
   function updateCount(event) {
     if (!event || !event.detail) return;
-    count.textContent = String(event.detail.count);
+    renderCount(event.detail.count);
   }
 
   function stepCount(direction, requestedDelta) {
     if (destroyed || pn._destroyed) return;
     const current = pn.numParticles | 0;
+    if ((direction > 0 && current >= MOBILE_MAX_PARTICLE_COUNT) ||
+        (direction < 0 && current <= MOBILE_MIN_PARTICLE_COUNT)) {
+      renderCount(current);
+      return false;
+    }
     const delta = requestedDelta || Math.max(16, Math.round(current * 0.25));
-    pn.setParticleCount(direction > 0
-      ? current + delta
-      : Math.max(MOBILE_MIN_PARTICLE_COUNT, current - delta));
-    count.textContent = String(pn.numParticles);
+    const next = direction > 0
+      ? Math.min(MOBILE_MAX_PARTICLE_COUNT, current + delta)
+      : Math.max(MOBILE_MIN_PARTICLE_COUNT, current - delta);
+    pn.setParticleCount(next);
+    renderCount(pn.numParticles);
     setActive();
+    return next > MOBILE_MIN_PARTICLE_COUNT && next < MOBILE_MAX_PARTICLE_COUNT;
+  }
+
+  function clearDialogError() {
+    error.textContent = '';
+    input.removeAttribute('aria-invalid');
+  }
+
+  function showDialogError(message) {
+    error.textContent = message;
+    input.setAttribute('aria-invalid', 'true');
+    input.focus();
+  }
+
+  function handleDialogClose() {
+    root.classList.remove('is-dialog-open');
+    clearDialogError();
+    if (restoreFocusAfterDialog && !destroyed && countTrigger.isConnected) countTrigger.focus();
+    restoreFocusAfterDialog = true;
+    setActive();
+  }
+
+  function closeCountDialog(restoreFocus = true) {
+    restoreFocusAfterDialog = restoreFocus;
+    if (dialog.open) dialog.close();
+    else handleDialogClose();
+  }
+
+  function openCountDialog() {
+    if (destroyed || pn._destroyed || dialog.open) return;
+    renderCount(pn.numParticles);
+    input.value = String(pn.numParticles);
+    clearDialogError();
+    root.classList.add('is-dialog-open');
+    setActive();
+    dialog.showModal();
+    input.focus();
+    input.select();
+  }
+
+  function submitCount(event) {
+    event.preventDefault();
+    if (destroyed || pn._destroyed) return;
+    const trimmed = input.value.trim();
+    if (!/^[0-9]+$/.test(trimmed)) {
+      showDialogError('Enter a whole number using digits only.');
+      return;
+    }
+    const requestedCount = Number(trimmed);
+    if (!Number.isSafeInteger(requestedCount) || requestedCount < MOBILE_MIN_PARTICLE_COUNT ||
+        requestedCount > MOBILE_MAX_PARTICLE_COUNT) {
+      showDialogError(`Enter a count from ${MOBILE_MIN_PARTICLE_COUNT} to ${MOBILE_MAX_PARTICLE_COUNT.toLocaleString('en-US')}.`);
+      return;
+    }
+    pn.setParticleCount(requestedCount);
+    renderCount(pn.numParticles);
+    closeCountDialog();
+  }
+
+  function cancelDialogSubmission() {
+    closeCountDialog();
+  }
+
+  function cancelNativeDialog(event) {
+    event.preventDefault();
+    closeCountDialog();
+  }
+
+  function dismissDialogBackdrop(event) {
+    if (event.target !== dialog) return;
+    const rect = dialog.getBoundingClientRect();
+    const outside = event.clientX < rect.left || event.clientX > rect.right ||
+      event.clientY < rect.top || event.clientY > rect.bottom;
+    if (outside) closeCountDialog();
+  }
+
+  function clearCountHold(releaseCapture = true) {
+    if (!countHold) return;
+    const current = countHold;
+    countHold = null;
+    if (current.timer != null) clearTimeout(current.timer);
+    if (releaseCapture) {
+      try { countTrigger.releasePointerCapture(current.pointerId); } catch (_) {}
+    }
+    setActive();
+  }
+
+  function beginCountHold(event) {
+    if (destroyed || dialog.open || event.button > 0 || !event.isPrimary) return;
+    clearCountHold();
+    suppressCountClick = false;
+    countHold = {
+      pointerId: event.pointerId,
+      x: event.clientX,
+      y: event.clientY,
+      startedAt: performance.now(),
+      armed: false,
+      timer: null
+    };
+    countHold.timer = setTimeout(() => {
+      if (!countHold || countHold.pointerId !== event.pointerId) return;
+      countHold.timer = null;
+      countHold.armed = true;
+    }, COUNT_HOLD_DURATION_MS);
+    try { countTrigger.setPointerCapture(event.pointerId); } catch (_) {}
+    setActive();
+    event.preventDefault();
+    event.stopPropagation();
+  }
+
+  function moveCountHold(event) {
+    if (!countHold || event.pointerId !== countHold.pointerId) return;
+    if (Math.hypot(event.clientX - countHold.x, event.clientY - countHold.y) > COUNT_HOLD_TOLERANCE_PX) {
+      clearCountHold();
+    }
+    event.preventDefault();
+    event.stopPropagation();
+  }
+
+  function finishCountHold(event) {
+    if (!countHold || event.pointerId !== countHold.pointerId) return;
+    const armed = countHold.armed || performance.now() - countHold.startedAt >= COUNT_HOLD_DURATION_MS;
+    clearCountHold();
+    if (armed) {
+      suppressCountClick = true;
+      if (suppressCountClickTimer != null) clearTimeout(suppressCountClickTimer);
+      suppressCountClickTimer = setTimeout(() => {
+        suppressCountClick = false;
+        suppressCountClickTimer = null;
+      }, 0);
+      openCountDialog();
+    }
+    event.preventDefault();
+    event.stopPropagation();
+  }
+
+  function cancelCountHold(event) {
+    if (event && countHold && event.pointerId !== countHold.pointerId) return;
+    clearCountHold();
+  }
+
+  function loseCountHoldCapture(event) {
+    if (!countHold || event.pointerId !== countHold.pointerId) return;
+    clearCountHold(false);
+  }
+
+  function activateCountTrigger(event) {
+    if (event.detail === 0) {
+      suppressCountClick = false;
+      openCountDialog();
+      return;
+    }
+    if (suppressCountClick) suppressCountClick = false;
+    event.preventDefault();
+    event.stopPropagation();
   }
 
   function stopCountRepeat() {
@@ -201,12 +430,17 @@ export function mountMobileControls(pn, actions = {}) {
     stopCountRepeat();
     const direction = event.currentTarget.dataset.mobileCount === 'increase' ? 1 : -1;
     const delta = Math.max(16, Math.round((pn.numParticles | 0) * 0.25));
-    stepCount(direction, delta);
+    try { event.currentTarget.setPointerCapture(event.pointerId); } catch (_) {}
+    if (!stepCount(direction, delta)) {
+      event.preventDefault();
+      return;
+    }
     repeatDelay = setTimeout(() => {
       repeatDelay = null;
-      repeatInterval = setInterval(() => stepCount(direction, delta), 180);
+      repeatInterval = setInterval(() => {
+        if (!stepCount(direction, delta)) stopCountRepeat();
+      }, 180);
     }, 450);
-    try { event.currentTarget.setPointerCapture(event.pointerId); } catch (_) {}
     event.preventDefault();
   }
 
@@ -218,6 +452,7 @@ export function mountMobileControls(pn, actions = {}) {
   function handleVisibilityChange() {
     if (document.hidden) {
       stopCountRepeat();
+      clearCountHold();
       clearExistingWellDeleteTarget();
       if (drag) pn.cancelGravityWellPlacement();
       drag = null;
@@ -227,6 +462,7 @@ export function mountMobileControls(pn, actions = {}) {
 
   function handleWindowBlur() {
     stopCountRepeat();
+    clearCountHold();
     clearExistingWellDeleteTarget();
     if (drag) pn.cancelGravityWellPlacement();
     drag = null;
@@ -243,6 +479,18 @@ export function mountMobileControls(pn, actions = {}) {
   increase.addEventListener('pointercancel', stopCountRepeat);
   decrease.addEventListener('lostpointercapture', stopCountRepeat);
   increase.addEventListener('lostpointercapture', stopCountRepeat);
+  countTrigger.addEventListener('pointerdown', beginCountHold);
+  countTrigger.addEventListener('pointermove', moveCountHold);
+  countTrigger.addEventListener('pointerup', finishCountHold);
+  countTrigger.addEventListener('pointercancel', cancelCountHold);
+  countTrigger.addEventListener('lostpointercapture', loseCountHoldCapture);
+  countTrigger.addEventListener('click', activateCountTrigger);
+  form.addEventListener('submit', submitCount);
+  cancelDialog.addEventListener('click', cancelDialogSubmission);
+  dialog.addEventListener('cancel', cancelNativeDialog);
+  dialog.addEventListener('click', dismissDialogBackdrop);
+  dialog.addEventListener('close', handleDialogClose);
+  input.addEventListener('input', clearDialogError);
   root.addEventListener('pointerdown', setActive);
   root.addEventListener('focusin', setActive);
   window.addEventListener('pointermove', moveHoleDrag, { passive: false });
@@ -255,6 +503,7 @@ export function mountMobileControls(pn, actions = {}) {
   window.addEventListener('particle-mobile-randomize', handleRandomize);
   window.addEventListener('blur', handleWindowBlur);
   document.addEventListener('visibilitychange', handleVisibilityChange);
+  renderCount();
   setActive();
 
   const controller = {
@@ -264,9 +513,14 @@ export function mountMobileControls(pn, actions = {}) {
       destroyed = true;
       if (idleTimer != null) clearTimeout(idleTimer);
       stopCountRepeat();
+      clearCountHold();
+      if (suppressCountClickTimer != null) clearTimeout(suppressCountClickTimer);
+      suppressCountClickTimer = null;
+      suppressCountClick = false;
       clearExistingWellDeleteTarget();
       if (drag && pn && !pn._destroyed) pn.cancelGravityWellPlacement();
       drag = null;
+      closeCountDialog(false);
       blackHole.removeEventListener('pointerdown', beginHoleDrag);
       whiteHole.removeEventListener('pointerdown', beginHoleDrag);
       decrease.removeEventListener('pointerdown', beginCountRepeat);
@@ -277,6 +531,18 @@ export function mountMobileControls(pn, actions = {}) {
       increase.removeEventListener('pointercancel', stopCountRepeat);
       decrease.removeEventListener('lostpointercapture', stopCountRepeat);
       increase.removeEventListener('lostpointercapture', stopCountRepeat);
+      countTrigger.removeEventListener('pointerdown', beginCountHold);
+      countTrigger.removeEventListener('pointermove', moveCountHold);
+      countTrigger.removeEventListener('pointerup', finishCountHold);
+      countTrigger.removeEventListener('pointercancel', cancelCountHold);
+      countTrigger.removeEventListener('lostpointercapture', loseCountHoldCapture);
+      countTrigger.removeEventListener('click', activateCountTrigger);
+      form.removeEventListener('submit', submitCount);
+      cancelDialog.removeEventListener('click', cancelDialogSubmission);
+      dialog.removeEventListener('cancel', cancelNativeDialog);
+      dialog.removeEventListener('click', dismissDialogBackdrop);
+      dialog.removeEventListener('close', handleDialogClose);
+      input.removeEventListener('input', clearDialogError);
       root.removeEventListener('pointerdown', setActive);
       root.removeEventListener('focusin', setActive);
       window.removeEventListener('pointermove', moveHoleDrag, { passive: false });
@@ -290,6 +556,7 @@ export function mountMobileControls(pn, actions = {}) {
       window.removeEventListener('blur', handleWindowBlur);
       document.removeEventListener('visibilitychange', handleVisibilityChange);
       if (root.parentNode) root.parentNode.removeChild(root);
+      if (dialog.parentNode) dialog.parentNode.removeChild(dialog);
       if (activeMobileControls === controller) activeMobileControls = null;
     }
   };

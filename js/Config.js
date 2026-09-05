@@ -182,6 +182,15 @@
 
   function createRuntimeConfig(userOptions = {}, setVelocity, normalizeDensity) {
     const cfg = createConfig(userOptions);
+    const hasExplicitAdaptiveLineDetail = typeof userOptions.adaptiveLineDetail === 'boolean';
+    let adaptiveLineDetail = hasExplicitAdaptiveLineDetail
+      ? userOptions.adaptiveLineDetail
+      : cfg.adaptiveLineDetail === true;
+    if (!hasExplicitAdaptiveLineDetail && typeof window.matchMedia === 'function') {
+      try {
+        adaptiveLineDetail = window.matchMedia('(hover: none) and (pointer: coarse)').matches;
+      } catch (_) {}
+    }
     return {
       background: cfg.background || "#000000",
       particleColor: cfg.particleColor || "#fff",
@@ -219,7 +228,7 @@
       particleRepulsionForce: cfg.particleRepulsionForce != null ? cfg.particleRepulsionForce : 5,
       particleAttractionForce: cfg.particleAttractionForce != null ? cfg.particleAttractionForce : 5,
       lineConnectionDistance: cfg.lineConnectionDistance != null ? cfg.lineConnectionDistance : 120,
-      adaptiveLineDetail: cfg.adaptiveLineDetail === true,
+      adaptiveLineDetail,
       cellularLineClusters: cfg.cellularLineClusters === true,
       blackHoleLineColor: cfg.blackHoleLineColor === true,
       performanceOverlay: cfg.performanceOverlay != null ? cfg.performanceOverlay : false,
