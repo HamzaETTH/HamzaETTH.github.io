@@ -29,6 +29,10 @@ function showObjectSelectionToast(message) {
   }
 }
 
+window.addEventListener('particle-object-selection', event => {
+  showObjectSelectionToast(describeObjectSelection('Selected', event && event.detail));
+});
+
 function isEditableHotkeyTarget(event) {
   const target = event && event.target;
   return Boolean(target && target.closest && target.closest('input, textarea, select, [contenteditable="true"]'));
@@ -56,6 +60,15 @@ function handlePasteSelectionHotkey(pn, event) {
   event.preventDefault();
   const result = pn && typeof pn.pasteObjectSelection === 'function' ? pn.pasteObjectSelection() : null;
   showObjectSelectionToast(describeObjectSelection('Pasted', result));
+}
+
+function handleUndoSelectionHotkey(pn, event) {
+  if (!event || (!event.ctrlKey && !event.metaKey) || event.shiftKey || event.repeat) return;
+  if (isEditableHotkeyTarget(event)) return;
+  const result = pn && typeof pn.undoObjectSelection === 'function' ? pn.undoObjectSelection() : null;
+  if (!result) return;
+  event.preventDefault();
+  showObjectSelectionToast(describeObjectSelection(result.action === 'delete' ? 'Restored' : 'Removed', result));
 }
 
 function handleSelectAllHotkey(pn, event) {
@@ -898,6 +911,7 @@ async function buildPane() {
     
     window.hotkeyManager.register('c', hotkeyHandlers.handleToggleControls, 'Copy Selection (Ctrl+C) / Recolor Hovered Hole / Toggle Controls', { preventDefault: false });
     window.hotkeyManager.register('v', (context, event) => handlePasteSelectionHotkey(pn, event), 'Paste Selection (Ctrl+V)', { preventDefault: false });
+    window.hotkeyManager.register('z', (context, event) => handleUndoSelectionHotkey(pn, event), 'Undo Paste or Deletion (Ctrl+Z)', { preventDefault: false });
     window.hotkeyManager.register('a', (context, event) => handleSelectAllHotkey(pn, event), 'Select All (Ctrl+A) / Hold to Gather', { preventDefault: false });
     window.hotkeyManager.register('p', hotkeyHandlers.handlePerformanceOverlay, 'Performance Overlay');
     window.hotkeyManager.register('r', hotkeyHandlers.handleRandomize, 'Randomize Visuals');
@@ -1033,6 +1047,7 @@ function registerBootstrapHotkeys() {
     handleContextualControlsHotkey(pn, event, () => invokePaneAction(ui => ui.togglePane()));
   }, 'Copy Selection (Ctrl+C) / Recolor Hovered Hole / Toggle Controls', { preventDefault: false });
   manager.register('v', (context, event) => handlePasteSelectionHotkey(pn, event), 'Paste Selection (Ctrl+V)', { preventDefault: false });
+  manager.register('z', (context, event) => handleUndoSelectionHotkey(pn, event), 'Undo Paste or Deletion (Ctrl+Z)', { preventDefault: false });
   manager.register('a', (context, event) => handleSelectAllHotkey(pn, event), 'Select All (Ctrl+A) / Hold to Gather', { preventDefault: false });
   manager.register('p', () => {
     const monitor = pn.performanceMonitor;

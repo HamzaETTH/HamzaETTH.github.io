@@ -792,6 +792,7 @@
       this.selectedParticleIndices = new Set();
       this.selectedGravityWellIds = new Set();
       this._selectionClipboard = null;
+      this._selectionUndoStack = [];
       this._selectionMarqueeState = null;
       this._objectSelectionDrag = null;
       this._selectionMarqueeElement = null;
@@ -1452,7 +1453,9 @@
 	      if (this.canvas) this.canvas.classList.remove('object-selection-active');
 	      this._emitGravityWellsChange();
 	      this._ensureAnimationLoop();
-	      return { particles: particles.size, wells: wells.size };
+	      var result = { particles: particles.size, wells: wells.size };
+	      window.dispatchEvent(new CustomEvent('particle-object-selection', { detail: result }));
+	      return result;
 	    }),
 	    (b.prototype._cancelObjectSelection = function() {
 	      if (!this._selectionMarqueeState) return false;
@@ -1477,6 +1480,46 @@
 	      this._ensureAnimationLoop();
 	      return { particles: particles.size, wells: wells.size };
 	    }),
+	    (b.prototype._captureObjectSelectionReferences = function() {
+	      var particles = [];
+	      if (this.selectedParticleIndices) {
+	        this.selectedParticleIndices.forEach(function(index) {
+	          if (index >= 0 && index < this.numParticles) particles.push(this.o[index]);
+	        }, this);
+	      }
+	      var wellIds = new Set(this.selectedGravityWellIds || []);
+	      if (this.selectedGravityWellId) wellIds.add(this.selectedGravityWellId);
+	      return {
+	        particles: particles,
+	        wellIds: Array.from(wellIds).filter(function(id) { return !!this.getGravityWell(id); }, this),
+	        primaryWellId: this.selectedGravityWellId
+	      };
+	    }),
+	    (b.prototype._restoreObjectSelectionReferences = function(selection) {
+	      selection = selection || { particles: [], wellIds: [], primaryWellId: null };
+	      var particleIndices = new Map();
+	      for (var i = 0; i < this.numParticles; i++) particleIndices.set(this.o[i], i);
+	      var selectedParticles = new Set();
+	      (selection.particles || []).forEach(function(particle) {
+	        var index = particleIndices.get(particle);
+	        if (Number.isInteger(index)) selectedParticles.add(index);
+	      });
+	      var selectedWells = new Set();
+	      (selection.wellIds || []).forEach(function(id) {
+	        if (this.getGravityWell(id)) selectedWells.add(id);
+	      }, this);
+	      this.selectedParticleIndices = selectedParticles;
+	      this.selectedGravityWellIds = selectedWells;
+	      this.selectedGravityWellId = selection.primaryWellId && selectedWells.has(selection.primaryWellId)
+	        ? selection.primaryWellId
+	        : (selectedWells.size ? selectedWells.values().next().value : null);
+	      if (!selectedParticles.size && !selectedWells.size) this._clearSelectionOverlay();
+	    }),
+	    (b.prototype._pushObjectSelectionUndo = function(entry) {
+	      if (!this._selectionUndoStack) this._selectionUndoStack = [];
+	      this._selectionUndoStack.push(entry);
+	      if (this._selectionUndoStack.length > 50) this._selectionUndoStack.shift();
+	    }),
 	    (b.prototype.deleteObjectSelection = function() {
 	      var selectedParticles = this.selectedParticleIndices || new Set();
 	      var selectedWells = new Set(this.selectedGravityWellIds || []);
@@ -1490,8 +1533,32 @@
 	        if (this.getGravityWell(id)) wellCount++;
 	      }, this);
 	      if (!particleCount && !wellCount) return null;
+	      var undoEntry = {
+	        type: 'delete',
+	        particles: [],
+	        wells: [],
+	        selection: this._captureObjectSelectionReferences()
+	      };
 
 	      if (particleCount) {
+	        this._syncObjectsFromSoA();
+	        selectedParticles.forEach(function(index) {
+	          if (index < 0 || index >= this.numParticles) return;
+	          var particle = this.o[index];
+	          undoEntry.particles.push({
+	            index: index,
+	            particle: particle,
+	            state: {
+	              x: particle.x,
+	              y: particle.y,
+	              velocityX: particle.velocity.x,
+	              velocityY: particle.velocity.y,
+	              size: particle.size,
+	              hue: particle.hue,
+	              particleColor: particle.particleColor
+	            }
+	          });
+	        }, this);
 	        this.o = this.o.slice(0, this.numParticles).filter(function(particle, index) {
 	          return !selectedParticles.has(index);
 	        });
@@ -1507,14 +1574,96 @@
 	        }));
 	      }
 	      if (wellCount) {
+	        for (var wellIndex = 0; wellIndex < this.gravityWells.length; wellIndex++) {
+	          var selectedWell = this.gravityWells[wellIndex];
+	          if (selectedWells.has(selectedWell.id)) {
+	            undoEntry.wells.push({ index: wellIndex, well: selectedWell, state: Object.assign({}, selectedWell) });
+	          }
+	        }
 	        for (var j = this.gravityWells.length - 1; j >= 0; j--) {
 	          if (selectedWells.has(this.gravityWells[j].id)) this.gravityWells.splice(j, 1);
 	        }
 	      }
+	      this._pushObjectSelectionUndo(undoEntry);
 	      this._clearObjectSelectionState();
 	      this._emitGravityWellsChange();
 	      this._ensureAnimationLoop();
 	      return { particles: particleCount, wells: wellCount };
+	    }),
+	    (b.prototype.undoObjectSelection = function() {
+	      var stack = this._selectionUndoStack;
+	      if (!stack || !stack.length) return null;
+	      var entry = stack.pop();
+	      var particleCount = 0;
+	      var wellCount = 0;
+	      var particleChanged = false;
+
+	      if (entry.type === 'paste') {
+	        if (entry.particles.length) {
+	          this._syncObjectsFromSoA();
+	          var pastedParticles = new Set(entry.particles);
+	          var beforeParticleCount = this.numParticles;
+	          this.o = this.o.slice(0, this.numParticles).filter(function(particle) {
+	            return !pastedParticles.has(particle);
+	          });
+	          particleCount = beforeParticleCount - this.o.length;
+	          particleChanged = particleCount > 0;
+	        }
+	        if (entry.wellIds.length) {
+	          var pastedWellIds = new Set(entry.wellIds);
+	          for (var pastedWellIndex = this.gravityWells.length - 1; pastedWellIndex >= 0; pastedWellIndex--) {
+	            if (!pastedWellIds.has(this.gravityWells[pastedWellIndex].id)) continue;
+	            this.gravityWells.splice(pastedWellIndex, 1);
+	            wellCount++;
+	          }
+	        }
+	      } else if (entry.type === 'delete') {
+	        if (entry.particles.length) {
+	          this._syncObjectsFromSoA();
+	          var currentParticles = new Set(this.o.slice(0, this.numParticles));
+	          entry.particles.slice().sort(function(a, b) { return a.index - b.index; }).forEach(function(deleted) {
+	            if (currentParticles.has(deleted.particle)) return;
+	            var particle = deleted.particle;
+	            var state = deleted.state;
+	            particle.x = state.x;
+	            particle.y = state.y;
+	            particle.velocity.x = state.velocityX;
+	            particle.velocity.y = state.velocityY;
+	            particle.size = state.size;
+	            particle.hue = state.hue;
+	            particle.particleColor = state.particleColor;
+	            this.o.splice(Math.max(0, Math.min(this.o.length, deleted.index)), 0, particle);
+	            currentParticles.add(particle);
+	            particleCount++;
+	          }, this);
+	          particleChanged = particleCount > 0;
+	        }
+	        if (entry.wells.length) {
+	          entry.wells.slice().sort(function(a, b) { return a.index - b.index; }).forEach(function(deleted) {
+	            if (this.getGravityWell(deleted.state.id)) return;
+	            Object.assign(deleted.well, deleted.state);
+	            this.gravityWells.splice(Math.max(0, Math.min(this.gravityWells.length, deleted.index)), 0, deleted.well);
+	            wellCount++;
+	          }, this);
+	        }
+	      }
+
+	      if (particleChanged) {
+	        for (var i = 0; i < this.o.length; i++) this.o[i].index = i;
+	        this._initSoAFromObjects(this.o.length);
+	        if (this.p) this.p.index = this.numParticles;
+	        this.initGrid();
+	        if (this.performanceMonitor && this.performanceMonitor.setParticleCount) {
+	          this.performanceMonitor.setParticleCount(this.numParticles);
+	        }
+	        window.dispatchEvent(new CustomEvent('particle-count-change', {
+	          detail: { count: this.numParticles }
+	        }));
+	      }
+	      this._restoreObjectSelectionReferences(entry.selection);
+	      this._emitGravityWellsChange();
+	      this._ensureAnimationLoop();
+	      return { particles: particleCount, wells: wellCount, action: entry.type };
 	    }),
 	    (b.prototype._hitTestSelectedObject = function(x, y) {
 	      if (!Number.isFinite(x) || !Number.isFinite(y)) return false;
@@ -1658,6 +1807,7 @@
 	    (b.prototype.pasteObjectSelection = function() {
 	      var clipboard = this._selectionClipboard;
 	      if (!clipboard || (!clipboard.particles.length && !clipboard.wells.length)) return null;
+	      var previousSelection = this._captureObjectSelectionReferences();
 	      var particleSnapshots = clipboard.particles;
 	      var wellSnapshots = clipboard.wells;
 	      var particleSources = clipboard.particleSources;
@@ -1705,6 +1855,20 @@
 	        }, this);
 	        wellSnapshots = liveWells.map(function(well) { return Object.assign({}, well); });
 	      }
+	      var points = particleSnapshots.concat(wellSnapshots);
+	      var minX = points[0].x, maxX = points[0].x;
+	      var minY = points[0].y, maxY = points[0].y;
+	      for (var pointIndex = 1; pointIndex < points.length; pointIndex++) {
+	        minX = Math.min(minX, points[pointIndex].x);
+	        maxX = Math.max(maxX, points[pointIndex].x);
+	        minY = Math.min(minY, points[pointIndex].y);
+	        maxY = Math.max(maxY, points[pointIndex].y);
+	      }
+	      var pointer = this._gravityPointer ||
+	        (this.p && Number.isFinite(this.p.x) && Number.isFinite(this.p.y) ? this.p : null);
+	      if (!pointer) pointer = { x: this.i.size.width / 2, y: this.i.size.height / 2 };
+	      var shiftX = pointer.x - (minX + maxX) / 2;
+	      var shiftY = pointer.y - (minY + maxY) / 2;
 	      var start = this.numParticles | 0;
 	      var particleCount = particleSnapshots.length;
 	      var target = start + particleCount;
@@ -1715,8 +1879,8 @@
 	        var particle = new c(this);
 	        var index = start + i;
 	        particle.index = index;
-	        particle.x = snapshot.x;
-	        particle.y = snapshot.y;
+	        particle.x = snapshot.x + shiftX;
+	        particle.y = snapshot.y + shiftY;
 	        particle.velocity.x = snapshot.velocityX;
 	        particle.velocity.y = snapshot.velocityY;
 	        particle.size = snapshot.size;
@@ -1739,7 +1903,9 @@
 	      for (var j = 0; j < wellSnapshots.length; j++) {
 	        var wellSnapshot = wellSnapshots[j];
 	        var pastedWell = Object.assign({}, wellSnapshot, {
-	          id: 'gravity-well-' + this._nextGravityWellId++
+	          id: 'gravity-well-' + this._nextGravityWellId++,
+	          x: wellSnapshot.x + shiftX,
+	          y: wellSnapshot.y + shiftY
 	        });
 	        this.gravityWells.push(pastedWell);
 	        pastedWellIds.add(pastedWell.id);
@@ -1748,6 +1914,12 @@
 	      for (var k = 0; k < particleCount; k++) this.selectedParticleIndices.add(start + k);
 	      this.selectedGravityWellIds = pastedWellIds;
 	      this.selectedGravityWellId = pastedWellIds.size ? pastedWellIds.values().next().value : null;
+	      this._pushObjectSelectionUndo({
+	        type: 'paste',
+	        particles: copies.slice(),
+	        wellIds: Array.from(pastedWellIds),
+	        selection: previousSelection
+	      });
 	      if (this.performanceMonitor && this.performanceMonitor.setParticleCount) {
 	        this.performanceMonitor.setParticleCount(this.numParticles);
 	      }
@@ -1896,7 +2068,18 @@
     (b.prototype.removeGravityWellUnderPointer = function() {
       if (!this._gravityPointerInsideCanvas || !this._gravityPointer) return false;
       var hit = this._hitTestGravityWellVisual(this._gravityPointer.x, this._gravityPointer.y);
-      return hit ? this.removeGravityWell(hit.id) : false;
+      if (!hit) return false;
+      var well = this.getGravityWell(hit.id);
+      var index = this.gravityWells.indexOf(well);
+      var selection = this._captureObjectSelectionReferences();
+      if (!well || !this.removeGravityWell(well.id)) return false;
+      this._pushObjectSelectionUndo({
+        type: 'delete',
+        particles: [],
+        wells: [{ index: index, well: well, state: Object.assign({}, well) }],
+        selection: selection
+      });
+      return true;
     }),
     (b.prototype.randomizeGravityWellColorsUnderPointer = function() {
       if (!this._gravityPointerInsideCanvas || !this._gravityPointer) return false;

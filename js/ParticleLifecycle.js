@@ -150,6 +150,7 @@
       this.selectedGravityWellIds = null;
       this.selectedParticleIndices = null;
       this._selectionClipboard = null;
+      this._selectionUndoStack = null;
       this._selectionMarqueeElement = null;
       this._selectionMarqueeState = null;
       this._objectSelectionDrag = null;

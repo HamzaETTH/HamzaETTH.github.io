@@ -77,6 +77,16 @@ async function main() {
       return { selectedWellId: selectedWell.id, outsideWellId: outsideWell.id };
     });
 
+    await page.evaluate(() => {
+      const manager = window.hotkeyManager;
+      window.__selectionToastMessages = [];
+      window.__selectionTestShowToast = manager.showToast;
+      manager.showToast = function(message, options) {
+        window.__selectionToastMessages.push(message);
+        return window.__selectionTestShowToast.call(this, message, options);
+      };
+    });
+
     await page.keyboard.down('Control');
     await page.mouse.move(100, 100);
     await page.mouse.down({ button: 'left' });
@@ -116,6 +126,7 @@ async function main() {
         particles: Array.from(pn.selectedParticleIndices),
         wells: Array.from(pn.selectedGravityWellIds),
         primaryWell: pn.selectedGravityWellId,
+        toast: window.__selectionToastMessages.at(-1),
         marqueeHidden: getComputedStyle(document.querySelector('.particle-selection-marquee')).display === 'none',
         selectionOverlayVisible: getComputedStyle(document.querySelector('.particle-selection-overlay')).display === 'block',
         cursorReset: getComputedStyle(pn.canvas).cursor !== 'crosshair'
@@ -252,6 +263,11 @@ async function main() {
     const firstPaste = await page.evaluate(({ expected, firstPointer }) => {
       const pn = window.particleInstance;
       const start = 4;
+      const sourcePoints = [...expected.particles, expected.well];
+      const anchorX = (Math.min(...sourcePoints.map(point => point.x)) + Math.max(...sourcePoints.map(point => point.x))) / 2;
+      const anchorY = (Math.min(...sourcePoints.map(point => point.y)) + Math.max(...sourcePoints.map(point => point.y))) / 2;
+      const shiftX = firstPointer.x - anchorX;
+      const shiftY = firstPointer.y - anchorY;
       const particles = expected.particles.map((source, offset) => {
         const index = start + offset;
         const particle = pn.o[index];
@@ -269,6 +285,8 @@ async function main() {
           objectSize: particle.size,
           hue: particle.hue,
           particleColor: particle.particleColor,
+          expectedX: source.x + shiftX,
+          expectedY: source.y + shiftY,
           source
         };
       });
@@ -279,8 +297,12 @@ async function main() {
         wellCount: pn.gravityWells.length,
         particles,
         well: well ? { ...well } : null,
-        expectedWell: expected.well,
+        expectedWell: { ...expected.well, x: expected.well.x + shiftX, y: expected.well.y + shiftY },
         pointer: firstPointer,
+        groupCenter: well ? {
+          x: (Math.min(...particles.map(particle => particle.x), well.x) + Math.max(...particles.map(particle => particle.x), well.x)) / 2,
+          y: (Math.min(...particles.map(particle => particle.y), well.y) + Math.max(...particles.map(particle => particle.y), well.y)) / 2
+        } : null,
         selectedParticles: Array.from(pn.selectedParticleIndices),
         selectedWells: Array.from(pn.selectedGravityWellIds),
         primaryWell: pn.selectedGravityWellId,
@@ -327,11 +349,17 @@ async function main() {
         knownWellIds: pn.gravityWells.map(candidate => candidate.id)
       };
     }, setup.selectedWellId);
-    await page.mouse.move(1, 1);
+    const secondPointer = { x: 1, y: 1 };
+    await page.mouse.move(secondPointer.x, secondPointer.y);
     await page.keyboard.press('Control+v');
-    const secondPaste = await page.evaluate(expected => {
+    const secondPaste = await page.evaluate(({ expected, secondPointer }) => {
       const pn = window.particleInstance;
       const start = 6;
+      const sourcePoints = [...expected.particles, expected.well];
+      const anchorX = (Math.min(...sourcePoints.map(point => point.x)) + Math.max(...sourcePoints.map(point => point.x))) / 2;
+      const anchorY = (Math.min(...sourcePoints.map(point => point.y)) + Math.max(...sourcePoints.map(point => point.y))) / 2;
+      const shiftX = secondPointer.x - anchorX;
+      const shiftY = secondPointer.y - anchorY;
       const particles = expected.particles.map((source, offset) => {
         const index = start + offset;
         const particle = pn.o[index];
@@ -340,6 +368,8 @@ async function main() {
           vx: pn.velX[index], vy: pn.velY[index],
           size: pn.sizeA[index], objectSize: particle.size,
           hue: particle.hue, particleColor: particle.particleColor,
+          expectedX: source.x + shiftX,
+          expectedY: source.y + shiftY,
           source
         };
       });
@@ -349,12 +379,17 @@ async function main() {
         wellCount: pn.gravityWells.length,
         particles,
         well: well ? { ...well } : null,
-        expectedWell: expected.well,
+        expectedWell: { ...expected.well, x: expected.well.x + shiftX, y: expected.well.y + shiftY },
+        pointer: secondPointer,
+        groupCenter: well ? {
+          x: (Math.min(...particles.map(particle => particle.x), well.x) + Math.max(...particles.map(particle => particle.x), well.x)) / 2,
+          y: (Math.min(...particles.map(particle => particle.y), well.y) + Math.max(...particles.map(particle => particle.y), well.y)) / 2
+        } : null,
         selectedParticles: Array.from(pn.selectedParticleIndices),
         selectedWells: Array.from(pn.selectedGravityWellIds),
         primaryWell: pn.selectedGravityWellId
       };
-    }, secondLiveSources);
+    }, { expected: secondLiveSources, secondPointer });
 
     const fallbackPaste = await page.evaluate(selectedWellId => {
       const pn = window.particleInstance;
@@ -400,7 +435,13 @@ async function main() {
       });
       const start = pn.numParticles;
       const knownWellIds = pn.gravityWells.map(well => well.id);
-      pn._gravityPointer = { x: 640, y: 700 };
+      const pointer = { x: 640, y: 700 };
+      const sourcePoints = [...frozen.particles, ...frozen.wells];
+      const anchorX = (Math.min(...sourcePoints.map(point => point.x)) + Math.max(...sourcePoints.map(point => point.x))) / 2;
+      const anchorY = (Math.min(...sourcePoints.map(point => point.y)) + Math.max(...sourcePoints.map(point => point.y))) / 2;
+      const shiftX = pointer.x - anchorX;
+      const shiftY = pointer.y - anchorY;
+      pn._gravityPointer = pointer;
       pn.pasteObjectSelection();
       const particles = frozen.particles.map((source, offset) => {
         const index = start + offset;
@@ -410,6 +451,8 @@ async function main() {
           vx: pn.velX[index], vy: pn.velY[index],
           size: pn.sizeA[index], objectSize: particle.size,
           hue: particle.hue, particleColor: particle.particleColor,
+          expectedX: source.x + shiftX,
+          expectedY: source.y + shiftY,
           source
         };
       });
@@ -419,13 +462,30 @@ async function main() {
         wellCount: pn.gravityWells.length,
         particles,
         well: well ? { ...well } : null,
-        expectedWell: frozen.wells[0],
+        expectedWell: { ...frozen.wells[0], x: frozen.wells[0].x + shiftX, y: frozen.wells[0].y + shiftY },
+        pointer,
         oneSourceMissing: !pn.o.includes(clipboard.particleSources?.[0]) && remainingIndex >= 0,
         selectedParticles: Array.from(pn.selectedParticleIndices),
         selectedWells: Array.from(pn.selectedGravityWellIds),
         primaryWell: pn.selectedGravityWellId
       };
     }, setup.selectedWellId);
+
+    const pasteUndos = [];
+    for (let index = 0; index < 3; index++) {
+      await page.keyboard.press('Control+z');
+      pasteUndos.push(await page.evaluate(() => {
+        const pn = window.particleInstance;
+        return {
+          particleCount: pn.numParticles,
+          wellCount: pn.gravityWells.length,
+          selectedParticles: Array.from(pn.selectedParticleIndices),
+          selectedWells: Array.from(pn.selectedGravityWellIds),
+          primaryWell: pn.selectedGravityWellId,
+          undoDepth: pn._selectionUndoStack?.length
+        };
+      }));
+    }
 
     await page.evaluate(() => {
       const pn = window.particleInstance;
@@ -434,6 +494,19 @@ async function main() {
       pn.options.gravityWellsEnabled = true;
       pn._ensureAnimationLoop();
     });
+
+    await page.evaluate(() => window.particleInstance.clearObjectSelection());
+    await page.mouse.move(800, 500);
+    await page.keyboard.press('Delete');
+    const hoveredWellDelete = await page.evaluate(expectedId => ({
+      removed: !window.particleInstance.getGravityWell(expectedId),
+      undoDepth: window.particleInstance._selectionUndoStack?.length
+    }), setup.outsideWellId);
+    await page.keyboard.press('Control+z');
+    const hoveredWellDeleteUndo = await page.evaluate(expectedId => ({
+      restored: !!window.particleInstance.getGravityWell(expectedId),
+      undoDepth: window.particleInstance._selectionUndoStack?.length
+    }), setup.outsideWellId);
 
     await page.mouse.move(800, 500);
     await page.mouse.wheel(0, -1);
@@ -454,6 +527,15 @@ async function main() {
     await page.waitForFunction(() => {
       const pn = window.particleInstance;
       return pn.i.size.width === 1270 && pn.i.size.height === 710 && pn.o.includes(pn.p);
+    });
+    await page.evaluate(() => {
+      const pn = window.particleInstance;
+      if (pn._rafId != null) cancelAnimationFrame(pn._rafId);
+      pn._rafId = null;
+      pn._rafActive = false;
+      window.__selectionUndoTestEnsureLoop = pn._ensureAnimationLoop;
+      pn._ensureAnimationLoop = function() {};
+      pn._syncObjectsFromSoA();
     });
     await page.keyboard.press('Control+a');
     const selectAll = await page.evaluate(() => {
@@ -481,6 +563,22 @@ async function main() {
         overlayHidden: getComputedStyle(document.querySelector('.particle-selection-overlay')).display === 'none'
       };
     });
+    await page.keyboard.press('Control+z');
+    const deleteUndo = await page.evaluate(expected => {
+      const pn = window.particleInstance;
+      return {
+        particleCount: pn.numParticles,
+        objectCount: pn.o.length,
+        wellCount: pn.gravityWells.length,
+        selectedParticles: Array.from(pn.selectedParticleIndices),
+        selectedWells: Array.from(pn.selectedGravityWellIds),
+        primaryWell: pn.selectedGravityWellId,
+        typedArrayLengths: [pn.posX.length, pn.posY.length, pn.velX.length, pn.velY.length, pn.sizeA.length],
+        expectedParticleCount: expected.particleCount,
+        expectedWellCount: expected.wellCount,
+        undoDepth: pn._selectionUndoStack?.length
+      };
+    }, selectAll);
 
     const partialDeleteSetup = await page.evaluate(() => {
       const pn = window.particleInstance;
@@ -496,7 +594,12 @@ async function main() {
       pn.selectedParticleIndices = new Set([0, 2]);
       pn.selectedGravityWellIds = new Set([removedWell.id]);
       pn.selectedGravityWellId = removedWell.id;
-      return { keptParticleHue: pn.o[1].hue, keptWellId: keptWell.id };
+      return {
+        particleHues: pn.o.map(particle => particle.hue),
+        keptParticleHue: pn.o[1].hue,
+        removedWell: { ...removedWell },
+        keptWellId: keptWell.id
+      };
     });
     await page.keyboard.press('Delete');
     const partialDelete = await page.evaluate(expected => {
@@ -508,6 +611,20 @@ async function main() {
         wells: pn.gravityWells.map(well => well.id),
         expectedWellId: expected.keptWellId,
         selectionClear: !pn.selectedParticleIndices.size && !pn.selectedGravityWellIds.size && !pn.selectedGravityWellId
+      };
+    }, partialDeleteSetup);
+    await page.keyboard.press('Control+z');
+    const partialDeleteUndo = await page.evaluate(expected => {
+      const pn = window.particleInstance;
+      return {
+        particleCount: pn.numParticles,
+        particleHues: pn.o.map(particle => particle.hue),
+        typedArrayLengths: [pn.posX.length, pn.posY.length, pn.velX.length, pn.velY.length, pn.sizeA.length],
+        wells: pn.gravityWells.map(well => ({ ...well })),
+        selectedParticles: Array.from(pn.selectedParticleIndices),
+        selectedWells: Array.from(pn.selectedGravityWellIds),
+        primaryWell: pn.selectedGravityWellId,
+        expected
       };
     }, partialDeleteSetup);
 
@@ -529,9 +646,40 @@ async function main() {
       window.dispatchEvent(event);
       return { defaultPrevented: event.defaultPrevented };
     });
+    const nativeUndo = await page.evaluate(() => {
+      const emptyEvent = new KeyboardEvent('keydown', {
+        key: 'z',
+        ctrlKey: true,
+        bubbles: true,
+        cancelable: true
+      });
+      window.dispatchEvent(emptyEvent);
+      const input = document.createElement('input');
+      input.type = 'text';
+      document.body.appendChild(input);
+      input.focus();
+      const editableEvent = new KeyboardEvent('keydown', {
+        key: 'z',
+        ctrlKey: true,
+        bubbles: true,
+        cancelable: true
+      });
+      input.dispatchEvent(editableEvent);
+      input.remove();
+      const pn = window.particleInstance;
+      pn._ensureAnimationLoop = window.__selectionUndoTestEnsureLoop;
+      delete window.__selectionUndoTestEnsureLoop;
+      window.hotkeyManager.showToast = window.__selectionTestShowToast;
+      delete window.__selectionTestShowToast;
+      return {
+        emptyDefaultPrevented: emptyEvent.defaultPrevented,
+        editableDefaultPrevented: editableEvent.defaultPrevented,
+        undoDepth: pn._selectionUndoStack?.length
+      };
+    });
 
     const matchesParticleSnapshot = particle =>
-      close(particle.x, particle.source.x) && close(particle.y, particle.source.y) &&
+      close(particle.x, particle.expectedX) && close(particle.y, particle.expectedY) &&
       close(particle.vx, particle.source.velocityX) && close(particle.vy, particle.source.velocityY) &&
       particle.size === particle.source.size && particle.objectSize === particle.source.size &&
       particle.hue === particle.source.hue && particle.particleColor === particle.source.particleColor;
@@ -549,6 +697,7 @@ async function main() {
       selectsParticlesAndWellsByCenter: selected.particles.join(',') === '0,1' &&
         selected.wells.length === 1 && selected.wells[0] === setup.selectedWellId &&
         selected.primaryWell === setup.selectedWellId,
+      marqueeShowsSelectionToast: selected.toast === 'Selected 2 particles + 1 well',
       marqueeCleansUpOnRelease: selected.marqueeHidden && selected.selectionOverlayVisible && selected.cursorReset,
       dragsMixedSelectionAsOneGroup: groupDragging.dragActive && groupDragging.cursor === 'grabbing' &&
         groupDragging.forcesClear &&
@@ -562,17 +711,16 @@ async function main() {
         copied.wellSourceIds?.join(',') === setup.selectedWellId,
       ctrlVPastesLatestParticleState: firstPaste.particleCount === 6 && firstPaste.objectCount === 6 &&
         firstPaste.typedArrayCapacity >= 6 && firstPaste.particles.every(matchesParticleSnapshot) &&
-        firstPaste.particles.every(particle => close(particle.objectX, particle.source.x) &&
-          close(particle.objectY, particle.source.y) && close(particle.objectVx, particle.source.velocityX) &&
+        firstPaste.particles.every(particle => close(particle.objectX, particle.expectedX) &&
+          close(particle.objectY, particle.expectedY) && close(particle.objectVx, particle.source.velocityX) &&
           close(particle.objectVy, particle.source.velocityY)),
       ctrlVPastesLatestWellState: firstPaste.wellCount === 3 && matchesWellSnapshot(firstPaste),
-      pasteIgnoresPointerTranslation: firstPaste.particles.every(particle =>
-        !close(particle.x, firstPaste.pointer.x) || !close(particle.y, firstPaste.pointer.y)) &&
-        (!close(firstPaste.well.x, firstPaste.pointer.x) || !close(firstPaste.well.y, firstPaste.pointer.y)),
+      pasteCentersLiveSelectionAtCursor: firstPaste.groupCenter &&
+        close(firstPaste.groupCenter.x, firstPaste.pointer.x) && close(firstPaste.groupCenter.y, firstPaste.pointer.y),
       repeatedCtrlVResamplesOriginals: secondPaste.particleCount === 8 && secondPaste.wellCount === 4 &&
         secondPaste.particles.every(matchesParticleSnapshot) && matchesWellSnapshot(secondPaste) &&
-        secondPaste.particles.some(particle => particle.x < 0 || particle.x > 1280 || particle.y < 0 || particle.y > 720) &&
-        (secondPaste.well.x < 0 || secondPaste.well.x > 1280 || secondPaste.well.y < 0 || secondPaste.well.y > 720),
+        close(secondPaste.groupCenter.x, secondPaste.pointer.x) && close(secondPaste.groupCenter.y, secondPaste.pointer.y) &&
+        secondPaste.particles.some(particle => particle.x < 0 || particle.x > 1280 || particle.y < 0 || particle.y > 720),
       missingSourceUsesWholeFrozenSnapshot: fallbackPaste.oneSourceMissing && fallbackPaste.particleCount === 10 &&
         fallbackPaste.wellCount === 5 && fallbackPaste.particles.every(matchesParticleSnapshot) &&
         matchesWellSnapshot(fallbackPaste),
@@ -582,6 +730,14 @@ async function main() {
         secondPaste.selectedParticles.join(',') === '6,7' && secondPaste.selectedWells.join(',') === secondPaste.well.id &&
         secondPaste.primaryWell === secondPaste.well.id && fallbackPaste.selectedParticles.join(',') === '8,9' &&
         fallbackPaste.selectedWells.join(',') === fallbackPaste.well.id && fallbackPaste.primaryWell === fallbackPaste.well.id,
+      ctrlZUndoesPastesInLifoOrder: pasteUndos.length === 3 &&
+        pasteUndos[0].particleCount === 8 && pasteUndos[0].wellCount === 4 && pasteUndos[0].undoDepth === 2 &&
+        pasteUndos[0].selectedParticles.join(',') === '6,7' && pasteUndos[0].selectedWells.join(',') === secondPaste.well.id &&
+        pasteUndos[1].particleCount === 6 && pasteUndos[1].wellCount === 3 && pasteUndos[1].undoDepth === 1 &&
+        pasteUndos[1].selectedParticles.join(',') === '4,5' && pasteUndos[1].selectedWells.join(',') === firstPaste.well.id &&
+        pasteUndos[2].particleCount === 4 && pasteUndos[2].wellCount === 2 && pasteUndos[2].undoDepth === 0,
+      ctrlZRestoresHoveredWellDeletion: hoveredWellDelete.removed && hoveredWellDelete.undoDepth === 1 &&
+        hoveredWellDeleteUndo.restored && hoveredWellDeleteUndo.undoDepth === 0,
       singleWellActionCollapsesMarqueeSelection: singleWellCopy.primary === singleWellCopy.expectedId &&
         singleWellCopy.selectedWells.join(',') === singleWellCopy.expectedId && !singleWellCopy.selectedParticles.length &&
         singleWellCopy.copiedWells.join(',') === singleWellCopy.expectedId && singleWellCopy.copiedParticles === 0,
@@ -593,11 +749,31 @@ async function main() {
       deleteRemovesEntireSelection: deleted.particleCount === 0 && deleted.objectCount === 0 &&
         deleted.wellCount === 0 && deleted.typedArrayLengths.every(length => length === 0) &&
         deleted.pointerIndex === 0 && deleted.pointerExcludedFromObjects && deleted.selectionClear && deleted.overlayHidden,
+      ctrlZRestoresEntireDeletion: deleteUndo.particleCount === deleteUndo.expectedParticleCount &&
+        deleteUndo.objectCount === deleteUndo.expectedParticleCount && deleteUndo.wellCount === deleteUndo.expectedWellCount &&
+        deleteUndo.typedArrayLengths.every(length => length === deleteUndo.expectedParticleCount) &&
+        deleteUndo.selectedParticles.length === deleteUndo.expectedParticleCount &&
+        deleteUndo.selectedWells.length === deleteUndo.expectedWellCount && deleteUndo.undoDepth === 0,
       deletePreservesAndReindexesUnselectedObjects: partialDelete.particleCount === 1 &&
         partialDelete.survivorReindexed && partialDelete.typedArrayLengths.every(length => length === 1) &&
         partialDelete.wells.join(',') === partialDelete.expectedWellId && partialDelete.selectionClear,
+      ctrlZRestoresPartialDeletionInPlace: partialDeleteUndo.particleCount === 3 &&
+        partialDeleteUndo.particleHues.join(',') === partialDeleteUndo.expected.particleHues.join(',') &&
+        partialDeleteUndo.typedArrayLengths.every(length => length === 3) &&
+        partialDeleteUndo.wells.length === 2 &&
+        partialDeleteUndo.wells.some(well => well.id === partialDeleteUndo.expected.removedWell.id &&
+          well.type === partialDeleteUndo.expected.removedWell.type && well.x === partialDeleteUndo.expected.removedWell.x &&
+          well.y === partialDeleteUndo.expected.removedWell.y && well.radius === partialDeleteUndo.expected.removedWell.radius &&
+          well.strength === partialDeleteUndo.expected.removedWell.strength &&
+          well.innerColor === partialDeleteUndo.expected.removedWell.innerColor &&
+          well.outerColor === partialDeleteUndo.expected.removedWell.outerColor) &&
+        partialDeleteUndo.selectedParticles.join(',') === '0,2' &&
+        partialDeleteUndo.selectedWells.join(',') === partialDeleteUndo.expected.removedWell.id &&
+        partialDeleteUndo.primaryWell === partialDeleteUndo.expected.removedWell.id,
       escapeClearsSelection: escaped.selectionClear && escaped.overlayHidden,
       emptyCtrlCPreservesNativeCopy: !emptyCopy.defaultPrevented,
+      emptyAndEditableCtrlZPreserveNativeUndo: !nativeUndo.emptyDefaultPrevented &&
+        !nativeUndo.editableDefaultPrevented && nativeUndo.undoDepth === 0,
       noBrowserErrors: browserErrors.length === 0
     };
     const result = {
@@ -614,11 +790,17 @@ async function main() {
       secondLiveSources,
       secondPaste,
       fallbackPaste,
+      pasteUndos,
+      hoveredWellDelete,
+      hoveredWellDeleteUndo,
       singleWellCopy,
       selectAll,
       deleted,
+      deleteUndo,
       partialDelete,
-      emptyCopy
+      partialDeleteUndo,
+      emptyCopy,
+      nativeUndo
     };
     console.log(JSON.stringify(result));
     if (!result.passed) process.exitCode = 2;

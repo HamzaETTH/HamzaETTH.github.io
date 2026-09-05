@@ -204,7 +204,8 @@ async function main() {
               old._blackHoleLineTintStrength == null && old._blackHoleLineTintR == null &&
               old._blackHoleLineTintG == null && old._blackHoleLineTintB == null &&
               old.selectedParticleIndices == null && old.selectedGravityWellIds == null &&
-              old._selectionClipboard == null && old._selectionMarqueeElement == null &&
+              old._selectionClipboard == null && old._selectionUndoStack == null &&
+              old._selectionMarqueeElement == null &&
               old._selectionMarqueeState == null && old._selectionOverlay == null &&
               old._selectionOverlayContext == null,
             listenersReleased: old.__lifecycleListeners.length === 0,
@@ -282,7 +283,7 @@ async function main() {
       'window:resize', 'window:keydown', 'window:keyup',
       'document:contextmenu', 'document:keydown', 'document:keyup', 'document:visibilitychange'
     ];
-    const expectedHotkeys = ['a', 'b', 'c', 'd', 'delete', 'escape', 'h', 'l', 'm', 'p', 'r', 'v', 'w'];
+    const expectedHotkeys = ['a', 'b', 'c', 'd', 'delete', 'escape', 'h', 'l', 'm', 'p', 'r', 'v', 'w', 'z'];
     const assertions = options.expect === 'baseline' ? {
       teardownContractsMissing: missingContracts,
       detachedEngineStayedRetained: Boolean(evidence &&
