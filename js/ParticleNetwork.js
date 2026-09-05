@@ -67,6 +67,8 @@
   var gravityPointerStorageKey = 'pn_gravity_pointer';
   var mobileGravityWellRadius = 60;
   var mobileGravityWellInfluenceScale = 2;
+  var mobileGravityWellViewportRadiusScale = 0.45;
+  var mobileGravityWellContainmentTolerance = 0.01;
   var mobileWellAdjustDeadZone = 12;
   var mobileWellStrengthPixelsPerStep = 8;
 
@@ -3414,12 +3416,19 @@
         : 1;
       var gravitySpin = Number.isFinite(this.options.gravityWellSpin) ? this.options.gravityWellSpin : 0.2;
       var limitMobileGravityWellRange = !!(this._mobileLayoutMedia && this._mobileLayoutMedia.matches);
+      var mobileGravityWellViewportRadius = limitMobileGravityWellRange
+        ? Math.min(width, height) * mobileGravityWellViewportRadiusScale
+        : 0;
       for (var i = 0; i < n; i++) {
 	        var capturedByCursor = !!(capturedParticles && capturedParticles[i]);
 	        var x = this.posX[i] + (capturedByCursor ? captureShiftX : 0);
 	        var y = this.posY[i] + (capturedByCursor ? captureShiftY : 0);
         var vx = this.velX[i];
         var vy = this.velY[i];
+        var mobileBlackHoleX = 0;
+        var mobileBlackHoleY = 0;
+        var mobileBlackHoleRadius = 0;
+        var mobileBlackHoleMagnitude = 0;
         if (this.options.interactive && hasA) {
           var dxA = ax - x; var dyA = ay - y;
           var dA = Math.sqrt(dxA*dxA + dyA*dyA); if (dA < 50) dA = 50;
@@ -3455,11 +3464,25 @@
 
 	            var gravityDistance = Math.sqrt(gravityDistanceSq);
 	            if (gravityDistance < 0.0001) continue;
-	            if (limitMobileGravityWellRange &&
-	                gravityDistance > wellRadius * mobileGravityWellInfluenceScale) continue;
+	            if (limitMobileGravityWellRange) {
+	              var mobileWellRange = wellRadius * mobileGravityWellInfluenceScale;
+	              if (effectiveWellType === 'black') {
+	                mobileWellRange = Math.max(wellRadius, Math.min(mobileWellRange, mobileGravityWellViewportRadius));
+	                if (gravityDistance > mobileWellRange + mobileGravityWellContainmentTolerance) continue;
+	              } else if (gravityDistance > mobileWellRange) {
+	                continue;
+	              }
+	            }
 	            var softenedRadius = Math.max(12, wellRadius * 0.12);
 	            var softenedSq = gravityDistanceSq + softenedRadius * softenedRadius;
 	            var gravityMagnitude = wellStrength * wellRadius * wellRadius / softenedSq * 0.012 * gravityForceMultiplier;
+              if (limitMobileGravityWellRange && effectiveWellType === 'black' &&
+                  gravityMagnitude > mobileBlackHoleMagnitude) {
+                mobileBlackHoleX = wellX;
+                mobileBlackHoleY = wellY;
+                mobileBlackHoleRadius = mobileWellRange;
+                mobileBlackHoleMagnitude = gravityMagnitude;
+              }
             var gravitySign = effectiveWellType === 'white' ? -1 : 1;
             var gravityUnitX = gravityDx / gravityDistance;
             var gravityUnitY = gravityDy / gravityDistance;
@@ -3499,6 +3522,22 @@
         if (currS < speed) { vx *= 1 + speedRecoveryRate; vy *= 1 + speedRecoveryRate; }
         else if (currS > speed) { vx *= 1 - speedRecoveryRate; vy *= 1 - speedRecoveryRate; }
         x += vx; y += vy;
+        if (mobileBlackHoleRadius > 0) {
+          var mobileOrbitDx = x - mobileBlackHoleX;
+          var mobileOrbitDy = y - mobileBlackHoleY;
+          var mobileOrbitDistance = Math.sqrt(mobileOrbitDx * mobileOrbitDx + mobileOrbitDy * mobileOrbitDy);
+          if (mobileOrbitDistance > mobileBlackHoleRadius) {
+            var mobileOrbitUnitX = mobileOrbitDx / mobileOrbitDistance;
+            var mobileOrbitUnitY = mobileOrbitDy / mobileOrbitDistance;
+            x = mobileBlackHoleX + mobileOrbitUnitX * mobileBlackHoleRadius;
+            y = mobileBlackHoleY + mobileOrbitUnitY * mobileBlackHoleRadius;
+            var mobileOrbitOutwardVelocity = vx * mobileOrbitUnitX + vy * mobileOrbitUnitY;
+            if (mobileOrbitOutwardVelocity > 0) {
+              vx -= mobileOrbitUnitX * mobileOrbitOutwardVelocity;
+              vy -= mobileOrbitUnitY * mobileOrbitOutwardVelocity;
+            }
+          }
+        }
         // boundary bounce
         if (this.options.boundaryMode === 'wrap') {
           var sz = this.sizeA[i];

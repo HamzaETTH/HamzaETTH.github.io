@@ -4,7 +4,7 @@
 
 **Goal:** Add phone-first controls that make one-finger input absorb particles, support persistent drag-and-drop black and white holes, allow direct touch editing, expose deliberate particle-count controls, and leave desktop behavior unchanged.
 
-**Architecture:** Keep simulation and gesture arbitration in `ParticleNetwork.js`, where pointer priority and gravity-well state already live. Add a small ES module for the phone-only palette and count UI, mount it from the existing `pane.js` bootstrap, and style it in the current monochrome visual language. Extend the Playwright coverage with a dedicated mobile-control suite, then rerun the existing gravity-well, lifecycle, resize, and startup regressions.
+**Architecture:** Keep simulation and gesture arbitration in `ParticleNetwork.js`, where pointer priority and gravity-well state already live. Add a small ES module for the phone-only palette and count UI, mount it from the existing `pane.js` bootstrap, and style it in the current monochrome visual language. Keep phone black-hole orbits inside a viewport-relative physical envelope without changing the visible well or decorative renderer. Extend the Playwright coverage with a dedicated mobile-control suite, then rerun the existing gravity-well, lifecycle, resize, and startup regressions.
 
 **Tech Stack:** Vanilla JavaScript, Pointer Events, CSS media queries and safe-area environment variables, existing ParticleNetwork prototype API, Node.js, Playwright, Edge/Chromium.
 
@@ -35,6 +35,7 @@ Additional rules:
 - Palette controls use at least 44 by 44 CSS pixel targets, safe-area offsets, accessible names, and visible keyboard focus.
 - The palette starts legible, then settles to low opacity after inactivity. Touch, focus, or active dragging restores full opacity. Reduced-motion mode changes opacity without animated movement.
 - Opening the existing Tweakpane may cover the palette; the palette must remain below Tweakpane in the established z-index order and must not intercept panel input.
+- Phone black holes keep their visible radius. Real particles already inside an effective black hole use the physical envelope `R = max(wellRadius, min(2 * wellRadius, 0.45 * min(viewportWidth, viewportHeight)))`; an outward crossing is projected back to `R` with only outward radial velocity removed. Tangential motion remains, intentionally large holes are never given an envelope smaller than their own radius, and white holes, decorative WebGL particles, and desktop physics remain unchanged.
 
 ## Important Existing Behavior
 
@@ -71,7 +72,7 @@ Place a known well, then verify:
 - one-finger movement changes its center but not its radius or strength;
 - a second finger anywhere on the canvas changes radius vertically and strength-derived speed horizontally, while movement inside the 12 px per-axis dead zone changes neither;
 - a dragged existing black or white hole is deleted when released on its matching palette icon, with visible delete-target feedback;
-- default 60 px phone wells affect particles only within 120 px, while desktop wells keep their existing unbounded inverse-square falloff;
+- default 60 px phone wells remain visibly 60 px; black-hole particles stay within a 120 px orbit envelope without reaching the viewport wall, adjusted black holes use the `60/150/220 -> 120/175.5/220` viewport-relative envelope cases at 390 by 844, white holes retain their 2-radius cutoff, and desktop wells keep their existing unbounded inverse-square falloff;
 - a 700 ms hold followed by an upward drag increases strength magnitude;
 - a downward strength drag decreases magnitude without changing its sign;
 - pointer cancellation clears timers, captures, drafts, and gesture state.
@@ -314,7 +315,7 @@ Expected: only the planned additions plus the user's pre-existing edits are pres
 - A visitor can drag either hole token from the top-right palette, drop it once, and keep the resulting hole after releasing.
 - Existing holes support one-finger move, dead-zone-protected two-axis second-finger radius/speed adjustment, and 700 ms hold plus vertical strength adjustment without accidental mode switching.
 - Dragging an existing hole onto its matching phone palette icon clearly marks the delete target and removes the hole on release.
-- Phone wells limit their attraction or repulsion to twice their visible radius; desktop wells retain the existing unbounded falloff.
+- Phone black holes preserve their visible size and contain already-orbiting real particles within `max(wellRadius, min(2 * wellRadius, 0.45 * min(viewportWidth, viewportHeight)))`, preserving tangential velocity and allowing intentionally oversized holes to exceed the viewport-relative cap. Phone white holes retain their 2-radius force cutoff, decorative WebGL particles remain visual-only, and desktop wells retain the existing unbounded falloff.
 - Three-finger tap randomizes the same visual family as `R` while preserving particle size and count.
 - Particle count has explicit, understandable, repeatable phone controls and the displayed count stays synchronized.
 - All mobile gesture paths clean up on release, cancellation, blur, hidden document, destroy, and recreate.

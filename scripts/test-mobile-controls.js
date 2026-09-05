@@ -226,6 +226,163 @@ async function runGestures(page) {
   assert(mobileWellInfluence.whiteInside > 0, 'white hole should repel inside the mobile influence radius');
   assert.strictEqual(mobileWellInfluence.whiteOutside, 0, 'white hole should stop beyond its mobile influence radius');
 
+  const mobileBlackHoleOrbit = await page.evaluate(() => {
+    const pn = window.particleInstance;
+    const previous = {
+      interactive: pn.options.interactive,
+      velocity: pn.options.velocity,
+      curvedDrift: pn.options.curvedDrift,
+      boundaryMode: pn.options.boundaryMode,
+      gravityWellSpin: pn.options.gravityWellSpin
+    };
+    const center = { x: pn.i.size.width * 0.5, y: pn.i.size.height * 0.5 };
+    const stopLoop = () => {
+      if (pn._rafId != null) cancelAnimationFrame(pn._rafId);
+      pn._rafId = null;
+      pn._rafActive = false;
+    };
+
+    pn.options.interactive = false;
+    pn.options.velocity = 0.66;
+    pn.options.curvedDrift = false;
+    pn.options.boundaryMode = 'bounce';
+    pn.options.gravityWellSpin = 0.2;
+    pn.attractionForce = null;
+    pn.repulsionForce = null;
+    pn.setParticleCount(1);
+    pn.clearGravityWells();
+    const well = pn.addGravityWell('black', center.x, center.y, 60);
+    stopLoop();
+    pn.posX[0] = center.x + well.radius;
+    pn.posY[0] = center.y;
+    pn.velX[0] = 0;
+    pn.velY[0] = 0.66;
+    pn.sizeA[0] = 1;
+
+    const envelope = Math.max(
+      well.radius,
+      Math.min(well.radius * 2, Math.min(pn.i.size.width, pn.i.size.height) * 0.45)
+    );
+    let maxDistance = 0;
+    let wallHits = 0;
+    for (let frame = 0; frame < 1000; frame++) {
+      pn._updateSoA();
+      maxDistance = Math.max(maxDistance, Math.hypot(pn.posX[0] - center.x, pn.posY[0] - center.y));
+      const size = pn.sizeA[0];
+      if (pn.posX[0] <= size || pn.posX[0] >= pn.i.size.width - size ||
+          pn.posY[0] <= size || pn.posY[0] >= pn.i.size.height - size) wallHits++;
+    }
+
+    const result = { radius: well.radius, envelope, maxDistance, wallHits };
+    pn.clearGravityWells();
+    Object.assign(pn.options, previous);
+    return result;
+  });
+  assert.strictEqual(mobileBlackHoleOrbit.radius, 60, 'orbit containment must not resize the visible phone well');
+  assert(mobileBlackHoleOrbit.maxDistance <= mobileBlackHoleOrbit.envelope + 0.01,
+    `default mobile black-hole orbit escaped ${mobileBlackHoleOrbit.envelope}px: ${mobileBlackHoleOrbit.maxDistance}`);
+  assert.strictEqual(mobileBlackHoleOrbit.wallHits, 0, 'default mobile black-hole orbit reached a viewport wall');
+
+  const mobileOrbitEnvelopes = await page.evaluate(() => {
+    const pn = window.particleInstance;
+    const previous = {
+      interactive: pn.options.interactive,
+      velocity: pn.options.velocity,
+      curvedDrift: pn.options.curvedDrift,
+      boundaryMode: pn.options.boundaryMode,
+      gravityWellSpin: pn.options.gravityWellSpin
+    };
+    const center = { x: pn.i.size.width * 0.5, y: pn.i.size.height * 0.5 };
+    const viewportLimit = Math.min(pn.i.size.width, pn.i.size.height) * 0.45;
+    const stopLoop = () => {
+      if (pn._rafId != null) cancelAnimationFrame(pn._rafId);
+      pn._rafId = null;
+      pn._rafActive = false;
+    };
+    const setParticle = (distance, tangentialVelocity, outwardVelocity) => {
+      pn.posX[0] = center.x;
+      pn.posY[0] = center.y + distance;
+      pn.velX[0] = tangentialVelocity;
+      pn.velY[0] = outwardVelocity;
+      pn.sizeA[0] = 1;
+    };
+    const resultAfterStep = envelope => {
+      pn._updateSoA();
+      const dx = pn.posX[0] - center.x;
+      const dy = pn.posY[0] - center.y;
+      const distance = Math.hypot(dx, dy);
+      const unitX = dx / distance;
+      const unitY = dy / distance;
+      return {
+        envelope,
+        distance,
+        radialVelocity: pn.velX[0] * unitX + pn.velY[0] * unitY,
+        tangentialVelocity: -pn.velX[0] * unitY + pn.velY[0] * unitX
+      };
+    };
+    const sampleBlackHole = radius => {
+      pn.clearGravityWells();
+      const well = pn.addGravityWell('black', center.x, center.y, radius);
+      stopLoop();
+      const envelope = Math.max(well.radius, Math.min(well.radius * 2, viewportLimit));
+      setParticle(envelope - 1, 3, 20);
+      return { radius: well.radius, ...resultAfterStep(envelope) };
+    };
+
+    pn.options.interactive = false;
+    pn.options.velocity = 0;
+    pn.options.curvedDrift = false;
+    pn.options.boundaryMode = 'none';
+    pn.options.gravityWellSpin = 0;
+    pn.attractionForce = null;
+    pn.repulsionForce = null;
+    pn.setParticleCount(1);
+    stopLoop();
+
+    const cases = [60, 150, 220].map(sampleBlackHole);
+
+    pn.clearGravityWells();
+    const strong = pn.addGravityWell('black', center.x, center.y, 60);
+    strong.strength = 100;
+    const weak = pn.addGravityWell('black', center.x, center.y, 150);
+    weak.strength = 0.1;
+    stopLoop();
+    setParticle(119, 3, 20);
+    const strongestOverlap = resultAfterStep(120);
+
+    pn.clearGravityWells();
+    pn.addGravityWell('white', center.x, center.y, 60);
+    stopLoop();
+    setParticle(119, 3, 20);
+    const whiteHole = resultAfterStep(120);
+
+    pn.clearGravityWells();
+    Object.assign(pn.options, previous);
+    return { viewportLimit, cases, strongestOverlap, whiteHole };
+  });
+  const expectedEnvelopes = new Map([[60, 120], [150, 175.5], [220, 220]]);
+  for (const sample of mobileOrbitEnvelopes.cases) {
+    const expected = expectedEnvelopes.get(sample.radius);
+    assert(Math.abs(sample.envelope - expected) < 0.001,
+      `unexpected ${sample.radius}px mobile orbit envelope: ${sample.envelope}`);
+    assert(sample.distance <= expected + 0.01,
+      `${sample.radius}px mobile black hole escaped its ${expected}px envelope: ${sample.distance}`);
+    assert(sample.radialVelocity <= 0.001,
+      `${sample.radius}px mobile containment retained outward radial velocity: ${sample.radialVelocity}`);
+    assert(Math.abs(sample.tangentialVelocity) > 1,
+      `${sample.radius}px mobile containment removed tangential motion: ${sample.tangentialVelocity}`);
+  }
+  const intentionallyLarge = mobileOrbitEnvelopes.cases.find(sample => sample.radius === 220);
+  assert(intentionallyLarge.distance > mobileOrbitEnvelopes.viewportLimit,
+    'an intentionally large mobile black hole was clamped below its own radius');
+  assert(mobileOrbitEnvelopes.strongestOverlap.distance <= 120.01,
+    `overlapping black holes did not use the strongest envelope: ${mobileOrbitEnvelopes.strongestOverlap.distance}`);
+  assert(mobileOrbitEnvelopes.strongestOverlap.radialVelocity <= 0.001 &&
+    Math.abs(mobileOrbitEnvelopes.strongestOverlap.tangentialVelocity) > 1,
+  'strongest-envelope containment must remove only outward radial velocity');
+  assert(mobileOrbitEnvelopes.whiteHole.distance > 120 && mobileOrbitEnvelopes.whiteHole.radialVelocity > 0,
+    'mobile white-hole motion should remain unconstrained outside its influence radius');
+
   const movedWell = await page.evaluate(() => {
     const pn = window.particleInstance;
     pn.clearGravityWells();
@@ -380,6 +537,8 @@ async function runGestures(page) {
     oneFingerVelocity,
     twoFingerVelocity,
     mobileWellInfluence,
+    mobileBlackHoleOrbit,
+    mobileOrbitEnvelopes,
     moved,
     wellAdjust: { withinTolerance, larger, smaller, faster, slower, resumedMode, reversedFaster, reversedSlower },
     strengthBefore,
@@ -507,8 +666,35 @@ async function runDesktop(browser, url, browserErrors) {
     return pn.velX[0];
   });
   assert(distantWellVelocity < 0, 'desktop gravity wells should retain their existing unbounded falloff');
+  const unconstrainedOrbit = await page.evaluate(() => {
+    const pn = window.particleInstance;
+    pn.options.interactive = false;
+    pn.options.velocity = 0;
+    pn.options.curvedDrift = false;
+    pn.options.boundaryMode = 'none';
+    pn.options.gravityWellSpin = 0;
+    pn.attractionForce = null;
+    pn.repulsionForce = null;
+    pn.clearGravityWells();
+    pn.addGravityWell('black', 400, 360, 60);
+    pn.posX[0] = 519;
+    pn.posY[0] = 360;
+    pn.velX[0] = 20;
+    pn.velY[0] = 3;
+    pn.sizeA[0] = 1;
+    pn._updateSoA();
+    const dx = pn.posX[0] - 400;
+    const dy = pn.posY[0] - 360;
+    const distance = Math.hypot(dx, dy);
+    return {
+      distance,
+      radialVelocity: (pn.velX[0] * dx + pn.velY[0] * dy) / distance
+    };
+  });
+  assert(unconstrainedOrbit.distance > 120 && unconstrainedOrbit.radialVelocity > 0,
+    `desktop black-hole orbit should remain unconstrained: ${JSON.stringify(unconstrainedOrbit)}`);
   await context.close();
-  return { hidden, distantWellVelocity };
+  return { hidden, distantWellVelocity, unconstrainedOrbit };
 }
 
 async function runLandscape(browser, options, browserErrors) {
