@@ -445,11 +445,11 @@ async function runGestures(page, screenshotDir) {
     pn.clearGravityWells();
     const active = pn.addGravityWell('black', 120, 420, 60);
     const targetX = pn.addGravityWell('white', 260, 240, 60);
-    const targetY = pn.addGravityWell('black', 360, 650, 60);
+    const targetY = pn.addGravityWell('black', 360, 700, 60);
     return { active: active.id, targetX: targetX.id, targetY: targetY.id };
   });
   await sendCanvasPointer(page, 'pointerdown', 1, { x: 120, y: 420 });
-  await sendCanvasPointer(page, 'pointermove', 1, { x: 250, y: 640 });
+  await sendCanvasPointer(page, 'pointermove', 1, { x: 250, y: 690 });
   await page.evaluate(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))));
   const mobileSnapEntered = await page.evaluate(ids => {
     const pn = window.particleInstance;
@@ -488,37 +488,37 @@ async function runGestures(page, screenshotDir) {
     };
   }, mobileSnapIds.active);
   await sendCanvasPointer(page, 'pointerup', 2, { x: mobileAdjustOrigin.x, y: mobileAdjustOrigin.y - 48 }, 0);
-  await sendCanvasPointer(page, 'pointermove', 1, { x: 275, y: 665 });
+  await sendCanvasPointer(page, 'pointermove', 1, { x: 275, y: 715 });
   const mobileSnapHeld = await page.evaluate(id => {
     const well = window.particleInstance.getGravityWell(id);
     return { x: well.x, y: well.y };
   }, mobileSnapIds.active);
-  await sendCanvasPointer(page, 'pointermove', 1, { x: 277, y: 670 });
-  await sendCanvasPointer(page, 'pointermove', 1, { x: 273, y: 663 });
+  await sendCanvasPointer(page, 'pointermove', 1, { x: 277, y: 720 });
+  await sendCanvasPointer(page, 'pointermove', 1, { x: 273, y: 713 });
   const mobileOutsideEntry = await page.evaluate(id => {
     const well = window.particleInstance.getGravityWell(id);
     return { x: well.x, y: well.y };
   }, mobileSnapIds.active);
-  await sendCanvasPointer(page, 'pointercancel', 1, { x: 273, y: 663 }, 0);
+  await sendCanvasPointer(page, 'pointercancel', 1, { x: 273, y: 713 }, 0);
   await page.evaluate(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))));
   const mobileSnapCancelled = await page.evaluate(() => {
     const pn = window.particleInstance;
     return { snap: pn._gravityWellSnapState, guide: pn._gravityWellGuideState, drag: pn._gravityWellDrag };
   });
-  assert.deepStrictEqual({ x: mobileSnapEntered.x, y: mobileSnapEntered.y }, { x: 260, y: 650 },
+  assert.deepStrictEqual({ x: mobileSnapEntered.x, y: mobileSnapEntered.y }, { x: 260, y: 700 },
     'touch snapping did not use the 12px entry threshold on both axes');
   assert.strictEqual(mobileSnapEntered.state?.snapXTargetId, mobileSnapIds.targetX);
   assert.strictEqual(mobileSnapEntered.state?.snapYTargetId, mobileSnapIds.targetY);
-  assert.deepStrictEqual(mobileSnapHeld, { x: 260, y: 650 }, 'touch snapping did not hold through the 16px release threshold');
-  assert.deepStrictEqual(mobileOutsideEntry, { x: 273, y: 663 }, 'touch snapping reacquired outside the 12px entry threshold');
+  assert.deepStrictEqual(mobileSnapHeld, { x: 260, y: 700 }, 'touch snapping did not hold through the 16px release threshold');
+  assert.deepStrictEqual(mobileOutsideEntry, { x: 273, y: 713 }, 'touch snapping reacquired outside the 12px entry threshold');
   assert(mobileSnapEntered.guide && mobileSnapEntered.guide.xLabel === 'X 260 px' &&
-    mobileSnapEntered.guide.yLabel === 'Y 650 px', 'touch drag did not expose coordinate guides');
+    mobileSnapEntered.guide.yLabel === 'Y 700 px', 'touch drag did not expose coordinate guides');
   assert(mobileSnapEntered.measurements.every(measurement => measurement.radiusLabel && measurement.behaviorLabel),
     'touch drag measurements did not expose target metadata');
-  assert(mobileRadiusOnly.x === 260 && mobileRadiusOnly.y === 650 && mobileRadiusOnly.radius > 60 &&
+  assert(mobileRadiusOnly.x === 260 && mobileRadiusOnly.y === 700 && mobileRadiusOnly.radius > 60 &&
     mobileRadiusOnly.snap?.snapXTargetId === mobileSnapIds.targetX &&
     mobileRadiusOnly.snap?.snapYTargetId === mobileSnapIds.targetY &&
-    mobileRadiusOnly.guide?.xLabel === 'X 260 px' && mobileRadiusOnly.guide?.yLabel === 'Y 650 px',
+    mobileRadiusOnly.guide?.xLabel === 'X 260 px' && mobileRadiusOnly.guide?.yLabel === 'Y 700 px',
   'radius-only touch adjustment changed the snapped center or cleared annotations');
   assert(mobileSnapEntered.layout && mobileSnapEntered.layout.guideLabels.length === 2 &&
     mobileSnapEntered.layout.metadataLabels.length === 2, 'DPR2 touch drag did not paint shared overlay annotations');
@@ -702,7 +702,7 @@ async function runGestures(page, screenshotDir) {
 
 async function runPalette(page, screenshotDir) {
   await page.waitForSelector('[data-mobile-particle-controls]');
-  await page.waitForTimeout(1500);
+  await page.waitForTimeout(3950);
   const layout = await page.evaluate(() => {
     const root = document.querySelector('[data-mobile-particle-controls]');
     const controls = Array.from(root.querySelectorAll('button')).map(button => {
@@ -745,6 +745,40 @@ async function runPalette(page, screenshotDir) {
   assert(layout.groupGap <= 4, `toolbar group gap should be at most 4px, got ${layout.groupGap}`);
   assert(layout.rect.left >= 0 && layout.rect.top >= 0 && layout.rect.right <= 390 && layout.rect.bottom <= 844);
 
+  await page.evaluate(() => window.dispatchEvent(new PointerEvent('pointerdown', {
+    bubbles: true,
+    pointerId: 30,
+    pointerType: 'touch',
+    isPrimary: true,
+    clientX: 40,
+    clientY: 400
+  })));
+  assert.strictEqual(await page.locator('[data-mobile-particle-controls]').evaluate(root => root.classList.contains('is-active')), true,
+    'touch activity should reveal the toolbar');
+  await page.waitForTimeout(2400);
+  await page.evaluate(() => window.dispatchEvent(new PointerEvent('pointermove', {
+    bubbles: true,
+    pointerId: 30,
+    pointerType: 'touch',
+    isPrimary: true,
+    clientX: 42,
+    clientY: 402
+  })));
+  await page.waitForTimeout(700);
+  assert.strictEqual(await page.locator('[data-mobile-particle-controls]').evaluate(root => root.classList.contains('is-active')), true,
+    'latest touch activity should reset the 3s deadline');
+  const touchActiveOpacity = await page.locator('[data-mobile-particle-controls]').evaluate(root =>
+    Number(getComputedStyle(root).opacity));
+  assert(touchActiveOpacity >= 0.94,
+    `touch activity should retain the stronger active opacity, got ${touchActiveOpacity}`);
+  await page.waitForTimeout(2400);
+  assert.strictEqual(await page.locator('[data-mobile-particle-controls]').evaluate(root => root.classList.contains('is-active')), false,
+    'toolbar should leave its active state after 3s without activity');
+  await page.waitForTimeout(950);
+  const touchIdleOpacity = await page.locator('[data-mobile-particle-controls]').evaluate(root => Number(getComputedStyle(root).opacity));
+  assert(touchIdleOpacity >= 0.08 && touchIdleOpacity <= 0.12,
+    `touch toolbar should fade near 0.1 opacity, got ${touchIdleOpacity}`);
+
   const adaptiveDefaults = await page.evaluate(() => {
     const createRuntime = options => window.ParticleNetworkConfig.createRuntimeConfig(options, () => 1, () => 1);
     return {
@@ -760,6 +794,30 @@ async function runPalette(page, screenshotDir) {
     phoneExplicitTrue: true,
     liveValue: true
   });
+
+  await page.evaluate(() => window.particleInstance.clearGravityWells());
+  await dragPaletteToken(page, 'black', { x: 206, y: 411 }, 29);
+  await dragPaletteToken(page, 'white', { x: 137, y: 205 }, 30);
+  const fractionalPaletteWells = await page.evaluate(() => {
+    const pn = window.particleInstance;
+    return {
+      width: pn.i.size.width,
+      height: pn.i.size.height,
+      wells: pn.gravityWells.map(well => ({ type: well.type, x: well.x, y: well.y })),
+      snap: pn._gravityWellSnapState,
+      guide: pn._gravityWellGuideState
+    };
+  });
+  assert.strictEqual(fractionalPaletteWells.wells[0].x, fractionalPaletteWells.width / 2,
+    'touch palette placement should snap to the canvas center X slot');
+  assert.strictEqual(fractionalPaletteWells.wells[0].y, fractionalPaletteWells.height / 2,
+    'touch palette placement should snap to the canvas center Y slot');
+  assert.strictEqual(fractionalPaletteWells.wells[1].x, fractionalPaletteWells.width / 3,
+    'touch palette placement should snap to the canvas third X slot');
+  assert.strictEqual(fractionalPaletteWells.wells[1].y, fractionalPaletteWells.height / 4,
+    'touch palette placement should snap to the canvas quarter Y slot');
+  assert.strictEqual(fractionalPaletteWells.snap, null, 'fraction palette commit left snap state behind');
+  assert.strictEqual(fractionalPaletteWells.guide, null, 'fraction palette commit left guide state behind');
 
   await page.evaluate(() => window.particleInstance.clearGravityWells());
   await dragPaletteToken(page, 'black', { x: 110, y: 360 }, 31);
@@ -797,7 +855,7 @@ async function runPalette(page, screenshotDir) {
   const countBefore = await page.evaluate(() => window.particleInstance.numParticles);
   await tapControl(page, '[data-mobile-count="increase"]', 41);
   const countAfter = await page.evaluate(() => window.particleInstance.numParticles);
-  assert.strictEqual(countAfter, Math.min(5000, countBefore + Math.max(16, Math.round(countBefore * 0.25))));
+  assert.strictEqual(countAfter, Math.min(20000, countBefore + Math.max(16, Math.round(countBefore * 0.25))));
   const readout = await page.textContent('[data-mobile-particle-count]');
   assert.strictEqual(Number(readout), countAfter);
 
@@ -814,10 +872,10 @@ async function runPalette(page, screenshotDir) {
   assert.strictEqual(Number(await page.textContent('[data-mobile-particle-count]')), 16);
   assert.strictEqual(await page.isDisabled('[data-mobile-count="decrease"]'), true, 'decrease should disable at 16');
 
-  await page.evaluate(() => window.particleInstance.setParticleCount(4990));
+  await page.evaluate(() => window.particleInstance.setParticleCount(19990));
   await holdControl(page, '[data-mobile-count="increase"]', 45, 850);
-  assert.strictEqual(await page.evaluate(() => window.particleInstance.numParticles), 5000, 'mobile count control exceeded its maximum');
-  assert.strictEqual(await page.isDisabled('[data-mobile-count="increase"]'), true, 'increase should disable at 5,000');
+  assert.strictEqual(await page.evaluate(() => window.particleInstance.numParticles), 20000, 'mobile count control exceeded its maximum');
+  assert.strictEqual(await page.isDisabled('[data-mobile-count="increase"]'), true, 'increase should disable at 20,000');
 
   const repeatStops = {};
   for (const [reason, pointerId] of [['pointercancel', 46], ['blur', 47], ['hidden', 48]]) {
@@ -883,7 +941,7 @@ async function runPalette(page, screenshotDir) {
   });
   assert.strictEqual(delayedTimerHoldOpened, true,
     'elapsed hold time should survive a delayed timer callback');
-  await page.click('[data-mobile-particle-count-cancel]');
+  await page.click('[data-mobile-particle-count-close]');
 
   const triggerBounds = await page.locator(countTrigger).boundingBox();
   await page.mouse.move(triggerBounds.x + triggerBounds.width / 2, triggerBounds.y + triggerBounds.height / 2);
@@ -893,7 +951,7 @@ async function runPalette(page, screenshotDir) {
   await page.waitForFunction(() => document.querySelector('[data-mobile-particle-count-dialog]')?.open);
   assert.strictEqual(await page.isVisible('[data-mobile-particle-count-dialog][open]'), true,
     'native pointer click compatibility should not close a completed hold');
-  await page.click('[data-mobile-particle-count-cancel]');
+  await page.click('[data-mobile-particle-count-close]');
 
   const holdCancellationCases = [
     ['pointercancel', 52],
@@ -929,6 +987,13 @@ async function runPalette(page, screenshotDir) {
     const dialog = document.querySelector('[data-mobile-particle-count-dialog]');
     const input = dialog.querySelector('[data-mobile-particle-count-input]');
     const error = dialog.querySelector('[data-mobile-particle-count-error]');
+    const close = dialog.querySelector('[data-mobile-particle-count-close]');
+    const submit = dialog.querySelector('[data-mobile-particle-count-submit]');
+    const form = dialog.querySelector('form');
+    const closeRect = close.getBoundingClientRect();
+    const inputRect = input.getBoundingClientRect();
+    const submitRect = submit.getBoundingClientRect();
+    const formRect = form.getBoundingClientRect();
     return {
       inputMode: input.getAttribute('inputmode'),
       pattern: input.getAttribute('pattern'),
@@ -937,7 +1002,16 @@ async function runPalette(page, screenshotDir) {
       spellcheck: input.getAttribute('spellcheck'),
       inputType: input.type,
       errorRole: error.getAttribute('role'),
-      focused: document.activeElement === input
+      focused: document.activeElement === input,
+      closeLabel: close.getAttribute('aria-label'),
+      closeText: close.textContent,
+      closeTarget: { width: closeRect.width, height: closeRect.height },
+      closeAtTopRight: closeRect.top - formRect.top <= 20 && formRect.right - closeRect.right <= 20,
+      cancelButtons: dialog.querySelectorAll('[data-mobile-particle-count-cancel]').length,
+      inlineEntry: Math.abs(inputRect.top - submitRect.top) < 1 &&
+        Math.abs(inputRect.bottom - submitRect.bottom) < 1,
+      inputHeight: inputRect.height,
+      submitTarget: { width: submitRect.width, height: submitRect.height }
     };
   });
   assert.deepStrictEqual(inputContract, {
@@ -948,14 +1022,22 @@ async function runPalette(page, screenshotDir) {
     spellcheck: 'false',
     inputType: 'text',
     errorRole: 'alert',
-    focused: true
+    focused: true,
+    closeLabel: 'Close particle count dialog',
+    closeText: '\u00d7',
+    closeTarget: { width: 44, height: 44 },
+    closeAtTopRight: true,
+    cancelButtons: 0,
+    inlineEntry: true,
+    inputHeight: 44,
+    submitTarget: { width: 56, height: 44 }
   });
   if (screenshotDir) {
     fs.mkdirSync(screenshotDir, { recursive: true });
     await page.screenshot({ path: path.join(screenshotDir, 'mobile-count-dialog.png') });
   }
 
-  const invalidInputs = ['', '   ', 'abc', '1e3', '12.5', '-20', '+20', '1 20', '15', '5001'];
+  const invalidInputs = ['', '   ', 'abc', '1e3', '12.5', '-20', '+20', '1 20', '15', '20001'];
   const countBeforeInvalid = await page.evaluate(() => window.particleInstance.numParticles);
   for (const value of invalidInputs) {
     const result = await submitCountDialog(page, value);
@@ -972,7 +1054,7 @@ async function runPalette(page, screenshotDir) {
     const dialog = document.querySelector('[data-mobile-particle-count-dialog]');
     const form = dialog.querySelector('form');
     const title = dialog.querySelector('h2');
-    const actions = dialog.querySelector('.mobile-particle-count-actions');
+    const entry = dialog.querySelector('.mobile-particle-count-entry');
     const toRect = element => {
       const rect = element.getBoundingClientRect();
       return { left: rect.left, top: rect.top, right: rect.right, bottom: rect.bottom };
@@ -984,7 +1066,7 @@ async function runPalette(page, screenshotDir) {
       dialog: toRect(dialog),
       form: toRect(form),
       title: toRect(title),
-      actions: toRect(actions)
+      entry: toRect(entry)
     };
   });
   assert(invalidDialogLayout.dialog.top >= 0 &&
@@ -1024,12 +1106,37 @@ async function runPalette(page, screenshotDir) {
     'submitting the current count should not dispatch a change event');
 
   await page.focus(countTrigger);
+  await page.keyboard.press('Enter');
+  await page.fill('[data-mobile-particle-count-input]', '257');
+  await page.evaluate(() => { window.__mobileCountEvents = 0; });
+  await page.keyboard.press('Enter');
+  await page.waitForFunction(() => !document.querySelector('[data-mobile-particle-count-dialog]')?.open);
+  assert.deepStrictEqual(await page.evaluate(() => ({
+    count: window.particleInstance.numParticles,
+    events: window.__mobileCountEvents,
+    focusedTrigger: document.activeElement === document.querySelector('[data-mobile-particle-count-trigger]')
+  })), { count: 257, events: 1, focusedTrigger: true },
+    'Enter should submit the inline exact-count form and restore focus');
+
+  await page.focus(countTrigger);
+  await page.keyboard.press('Enter');
+  const maximumResult = await submitCountDialog(page, ' 20000 ');
+  assert.strictEqual(maximumResult.open, false, 'the exact-count dialog should accept 20,000');
+  assert.strictEqual(await page.evaluate(() => window.particleInstance.numParticles), 20000);
+  assert.strictEqual(await page.isDisabled('[data-mobile-count="increase"]'), true,
+    'the increase control should disable after entering 20,000 exactly');
+  await page.evaluate(() => window.particleInstance.setParticleCount(256));
+
+  await page.focus(countTrigger);
   await page.keyboard.press('Space');
   await page.waitForFunction(() => document.querySelector('[data-mobile-particle-count-dialog]')?.open);
   await page.fill('[data-mobile-particle-count-input]', '333');
-  await page.click('[data-mobile-particle-count-cancel]');
+  await page.click('[data-mobile-particle-count-close]');
   assert.strictEqual(await page.evaluate(() => window.particleInstance.numParticles), 256,
-    'Cancel should leave particle count unchanged');
+    'the close button should leave particle count unchanged');
+  assert.strictEqual(await page.evaluate(() =>
+    document.activeElement === document.querySelector('[data-mobile-particle-count-trigger]')), true,
+    'the close button should restore focus to the count trigger');
 
   await page.focus(countTrigger);
   await page.keyboard.press('Enter');
@@ -1082,6 +1189,7 @@ async function runPalette(page, screenshotDir) {
     return {
       roots: document.querySelectorAll('[data-mobile-particle-controls]').length,
       dialogs: document.querySelectorAll('[data-mobile-particle-count-dialog]').length,
+      closeButtons: document.querySelectorAll('[data-mobile-particle-count-close]').length,
       count: pn.numParticles,
       openDialogs: document.querySelectorAll('[data-mobile-particle-count-dialog][open]').length
     };
@@ -1089,6 +1197,7 @@ async function runPalette(page, screenshotDir) {
   assert.deepStrictEqual(recreatedFromOpenDialog, {
     roots: 1,
     dialogs: 1,
+    closeButtons: 1,
     count: recreatedFromOpenDialog.count,
     openDialogs: 0
   });
@@ -1102,6 +1211,7 @@ async function runPalette(page, screenshotDir) {
     return {
       roots: document.querySelectorAll('[data-mobile-particle-controls]').length,
       dialogs: document.querySelectorAll('[data-mobile-particle-count-dialog]').length,
+      closeButtons: document.querySelectorAll('[data-mobile-particle-count-close]').length,
       count: pn.numParticles,
       readout: Number(document.querySelector('[data-mobile-particle-count]').textContent),
       dialogOpen: document.querySelector('[data-mobile-particle-count-dialog]').open
@@ -1111,6 +1221,7 @@ async function runPalette(page, screenshotDir) {
   assert.deepStrictEqual(recreated, {
     roots: 1,
     dialogs: 1,
+    closeButtons: 1,
     count: recreated.count,
     readout: recreated.count,
     dialogOpen: false
@@ -1132,6 +1243,7 @@ async function runPalette(page, screenshotDir) {
   return {
     layout,
     adaptiveDefaults,
+    fractionalPaletteWells,
     wells,
     deleted: { blackDeleteReady, afterBlackDelete, whiteDeleteReady, afterWhiteDelete },
     countBefore,
@@ -1140,6 +1252,8 @@ async function runPalette(page, screenshotDir) {
     repeatedCount,
     minimumCount,
     repeatStops,
+    touchActiveOpacity,
+    touchIdleOpacity,
     inputContract,
     invalidDialogLayout,
     validCountState,
@@ -1148,19 +1262,154 @@ async function runPalette(page, screenshotDir) {
   };
 }
 
-async function runDesktop(browser, url, browserErrors) {
+async function runDesktop(browser, options, browserErrors) {
   const context = await browser.newContext({ viewport: { width: 1280, height: 720 }, deviceScaleFactor: 1 });
   const page = await context.newPage();
   page.on('console', message => {
     if (message.type() === 'error') browserErrors.push({ surface: 'desktop', text: message.text() });
   });
   page.on('pageerror', error => browserErrors.push({ surface: 'desktop', text: String(error) }));
-  await load(page, url);
-  const hidden = await page.evaluate(() => {
+  await load(page, options.url);
+  const desktopLayout = await page.evaluate(() => {
     const root = document.querySelector('[data-mobile-particle-controls]');
-    return !root || getComputedStyle(root).display === 'none';
+    const rect = root?.getBoundingClientRect();
+    const controls = root ? Array.from(root.querySelectorAll('button')).map(button => {
+      const buttonRect = button.getBoundingClientRect();
+      return { width: buttonRect.width, height: buttonRect.height };
+    }) : [];
+    return {
+      hidden: !root || getComputedStyle(root).display === 'none',
+      rect: rect ? { left: rect.left, top: rect.top, right: rect.right, bottom: rect.bottom } : null,
+      controls
+    };
   });
-  assert.strictEqual(hidden, true, 'mobile controls should be hidden on desktop');
+  assert.strictEqual(desktopLayout.hidden, false, 'quick controls should be visible on desktop');
+  assert(desktopLayout.rect.left >= 0 && desktopLayout.rect.top >= 0 && desktopLayout.rect.right <= 1280 &&
+    desktopLayout.rect.bottom <= 720, `desktop toolbar escaped the viewport: ${JSON.stringify(desktopLayout)}`);
+  assert(desktopLayout.controls.length === 5 && desktopLayout.controls.every(control =>
+    control.width >= 44 && control.height >= 44), 'desktop toolbar should retain five 44px targets');
+
+  await page.waitForTimeout(2400);
+  await page.mouse.move(40, 400);
+  await page.waitForTimeout(700);
+  assert.strictEqual(await page.locator('[data-mobile-particle-controls]').evaluate(root => root.classList.contains('is-active')), true,
+    'desktop pointer activity should reset the 3s deadline');
+  const desktopActiveOpacity = await page.locator('[data-mobile-particle-controls]').evaluate(root =>
+    Number(getComputedStyle(root).opacity));
+  assert(desktopActiveOpacity >= 0.70 && desktopActiveOpacity <= 0.74,
+    `desktop fine-pointer activity should use restrained opacity, got ${desktopActiveOpacity}`);
+  if (options.screenshotDir) {
+    fs.mkdirSync(options.screenshotDir, { recursive: true });
+    await page.screenshot({ path: path.join(options.screenshotDir, 'desktop-toolbar-refined.png') });
+  }
+  await page.waitForTimeout(2400);
+  assert.strictEqual(await page.locator('[data-mobile-particle-controls]').evaluate(root => root.classList.contains('is-active')), false,
+    'desktop toolbar should begin fading after the reset deadline');
+  await page.waitForTimeout(950);
+  const desktopIdleOpacity = await page.locator('[data-mobile-particle-controls]').evaluate(root => Number(getComputedStyle(root).opacity));
+  assert(desktopIdleOpacity >= 0.08 && desktopIdleOpacity <= 0.12,
+    `desktop toolbar should fade near 0.1 opacity, got ${desktopIdleOpacity}`);
+  await page.keyboard.press('ArrowDown');
+  assert.strictEqual(await page.locator('[data-mobile-particle-controls]').evaluate(root => root.classList.contains('is-active')), true,
+    'desktop key activity should reveal the toolbar');
+
+  await page.click('[data-mobile-particle-count-trigger]');
+  await page.waitForFunction(() => document.querySelector('[data-mobile-particle-count-dialog]')?.open);
+  assert.strictEqual(await page.isVisible('[data-mobile-particle-count-dialog][open]'), true,
+    'desktop count click should open the exact-count dialog immediately');
+  const desktopDialogLayout = await page.evaluate(() => {
+    const dialog = document.querySelector('[data-mobile-particle-count-dialog]');
+    const input = dialog.querySelector('[data-mobile-particle-count-input]').getBoundingClientRect();
+    const submit = dialog.querySelector('[data-mobile-particle-count-submit]').getBoundingClientRect();
+    const close = dialog.querySelector('[data-mobile-particle-count-close]').getBoundingClientRect();
+    return {
+      cancelButtons: dialog.querySelectorAll('[data-mobile-particle-count-cancel]').length,
+      inlineEntry: Math.abs(input.top - submit.top) < 1 && Math.abs(input.bottom - submit.bottom) < 1,
+      closeTarget: { width: close.width, height: close.height }
+    };
+  });
+  assert.deepStrictEqual(desktopDialogLayout, {
+    cancelButtons: 0,
+    inlineEntry: true,
+    closeTarget: { width: 44, height: 44 }
+  });
+  if (options.screenshotDir) {
+    await page.screenshot({ path: path.join(options.screenshotDir, 'desktop-count-dialog-refined.png') });
+  }
+  await page.waitForTimeout(3100);
+  assert.strictEqual(await page.locator('[data-mobile-particle-controls]').evaluate(root => root.classList.contains('is-active')), true,
+    'an open dialog should keep the toolbar visible beyond the activity deadline');
+  await page.click('[data-mobile-particle-count-close]');
+  assert.strictEqual(await page.evaluate(() =>
+    document.activeElement === document.querySelector('[data-mobile-particle-count-trigger]')), true,
+    'desktop close button should restore focus to the count trigger');
+
+  await page.evaluate(() => window.particleInstance.clearGravityWells());
+  const blackToken = await page.locator('[data-hole-type="black"]').boundingBox();
+  await page.mouse.move(blackToken.x + blackToken.width / 2, blackToken.y + blackToken.height / 2);
+  await page.mouse.down();
+  await page.mouse.move(649, 100, { steps: 4 });
+  await page.mouse.up();
+  const mousePlacedWells = await page.evaluate(() => window.particleInstance.gravityWells.map(well => ({
+    type: well.type, x: well.x, y: well.y, radius: well.radius
+  })));
+  assert.strictEqual(mousePlacedWells.length, 1, 'desktop mouse palette drag should place a well');
+  assert.strictEqual(mousePlacedWells[0].type, 'black');
+  assert.strictEqual(mousePlacedWells[0].x, 649, 'desktop palette drag should retain the 8px mouse snap threshold');
+  assert.strictEqual(mousePlacedWells[0].radius, 150,
+    'desktop palette drag should retain the configured desktop well radius');
+
+  await page.evaluate(() => document.activeElement?.blur());
+  await page.mouse.move(mousePlacedWells[0].x, mousePlacedWells[0].y);
+  await page.mouse.down();
+  await page.waitForTimeout(3150);
+  const stationaryWellDrag = await page.evaluate(() => ({
+    dragging: !!window.particleInstance._gravityWellDrag,
+    active: document.querySelector('[data-mobile-particle-controls]').classList.contains('is-active')
+  }));
+  await page.mouse.up();
+  await page.waitForTimeout(3150);
+  const stationaryWellRelease = await page.evaluate(() => ({
+    dragging: !!window.particleInstance._gravityWellDrag,
+    active: document.querySelector('[data-mobile-particle-controls]').classList.contains('is-active')
+  }));
+  await page.waitForTimeout(950);
+  stationaryWellRelease.opacity = await page.locator('[data-mobile-particle-controls]').evaluate(root =>
+    Number(getComputedStyle(root).opacity));
+  assert(stationaryWellDrag.dragging && stationaryWellDrag.active,
+    `stationary desktop well drag should keep the toolbar visible: ${JSON.stringify(stationaryWellDrag)}`);
+  assert.strictEqual(stationaryWellRelease.dragging, false,
+    'stationary desktop well drag should finish on real mouse release');
+  assert.strictEqual(stationaryWellRelease.active, false,
+    'toolbar expiry should re-check busy state and fade after a stationary well release');
+  assert(stationaryWellRelease.opacity >= 0.08 && stationaryWellRelease.opacity <= 0.12,
+    `toolbar should settle near idle opacity after stationary well release, got ${stationaryWellRelease.opacity}`);
+
+  await page.evaluate(() => window.particleInstance.setParticleCount(100));
+  const plus = page.locator('[data-mobile-count="increase"]');
+  await plus.click();
+  const mouseClickCount = await page.evaluate(() => window.particleInstance.numParticles);
+  assert.strictEqual(mouseClickCount, 125, 'desktop mouse click should step the particle count');
+  const plusBox = await plus.boundingBox();
+  await page.evaluate(() => window.particleInstance.setParticleCount(16));
+  await page.mouse.move(plusBox.x + plusBox.width / 2, plusBox.y + plusBox.height / 2);
+  await page.mouse.down();
+  await page.waitForTimeout(3100);
+  const mouseRepeatState = await page.evaluate(() => ({
+    count: window.particleInstance.numParticles,
+    active: document.querySelector('[data-mobile-particle-controls]').classList.contains('is-active'),
+    repeating: document.querySelector('[data-mobile-particle-controls]').classList.contains('is-repeating')
+  }));
+  await page.mouse.up();
+  assert(mouseRepeatState.count > 32 && mouseRepeatState.active && mouseRepeatState.repeating,
+    `desktop mouse hold should repeat and keep the toolbar visible: ${JSON.stringify(mouseRepeatState)}`);
+
+  await page.emulateMedia({ reducedMotion: 'reduce' });
+  const reducedMotionTransition = await page.locator('[data-mobile-particle-controls]').evaluate(root =>
+    getComputedStyle(root).transitionDuration);
+  assert(reducedMotionTransition.split(',').every(duration => duration.trim() === '0s'),
+    `reduced motion should remove toolbar transitions, got ${reducedMotionTransition}`);
+  await page.emulateMedia({ reducedMotion: 'no-preference' });
   const adaptiveDefaults = await page.evaluate(() => {
     const createRuntime = options => window.ParticleNetworkConfig.createRuntimeConfig(options, () => 1, () => 1);
     return {
@@ -1218,8 +1467,21 @@ async function runDesktop(browser, url, browserErrors) {
   });
   assert(unconstrainedOrbit.distance > 120 && unconstrainedOrbit.radialVelocity > 0,
     `desktop black-hole orbit should remain unconstrained: ${JSON.stringify(unconstrainedOrbit)}`);
+  const recreateActivity = await page.evaluate(() => {
+    window.dispatchEvent(new PointerEvent('pointermove', { bubbles: true, pointerId: 91, pointerType: 'mouse', isPrimary: true }));
+    window.destroyParticleExperience();
+    window.createParticleExperience();
+    return document.querySelectorAll('[data-mobile-particle-controls]').length;
+  });
+  await page.waitForTimeout(700);
+  const recreatedActive = await page.locator('[data-mobile-particle-controls]').evaluate(root => root.classList.contains('is-active'));
+  assert.strictEqual(recreateActivity, 1, 'destroy/recreate should leave one desktop toolbar');
+  assert.strictEqual(recreatedActive, true, 'stale activity cleanup should not fade the recreated toolbar early');
   await context.close();
-  return { hidden, adaptiveDefaults, distantWellVelocity, unconstrainedOrbit };
+  return { desktopLayout, desktopActiveOpacity, desktopIdleOpacity, desktopDialogLayout,
+    adaptiveDefaults, mousePlacedWells, mouseClickCount,
+    stationaryWellDrag, stationaryWellRelease, mouseRepeatState, reducedMotionTransition, recreateActivity, recreatedActive,
+    distantWellVelocity, unconstrainedOrbit };
 }
 
 async function runLandscape(browser, options, browserErrors) {
@@ -1236,7 +1498,7 @@ async function runLandscape(browser, options, browserErrors) {
   page.on('pageerror', error => browserErrors.push({ surface: 'landscape', text: String(error) }));
   await load(page, options.url);
   await page.waitForSelector('[data-mobile-particle-controls]');
-  await page.waitForTimeout(1500);
+  await page.waitForTimeout(3950);
   const layout = await page.evaluate(() => {
     const root = document.querySelector('[data-mobile-particle-controls]');
     const rect = root.getBoundingClientRect();
@@ -1321,8 +1583,33 @@ async function runNarrow(browser, url, browserErrors) {
     layout.bottom <= layout.viewportHeight,
     `narrow toolbar escaped its viewport: ${JSON.stringify(layout)}`);
   assert(layout.controls.every(control => control.width >= 44 && control.height >= 44));
+  await page.focus('[data-mobile-particle-count-trigger]');
+  await page.keyboard.press('Enter');
+  await page.waitForFunction(() => document.querySelector('[data-mobile-particle-count-dialog]')?.open);
+  const narrowDialogLayout = await page.evaluate(() => {
+    const dialog = document.querySelector('[data-mobile-particle-count-dialog]');
+    const dialogRect = dialog.getBoundingClientRect();
+    const inputRect = dialog.querySelector('[data-mobile-particle-count-input]').getBoundingClientRect();
+    const submitRect = dialog.querySelector('[data-mobile-particle-count-submit]').getBoundingClientRect();
+    return {
+      dialog: { left: dialogRect.left, right: dialogRect.right },
+      viewportWidth: window.innerWidth,
+      inline: Math.abs(submitRect.top - inputRect.top) < 1 &&
+        Math.abs(submitRect.bottom - inputRect.bottom) < 1,
+      inputHeight: inputRect.height,
+      submit: { width: submitRect.width, height: submitRect.height }
+    };
+  });
+  assert(narrowDialogLayout.dialog.left >= 0 &&
+    narrowDialogLayout.dialog.right <= narrowDialogLayout.viewportWidth,
+    `narrow dialog escaped its viewport: ${JSON.stringify(narrowDialogLayout)}`);
+  assert.strictEqual(narrowDialogLayout.inline, true,
+    'very narrow dialog should keep the input and OK controls inline');
+  assert(narrowDialogLayout.inputHeight >= 44 && narrowDialogLayout.submit.width >= 44 &&
+    narrowDialogLayout.submit.height >= 44, 'narrow dialog controls must retain 44px targets');
+  await page.keyboard.press('Escape');
   await context.close();
-  return layout;
+  return { ...layout, narrowDialogLayout };
 }
 
 async function main() {
@@ -1358,7 +1645,7 @@ async function main() {
     if (options.section === 'all' || options.section === 'palette') {
       result.landscape = await runLandscape(browser, options, browserErrors);
       result.narrow = await runNarrow(browser, options.url, browserErrors);
-      result.desktop = await runDesktop(browser, options.url, browserErrors);
+      result.desktop = await runDesktop(browser, options, browserErrors);
     }
     assert.deepStrictEqual(browserErrors, []);
     console.log(JSON.stringify({ passed: true, ...result, browserErrors }, null, 2));

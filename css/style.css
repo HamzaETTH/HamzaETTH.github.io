@@ -114,11 +114,6 @@ section, main {
   transform: translate(-50%, -50%) scale(1);
 }
 
-.mobile-particle-controls {
-  display: none;
-}
-
-@media (hover: none) and (pointer: coarse) {
   .mobile-particle-controls {
     position: fixed;
     top: calc(12px + env(safe-area-inset-top));
@@ -133,20 +128,35 @@ section, main {
     border: 1px solid rgba(255, 255, 255, 0.13);
     border-radius: 14px;
     background: rgba(0, 0, 0, 0.48);
-    opacity: 0.42;
+    opacity: 0.1;
     touch-action: none;
     user-select: none;
-    transition: opacity 180ms cubic-bezier(0.22, 1, 0.36, 1),
-      transform 180ms cubic-bezier(0.22, 1, 0.36, 1);
+    transition: opacity 900ms cubic-bezier(0.22, 1, 0.36, 1),
+      transform 120ms cubic-bezier(0.22, 1, 0.36, 1);
   }
 
   .mobile-particle-controls.is-active,
   .mobile-particle-controls.is-dragging,
   .mobile-particle-controls.is-delete-ready,
   .mobile-particle-controls.is-dialog-open,
+  .mobile-particle-controls.is-repeating,
+  .mobile-particle-controls.is-holding,
   .mobile-particle-controls:focus-within {
     opacity: 0.96;
     transform: translateY(1px);
+    transition-duration: 120ms;
+  }
+
+  @media (hover: hover) and (pointer: fine) {
+    .mobile-particle-controls.is-active,
+    .mobile-particle-controls.is-dragging,
+    .mobile-particle-controls.is-delete-ready,
+    .mobile-particle-controls.is-dialog-open,
+    .mobile-particle-controls.is-repeating,
+    .mobile-particle-controls.is-holding,
+    .mobile-particle-controls:focus-within {
+      opacity: 0.72;
+    }
   }
 
   .mobile-hole-bank,
@@ -241,9 +251,7 @@ section, main {
     font-variant-numeric: tabular-nums;
     pointer-events: none;
   }
-}
-
-@media (hover: none) and (pointer: coarse) and (max-width: 261px) {
+@media (max-width: 261px) {
   .mobile-particle-controls {
     flex-direction: column;
     align-items: flex-end;
@@ -274,13 +282,38 @@ section, main {
 
 .mobile-particle-count-form {
   display: grid;
-  gap: 12px;
-  padding: 18px;
+  gap: 8px;
+  padding: 16px;
+}
+
+.mobile-particle-count-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
 }
 
 .mobile-particle-count-form h2 {
   margin: 0;
   font: 600 16px/1.35 "Fira Code", monospace;
+}
+
+.mobile-particle-count-close {
+  flex: 0 0 44px;
+  width: 44px;
+  height: 44px;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: rgba(255, 255, 255, 0.8);
+  font: 400 24px/1 "Fira Code", monospace;
+}
+
+.mobile-particle-count-close:hover {
+  background: rgba(255, 255, 255, 0.08);
+  color: #fff;
 }
 
 .mobile-particle-count-form label {
@@ -311,20 +344,21 @@ section, main {
   border-color: #ff667e;
 }
 
+.mobile-particle-count-entry {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 56px;
+  gap: 8px;
+}
+
 .mobile-particle-count-error {
   min-height: 1.4em;
-  margin: -4px 0 0;
+  margin: 0;
   color: #ff8fa0;
   font: 500 11px/1.4 "Fira Code", monospace;
 }
 
-.mobile-particle-count-actions {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 8px;
-}
-
-.mobile-particle-count-actions button {
+.mobile-particle-count-entry button {
+  min-width: 44px;
   min-height: 44px;
   margin: 0;
   border: 1px solid rgba(255, 255, 255, 0.16);
@@ -334,12 +368,13 @@ section, main {
   font: 600 13px/1 "Fira Code", monospace;
 }
 
-.mobile-particle-count-actions button[type="submit"] {
+.mobile-particle-count-entry button[type="submit"] {
   border-color: rgba(142, 223, 255, 0.44);
   background: rgba(142, 223, 255, 0.16);
 }
 
-.mobile-particle-count-actions button:focus-visible {
+.mobile-particle-count-close:focus-visible,
+.mobile-particle-count-entry button:focus-visible {
   outline: 2px solid #8edfff;
   outline-offset: 2px;
 }
@@ -350,7 +385,7 @@ section, main {
   }
 
   .mobile-particle-controls {
-    transition: none;
+    transition: none !important;
   }
 
   .mobile-particle-controls .mobile-hole-token {

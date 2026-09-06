@@ -1,8 +1,10 @@
 let activeMobileControls = null;
 const MOBILE_MIN_PARTICLE_COUNT = 16;
-const MOBILE_MAX_PARTICLE_COUNT = 5000;
+const MOBILE_MAX_PARTICLE_COUNT = 20000;
 const COUNT_HOLD_DURATION_MS = 550;
 const COUNT_HOLD_TOLERANCE_PX = 12;
+const TOOLBAR_ACTIVE_DURATION_MS = 3000;
+const TOOLBAR_BUSY_RECHECK_MS = 250;
 
 function createButton(label, attributes = {}) {
   const button = document.createElement('button');
@@ -72,9 +74,17 @@ export function mountMobileControls(pn, actions = {}) {
   const form = document.createElement('form');
   form.className = 'mobile-particle-count-form';
   form.noValidate = true;
+  const dialogHeader = document.createElement('div');
+  dialogHeader.className = 'mobile-particle-count-header';
   const title = document.createElement('h2');
   title.id = 'mobile-particle-count-title';
   title.textContent = 'Set particle count';
+  const closeDialog = createButton('Close particle count dialog', {
+    'class': 'mobile-particle-count-close',
+    'data-mobile-particle-count-close': ''
+  });
+  closeDialog.textContent = '\u00d7';
+  dialogHeader.append(title, closeDialog);
   const label = document.createElement('label');
   label.htmlFor = 'mobile-particle-count-input';
   label.textContent = `Exact count (${MOBILE_MIN_PARTICLE_COUNT}-${MOBILE_MAX_PARTICLE_COUNT.toLocaleString('en-US')})`;
@@ -94,42 +104,60 @@ export function mountMobileControls(pn, actions = {}) {
   error.setAttribute('role', 'alert');
   error.setAttribute('aria-live', 'assertive');
   error.setAttribute('data-mobile-particle-count-error', '');
-  const dialogActions = document.createElement('div');
-  dialogActions.className = 'mobile-particle-count-actions';
-  const cancelDialog = createButton('Cancel');
-  cancelDialog.textContent = 'Cancel';
-  cancelDialog.setAttribute('data-mobile-particle-count-cancel', '');
+  const dialogEntry = document.createElement('div');
+  dialogEntry.className = 'mobile-particle-count-entry';
   const submitDialog = document.createElement('button');
   submitDialog.type = 'submit';
   submitDialog.textContent = 'OK';
   submitDialog.setAttribute('data-mobile-particle-count-submit', '');
-  dialogActions.append(cancelDialog, submitDialog);
-  form.append(title, label, input, error, dialogActions);
+  dialogEntry.append(input, submitDialog);
+  form.append(dialogHeader, label, dialogEntry, error);
   dialog.appendChild(form);
 
   document.body.append(root, dialog);
 
   let destroyed = false;
-  let idleTimer = null;
+  let activityTimer = null;
+  let activityDeadline = 0;
   let drag = null;
   let repeatDelay = null;
   let repeatInterval = null;
   let countHold = null;
+  let countPointerKind = null;
   let suppressCountClick = false;
   let suppressCountClickTimer = null;
   let restoreFocusAfterDialog = true;
 
+  function toolbarIsBusy() {
+    return !!(drag || countHold || dialog.open || repeatDelay != null || repeatInterval != null ||
+      pn._gravityWellDrag || root.matches(':focus-within'));
+  }
+
+  function handleActivityDeadline() {
+    activityTimer = null;
+    if (destroyed) return;
+    const remaining = activityDeadline - performance.now();
+    if (remaining > 0) {
+      activityTimer = setTimeout(handleActivityDeadline, remaining);
+      return;
+    }
+    if (toolbarIsBusy()) {
+      activityTimer = setTimeout(handleActivityDeadline, TOOLBAR_BUSY_RECHECK_MS);
+      return;
+    }
+    root.classList.remove('is-active');
+  }
+
+  function scheduleActivityDeadline() {
+    if (activityTimer != null || destroyed) return;
+    activityTimer = setTimeout(handleActivityDeadline, Math.max(0, activityDeadline - performance.now()));
+  }
+
   function setActive() {
     if (destroyed) return;
     root.classList.add('is-active');
-    if (idleTimer != null) clearTimeout(idleTimer);
-    idleTimer = setTimeout(() => {
-      idleTimer = null;
-      if (!drag && !countHold && !dialog.open && repeatDelay == null && repeatInterval == null &&
-          !root.matches(':focus-within')) {
-        root.classList.remove('is-active');
-      }
-    }, 1400);
+    activityDeadline = performance.now() + TOOLBAR_ACTIVE_DURATION_MS;
+    scheduleActivityDeadline();
   }
 
   function mapClientPoint(clientX, clientY) {
@@ -184,6 +212,7 @@ export function mountMobileControls(pn, actions = {}) {
     const well = existingWellDragForPointer(event);
     const target = matchingDeleteTarget(event, well);
     clearExistingWellDeleteTarget();
+    if (well) setActive();
     if (!well || !target) return;
     pn.removeGravityWell(well.id);
     event.preventDefault();
@@ -193,10 +222,10 @@ export function mountMobileControls(pn, actions = {}) {
     if (destroyed || event.button > 0 || drag) return;
     const button = event.currentTarget;
     const point = mapClientPoint(event.clientX, event.clientY);
-    drag = { pointerId: event.pointerId, button };
+    drag = { pointerId: event.pointerId, button, inputKind: event.pointerType || 'mouse' };
     root.classList.add('is-dragging');
     setActive();
-    pn.beginGravityWellPaletteDrag(button.dataset.holeType, point.x, point.y);
+    pn.beginGravityWellPaletteDrag(button.dataset.holeType, point.x, point.y, drag.inputKind);
     try { button.setPointerCapture(event.pointerId); } catch (_) {}
     event.preventDefault();
     event.stopPropagation();
@@ -205,7 +234,7 @@ export function mountMobileControls(pn, actions = {}) {
   function moveHoleDrag(event) {
     if (!drag || event.pointerId !== drag.pointerId) return;
     const point = mapClientPoint(event.clientX, event.clientY);
-    pn.updateGravityWellPaletteDrag(point.x, point.y);
+    pn.updateGravityWellPaletteDrag(point.x, point.y, drag.inputKind);
     event.preventDefault();
   }
 
@@ -216,7 +245,7 @@ export function mountMobileControls(pn, actions = {}) {
     root.classList.remove('is-dragging');
     if (!cancelled && pointIsDropTarget(event.clientX, event.clientY)) {
       const point = mapClientPoint(event.clientX, event.clientY);
-      pn.commitGravityWellPaletteDrag(point.x, point.y);
+      pn.commitGravityWellPaletteDrag(point.x, point.y, current.inputKind);
     } else {
       pn.cancelGravityWellPlacement();
     }
@@ -320,7 +349,7 @@ export function mountMobileControls(pn, actions = {}) {
     closeCountDialog();
   }
 
-  function cancelDialogSubmission() {
+  function closeDialogSubmission() {
     closeCountDialog();
   }
 
@@ -345,11 +374,17 @@ export function mountMobileControls(pn, actions = {}) {
     if (releaseCapture) {
       try { countTrigger.releasePointerCapture(current.pointerId); } catch (_) {}
     }
+    root.classList.remove('is-holding');
     setActive();
   }
 
   function beginCountHold(event) {
     if (destroyed || dialog.open || event.button > 0 || !event.isPrimary) return;
+    countPointerKind = event.pointerType || 'mouse';
+    if (countPointerKind === 'mouse') {
+      setActive();
+      return;
+    }
     clearCountHold();
     suppressCountClick = false;
     countHold = {
@@ -360,6 +395,7 @@ export function mountMobileControls(pn, actions = {}) {
       armed: false,
       timer: null
     };
+    root.classList.add('is-holding');
     countHold.timer = setTimeout(() => {
       if (!countHold || countHold.pointerId !== event.pointerId) return;
       countHold.timer = null;
@@ -399,6 +435,7 @@ export function mountMobileControls(pn, actions = {}) {
 
   function cancelCountHold(event) {
     if (event && countHold && event.pointerId !== countHold.pointerId) return;
+    countPointerKind = null;
     clearCountHold();
   }
 
@@ -408,7 +445,9 @@ export function mountMobileControls(pn, actions = {}) {
   }
 
   function activateCountTrigger(event) {
-    if (event.detail === 0) {
+    const opensImmediately = event.detail === 0 || countPointerKind === 'mouse';
+    countPointerKind = null;
+    if (opensImmediately) {
       suppressCountClick = false;
       openCountDialog();
       return;
@@ -419,10 +458,13 @@ export function mountMobileControls(pn, actions = {}) {
   }
 
   function stopCountRepeat() {
+    const wasRepeating = repeatDelay != null || repeatInterval != null;
     if (repeatDelay != null) clearTimeout(repeatDelay);
     if (repeatInterval != null) clearInterval(repeatInterval);
     repeatDelay = null;
     repeatInterval = null;
+    root.classList.remove('is-repeating');
+    if (wasRepeating) setActive();
   }
 
   function beginCountRepeat(event) {
@@ -435,6 +477,7 @@ export function mountMobileControls(pn, actions = {}) {
       event.preventDefault();
       return;
     }
+    root.classList.add('is-repeating');
     repeatDelay = setTimeout(() => {
       repeatDelay = null;
       repeatInterval = setInterval(() => {
@@ -469,6 +512,14 @@ export function mountMobileControls(pn, actions = {}) {
     root.classList.remove('is-dragging');
   }
 
+  function handleToolbarActivity() {
+    setActive();
+  }
+
+  function handleToolbarFocusOut() {
+    setActive();
+  }
+
   blackHole.addEventListener('pointerdown', beginHoleDrag);
   whiteHole.addEventListener('pointerdown', beginHoleDrag);
   decrease.addEventListener('pointerdown', beginCountRepeat);
@@ -486,13 +537,17 @@ export function mountMobileControls(pn, actions = {}) {
   countTrigger.addEventListener('lostpointercapture', loseCountHoldCapture);
   countTrigger.addEventListener('click', activateCountTrigger);
   form.addEventListener('submit', submitCount);
-  cancelDialog.addEventListener('click', cancelDialogSubmission);
+  closeDialog.addEventListener('click', closeDialogSubmission);
   dialog.addEventListener('cancel', cancelNativeDialog);
   dialog.addEventListener('click', dismissDialogBackdrop);
   dialog.addEventListener('close', handleDialogClose);
   input.addEventListener('input', clearDialogError);
   root.addEventListener('pointerdown', setActive);
   root.addEventListener('focusin', setActive);
+  root.addEventListener('focusout', handleToolbarFocusOut);
+  window.addEventListener('pointermove', handleToolbarActivity, { passive: true });
+  window.addEventListener('pointerdown', handleToolbarActivity, { passive: true });
+  window.addEventListener('keydown', handleToolbarActivity);
   window.addEventListener('pointermove', moveHoleDrag, { passive: false });
   window.addEventListener('pointermove', trackExistingWellDeleteTarget, { capture: true, passive: false });
   window.addEventListener('pointerup', commitHoleDrag, { passive: false });
@@ -511,7 +566,8 @@ export function mountMobileControls(pn, actions = {}) {
     destroy() {
       if (destroyed) return;
       destroyed = true;
-      if (idleTimer != null) clearTimeout(idleTimer);
+      if (activityTimer != null) clearTimeout(activityTimer);
+      activityTimer = null;
       stopCountRepeat();
       clearCountHold();
       if (suppressCountClickTimer != null) clearTimeout(suppressCountClickTimer);
@@ -538,13 +594,17 @@ export function mountMobileControls(pn, actions = {}) {
       countTrigger.removeEventListener('lostpointercapture', loseCountHoldCapture);
       countTrigger.removeEventListener('click', activateCountTrigger);
       form.removeEventListener('submit', submitCount);
-      cancelDialog.removeEventListener('click', cancelDialogSubmission);
+      closeDialog.removeEventListener('click', closeDialogSubmission);
       dialog.removeEventListener('cancel', cancelNativeDialog);
       dialog.removeEventListener('click', dismissDialogBackdrop);
       dialog.removeEventListener('close', handleDialogClose);
       input.removeEventListener('input', clearDialogError);
       root.removeEventListener('pointerdown', setActive);
       root.removeEventListener('focusin', setActive);
+      root.removeEventListener('focusout', handleToolbarFocusOut);
+      window.removeEventListener('pointermove', handleToolbarActivity);
+      window.removeEventListener('pointerdown', handleToolbarActivity);
+      window.removeEventListener('keydown', handleToolbarActivity);
       window.removeEventListener('pointermove', moveHoleDrag, { passive: false });
       window.removeEventListener('pointermove', trackExistingWellDeleteTarget, true);
       window.removeEventListener('pointerup', commitHoleDrag, { passive: false });

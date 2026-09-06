@@ -75,6 +75,16 @@
   var gravityWellTouchSnapDistance = 12;
   var gravityWellSnapReleasePadding = 4;
   var gravityWellAlignmentEpsilon = 0.01;
+  var gravityWellVirtualPreviewDistance = 40;
+  var gravityWellEqualGapAlignmentTolerance = 8;
+  var gravityWellEqualGapRegularityTolerance = 8;
+  var gravityWellCanvasFractions = [
+    { value: 1 / 4, label: '1/4' },
+    { value: 1 / 3, label: '1/3' },
+    { value: 1 / 2, label: '1/2' },
+    { value: 2 / 3, label: '2/3' },
+    { value: 3 / 4, label: '3/4' }
+  ];
 
   function effectiveGravityWellType(well) {
     var type = well && well.type === 'white' ? 'white' : 'black';
@@ -2175,23 +2185,28 @@
 	      this._ensureAnimationLoop();
 	      return this.gravityWellDraft;
 	    }),
-	    (b.prototype.beginGravityWellPaletteDrag = function(type, x, y) {
-	      var draft = this.beginGravityWellPlacement(type, true, mobileGravityWellRadius);
+	    (b.prototype.beginGravityWellPaletteDrag = function(type, x, y, inputKind) {
+	      var mobileRadius = inputKind === 'touch' || inputKind === 'pen'
+	        ? mobileGravityWellRadius
+	        : undefined;
+	      var draft = this.beginGravityWellPlacement(type, true, mobileRadius);
 	      draft.phase = 'positioning';
-	      this.updateGravityWellPaletteDrag(x, y);
+	      this.updateGravityWellPaletteDrag(x, y, inputKind);
 	      return draft;
 	    }),
-	    (b.prototype.updateGravityWellPaletteDrag = function(x, y) {
+	    (b.prototype.updateGravityWellPaletteDrag = function(x, y, inputKind) {
 	      var draft = this.gravityWellDraft;
 	      if (!draft || draft.phase !== 'positioning') return false;
-	      var positioned = this._resolveGravityWellSnappedPosition(x, y, draft.editId, 'touch', false);
+	      var positioned = this._resolveGravityWellSnappedPosition(
+	        x, y, draft.editId, inputKind === 'mouse' ? 'mouse' : (inputKind || 'touch'), false
+	      );
 	      draft.x = positioned.x;
 	      draft.y = positioned.y;
 	      this._emitGravityWellsChange();
 	      return true;
 	    }),
-	    (b.prototype.commitGravityWellPaletteDrag = function(x, y) {
-	      if (!this.updateGravityWellPaletteDrag(x, y)) return null;
+	    (b.prototype.commitGravityWellPaletteDrag = function(x, y, inputKind) {
+	      if (!this.updateGravityWellPaletteDrag(x, y, inputKind)) return null;
 	      return this._commitGravityWellPlacement();
 	    }),
     (b.prototype.beginSelectedGravityWellPlacement = function() {
@@ -2301,53 +2316,251 @@
           sourceKey: sourceKey,
           inputKind: kind,
           snapXTargetId: null,
-          snapYTargetId: null
+          snapYTargetId: null,
+          snapXTarget: null,
+          snapYTarget: null,
+          previewXTarget: null,
+          previewYTarget: null
         };
       }
+      state.rawX = rawX;
+      state.rawY = rawY;
+      state.excludedId = excludedId;
+      state.inputKind = kind;
+      state.bypassSnap = !!bypassSnap;
 
       if (kind === 'mouse' && bypassSnap) {
         state.snapXTargetId = null;
         state.snapYTargetId = null;
+        state.snapXTarget = null;
+        state.snapYTarget = null;
+        state.previewXTarget = null;
+        state.previewYTarget = null;
         this._gravityWellSnapState = state;
         return { x: x, y: y };
       }
 
-      var resolveAxis = function(axis, coordinate, otherCoordinate, latchedId) {
-        var latched = latchedId ? this.getGravityWell(latchedId) : null;
-        if (latched && latched.id !== excludedId &&
-            Math.abs(latched[axis] - coordinate) <= releaseDistance) return latched;
+      var buildAxisCandidates = function(axis, coordinate, otherCoordinate) {
+        var candidates = [];
+        var axisSize = axis === 'x' ? width : height;
+        var otherAxis = axis === 'x' ? 'y' : 'x';
+        var order = 0;
+        for (var i = 0; i < this.gravityWells.length; i++) {
+          var well = this.gravityWells[i];
+          if (well.id === excludedId) continue;
+          candidates.push({
+            id: well.id,
+            kind: 'well',
+            axis: axis,
+            value: well[axis],
+            otherValue: well[otherAxis],
+            targetId: well.id,
+            sourceIds: [well.id],
+            order: order++
+          });
+        }
 
+        for (var fractionIndex = 0; fractionIndex < gravityWellCanvasFractions.length; fractionIndex++) {
+          var fraction = gravityWellCanvasFractions[fractionIndex];
+          candidates.push({
+            id: 'canvas:' + axis + ':' + fraction.label,
+            kind: 'canvas',
+            axis: axis,
+            value: axisSize * fraction.value,
+            fraction: fraction.value,
+            fractionLabel: fraction.label,
+            sourceIds: [],
+            order: order++
+          });
+        }
+
+        var otherWells = [];
+        for (var wellIndex = 0; wellIndex < this.gravityWells.length; wellIndex++) {
+          if (this.gravityWells[wellIndex].id !== excludedId) otherWells.push(this.gravityWells[wellIndex]);
+        }
+        var alignedSources = otherWells.filter(function(well) {
+          return Math.abs(well[otherAxis] - otherCoordinate) <= gravityWellEqualGapAlignmentTolerance;
+        });
+        var minimumOther = Infinity;
+        var maximumOther = -Infinity;
+        for (var alignedIndex = 0; alignedIndex < alignedSources.length; alignedIndex++) {
+          minimumOther = Math.min(minimumOther, alignedSources[alignedIndex][otherAxis]);
+          maximumOther = Math.max(maximumOther, alignedSources[alignedIndex][otherAxis]);
+        }
+        if (alignedSources.length >= 2 &&
+            maximumOther - minimumOther <= gravityWellEqualGapAlignmentTolerance) {
+          alignedSources.sort(function(first, second) {
+            var axisDelta = first[axis] - second[axis];
+            if (Math.abs(axisDelta) > gravityWellAlignmentEpsilon) return axisDelta;
+            var firstId = String(first.id);
+            var secondId = String(second.id);
+            return firstId < secondId ? -1 : (firstId > secondId ? 1 : 0);
+          });
+          var row = alignedSources.reduce(function(total, well) {
+            return total + well[otherAxis];
+          }, 0) / alignedSources.length;
+          var sourceValues = alignedSources.map(function(well) { return well[axis]; });
+          var sourceIds = alignedSources.map(function(well) { return well.id; });
+          var gapValues = [];
+
+          if (alignedSources.length === 2) {
+            var minimum = sourceValues[0];
+            var maximum = sourceValues[1];
+            var sourceGap = maximum - minimum;
+            if (sourceGap > gravityWellAlignmentEpsilon) {
+              gapValues = [
+                { role: 'before', value: minimum - sourceGap, points: [minimum - sourceGap, minimum, maximum] },
+                { role: 'midpoint', value: (minimum + maximum) / 2, points: [minimum, (minimum + maximum) / 2, maximum] },
+                { role: 'after', value: maximum + sourceGap, points: [minimum, maximum, maximum + sourceGap] }
+              ];
+            }
+          } else {
+            var adjacentGaps = [];
+            for (var sourceIndex = 1; sourceIndex < sourceValues.length; sourceIndex++) {
+              adjacentGaps.push(sourceValues[sourceIndex] - sourceValues[sourceIndex - 1]);
+            }
+            var averageGap = adjacentGaps.reduce(function(total, gap) { return total + gap; }, 0) /
+              adjacentGaps.length;
+            var regularityTolerance = Math.max(
+              gravityWellAlignmentEpsilon,
+              Math.min(gravityWellEqualGapRegularityTolerance, averageGap * 0.05)
+            );
+            var regularSequence = averageGap > gravityWellAlignmentEpsilon && adjacentGaps.every(function(gap) {
+              return gap > gravityWellAlignmentEpsilon && Math.abs(gap - averageGap) <= regularityTolerance;
+            });
+            if (regularSequence) {
+              var firstValue = sourceValues[0];
+              var secondValue = sourceValues[1];
+              var penultimateValue = sourceValues[sourceValues.length - 2];
+              var lastValue = sourceValues[sourceValues.length - 1];
+              gapValues = [
+                { role: 'before', value: firstValue - averageGap, points: [firstValue - averageGap, firstValue, secondValue] },
+                { role: 'after', value: lastValue + averageGap, points: [penultimateValue, lastValue, lastValue + averageGap] }
+              ];
+            }
+          }
+
+          var sourceKeyIds = sourceIds.slice().sort();
+          for (var gapIndex = 0; gapIndex < gapValues.length; gapIndex++) {
+            var gapValue = gapValues[gapIndex];
+            if (gapValue.value < 0 || gapValue.value > axisSize) continue;
+            candidates.push({
+              id: 'equal-gap:' + axis + ':' + gapValue.role + ':' + sourceKeyIds.join(':'),
+              kind: 'equal-gap',
+              axis: axis,
+              value: gapValue.value,
+              otherValue: row,
+              role: gapValue.role,
+              points: gapValue.points,
+              sourceIds: sourceIds.slice(),
+              label: 'Equal gap',
+              order: order++
+            });
+          }
+        }
+        return candidates;
+      }.bind(this);
+
+      var candidatePriority = function(candidate) {
+        if (candidate.kind === 'canvas' && candidate.fraction === 1 / 2) return 0;
+        if (candidate.kind === 'well') return 1;
+        if (candidate.kind === 'equal-gap') return 2;
+        return 3;
+      };
+      var chooseNearest = function(candidates, coordinate, otherCoordinate, maximumDistance, includeWells) {
         var best = null;
         var bestAxisDelta = Infinity;
         var bestCenterDistance = Infinity;
-        var otherAxis = axis === 'x' ? 'y' : 'x';
-        for (var i = 0; i < this.gravityWells.length; i++) {
-          var candidate = this.gravityWells[i];
-          if (candidate.id === excludedId) continue;
-          var axisDelta = Math.abs(candidate[axis] - coordinate);
-          if (axisDelta > entryDistance) continue;
-          var otherDelta = candidate[otherAxis] - otherCoordinate;
-          var centerDistance = axisDelta * axisDelta + otherDelta * otherDelta;
+        var bestPriority = Infinity;
+        for (var i = 0; i < candidates.length; i++) {
+          var candidate = candidates[i];
+          if (!includeWells && candidate.kind === 'well') continue;
+          var axisDelta = Math.abs(candidate.value - coordinate);
+          if (axisDelta > maximumDistance) continue;
+          var priority = candidatePriority(candidate);
+          var otherDelta = Number.isFinite(candidate.otherValue)
+            ? candidate.otherValue - otherCoordinate
+            : Infinity;
+          var centerDistance = Number.isFinite(otherDelta)
+            ? axisDelta * axisDelta + otherDelta * otherDelta
+            : Infinity;
           if (axisDelta < bestAxisDelta - gravityWellAlignmentEpsilon ||
               (Math.abs(axisDelta - bestAxisDelta) <= gravityWellAlignmentEpsilon &&
-                centerDistance < bestCenterDistance - gravityWellAlignmentEpsilon)) {
+                (priority < bestPriority ||
+                  (priority === bestPriority &&
+                    (centerDistance < bestCenterDistance - gravityWellAlignmentEpsilon ||
+                      (Math.abs(centerDistance - bestCenterDistance) <= gravityWellAlignmentEpsilon &&
+                        candidate.order < (best ? best.order : Infinity))))))) {
             best = candidate;
             bestAxisDelta = axisDelta;
             bestCenterDistance = centerDistance;
+            bestPriority = priority;
           }
         }
         return best;
-      }.bind(this);
+      };
+      var resolveAxis = function(axis, coordinate, otherCoordinate, latchedId) {
+        var candidates = buildAxisCandidates(axis, coordinate, otherCoordinate);
+        var latched = null;
+        if (latchedId) {
+          for (var i = 0; i < candidates.length; i++) {
+            if (candidates[i].id === latchedId) {
+              latched = candidates[i];
+              break;
+            }
+          }
+        }
+        var snapped = latched && Math.abs(latched.value - coordinate) <= releaseDistance
+          ? latched
+          : chooseNearest(candidates, coordinate, otherCoordinate, entryDistance, true);
+        var preview = snapped
+          ? null
+          : chooseNearest(candidates, coordinate, otherCoordinate, gravityWellVirtualPreviewDistance, false);
+        return { snapped: snapped, preview: preview };
+      };
 
-      var xTarget = resolveAxis('x', x, y, state.snapXTargetId);
-      var yTarget = resolveAxis('y', y, x, state.snapYTargetId);
+      var xResolution = resolveAxis('x', x, y, state.snapXTargetId);
+      var yResolution = resolveAxis('y', y, x, state.snapYTargetId);
+      var xTarget = xResolution.snapped;
+      var yTarget = yResolution.snapped;
       state.snapXTargetId = xTarget ? xTarget.id : null;
       state.snapYTargetId = yTarget ? yTarget.id : null;
+      state.snapXTarget = xTarget;
+      state.snapYTarget = yTarget;
+      state.previewXTarget = xResolution.preview;
+      state.previewYTarget = yResolution.preview;
       this._gravityWellSnapState = state;
       return {
-        x: xTarget ? xTarget.x : x,
-        y: yTarget ? yTarget.y : y
+        x: xTarget ? xTarget.value : x,
+        y: yTarget ? yTarget.value : y
       };
+    }),
+    (b.prototype._refreshGravityWellSnapAfterResize = function() {
+      var state = this._gravityWellSnapState;
+      if (!state || !Number.isFinite(state.rawX) || !Number.isFinite(state.rawY)) return false;
+      var source = this.gravityWellDraft;
+      if (!source && this._gravityWellDrag) source = this.getGravityWell(this._gravityWellDrag.id);
+      if (!source) return false;
+
+      var rawX = state.rawX;
+      var rawY = state.rawY;
+      if (state.snapXTarget && state.snapXTarget.kind === 'canvas') {
+        rawX += this.i.size.width * state.snapXTarget.fraction - state.snapXTarget.value;
+      }
+      if (state.snapYTarget && state.snapYTarget.kind === 'canvas') {
+        rawY += this.i.size.height * state.snapYTarget.fraction - state.snapYTarget.value;
+      }
+      var positioned = this._resolveGravityWellSnappedPosition(
+        rawX,
+        rawY,
+        state.excludedId,
+        state.inputKind,
+        state.bypassSnap
+      );
+      source.x = positioned.x;
+      source.y = positioned.y;
+      this._emitGravityWellsChange();
+      return true;
     }),
     (b.prototype._getGravityWellGuideState = function() {
       if (this.options.gravityWellsEnabled === false) return null;
@@ -2368,6 +2581,17 @@
         if (Math.abs(well.y - source.y) <= gravityWellAlignmentEpsilon) alignedYTargetIds.push(well.id);
       }
       var snapState = this._gravityWellSnapState;
+      var snapXTarget = snapState ? snapState.snapXTarget : null;
+      var snapYTarget = snapState ? snapState.snapYTarget : null;
+      var previewXTarget = snapState ? snapState.previewXTarget : null;
+      var previewYTarget = snapState ? snapState.previewYTarget : null;
+      var equalGapSourceIds = [];
+      [snapXTarget, snapYTarget, previewXTarget, previewYTarget].forEach(function(target) {
+        if (!target || target.kind !== 'equal-gap') return;
+        target.sourceIds.forEach(function(id) {
+          if (equalGapSourceIds.indexOf(id) === -1) equalGapSourceIds.push(id);
+        });
+      });
       return {
         activeId: activeId,
         x: source.x,
@@ -2377,6 +2601,14 @@
         yLabel: 'Y ' + Math.round(source.y) + ' px',
         snapXTargetId: snapState ? snapState.snapXTargetId : null,
         snapYTargetId: snapState ? snapState.snapYTargetId : null,
+        snapXTarget: snapXTarget,
+        snapYTarget: snapYTarget,
+        previewXTarget: previewXTarget,
+        previewYTarget: previewYTarget,
+        centered: !!(snapXTarget && snapYTarget && snapXTarget.kind === 'canvas' &&
+          snapYTarget.kind === 'canvas' && snapXTarget.fraction === 1 / 2 &&
+          snapYTarget.fraction === 1 / 2),
+        equalGapSourceIds: equalGapSourceIds,
         alignedXTargetIds: alignedXTargetIds,
         alignedYTargetIds: alignedYTargetIds
       };
@@ -2695,11 +2927,44 @@
       if (!context || !guide) return;
       var xAligned = guide.alignedXTargetIds.length > 0;
       var yAligned = guide.alignedYTargetIds.length > 0;
+      var xVirtual = guide.snapXTarget && guide.snapXTarget.kind === 'canvas'
+        ? guide.snapXTarget
+        : (guide.previewXTarget && guide.previewXTarget.kind === 'canvas' ? guide.previewXTarget : null);
+      var yVirtual = guide.snapYTarget && guide.snapYTarget.kind === 'canvas'
+        ? guide.snapYTarget
+        : (guide.previewYTarget && guide.previewYTarget.kind === 'canvas' ? guide.previewYTarget : null);
       context.save();
       context.globalCompositeOperation = 'source-over';
       context.lineCap = 'butt';
       context.setLineDash([5, 5]);
       context.lineDashOffset = 0;
+
+      if (xVirtual) {
+        var xVirtualSnapped = guide.snapXTarget === xVirtual;
+        context.lineWidth = xVirtualSnapped ? 1.5 : 1;
+        context.strokeStyle = xVirtualSnapped ? 'rgba(174,239,255,0.74)' : 'rgba(174,239,255,0.2)';
+        context.beginPath();
+        context.moveTo(xVirtual.value, 0);
+        context.lineTo(xVirtual.value, this.i.size.height);
+        context.stroke();
+        layout.snapGuides.push({
+          axis: 'x', kind: 'canvas', state: xVirtualSnapped ? 'snapped' : 'preview',
+          value: xVirtual.value, fraction: xVirtual.fraction
+        });
+      }
+      if (yVirtual) {
+        var yVirtualSnapped = guide.snapYTarget === yVirtual;
+        context.lineWidth = yVirtualSnapped ? 1.5 : 1;
+        context.strokeStyle = yVirtualSnapped ? 'rgba(255,213,145,0.74)' : 'rgba(255,213,145,0.2)';
+        context.beginPath();
+        context.moveTo(0, yVirtual.value);
+        context.lineTo(this.i.size.width, yVirtual.value);
+        context.stroke();
+        layout.snapGuides.push({
+          axis: 'y', kind: 'canvas', state: yVirtualSnapped ? 'snapped' : 'preview',
+          value: yVirtual.value, fraction: yVirtual.fraction
+        });
+      }
 
       context.lineWidth = xAligned ? 1.5 : 1;
       context.strokeStyle = xAligned ? 'rgba(102,225,255,0.92)' : 'rgba(102,225,255,0.48)';
@@ -2744,6 +3009,115 @@
       );
       occupied.push(yRect);
       layout.guideLabels.push({ axis: 'x', rect: xRect }, { axis: 'y', rect: yRect });
+
+      if (guide.centered) {
+        context.save();
+        context.globalCompositeOperation = 'source-over';
+        context.lineWidth = 1.75;
+        context.strokeStyle = 'rgba(255,255,255,0.9)';
+        context.beginPath();
+        context.moveTo(guide.x - 13, guide.y);
+        context.lineTo(guide.x + 13, guide.y);
+        context.moveTo(guide.x, guide.y - 13);
+        context.lineTo(guide.x, guide.y + 13);
+        context.stroke();
+        context.beginPath();
+        context.arc(guide.x, guide.y, 5, 0, Math.PI * 2);
+        context.stroke();
+        context.restore();
+        context.font = '600 12px "Fira Code", monospace';
+        var centeredOffset = Math.max(42, guide.radius * 0.34 + 30);
+        var centeredChosen = this._chooseGravityWellOverlayLabelRect(
+          context,
+          ['Centered'],
+          [
+            { x: guide.x, y: guide.y + centeredOffset },
+            { x: guide.x, y: guide.y - centeredOffset }
+          ],
+          occupied
+        );
+        var centeredRect = this._drawGravityWellOverlayLabel(
+          context,
+          ['Centered'],
+          centeredChosen.x + centeredChosen.width / 2,
+          centeredChosen.y + centeredChosen.height / 2,
+          { rect: centeredChosen, border: 'rgba(255,255,255,0.46)', color: 'rgba(255,255,255,0.98)' }
+        );
+        occupied.push(centeredRect);
+        layout.centerLabels.push({ label: 'Centered', rect: centeredRect });
+      }
+    }),
+    (b.prototype._drawGravityWellEqualGapIndicators = function(context, guide, occupied, layout) {
+      if (!context || !guide) return;
+      var targets = [
+        { axis: 'x', snapped: guide.snapXTarget, preview: guide.previewXTarget },
+        { axis: 'y', snapped: guide.snapYTarget, preview: guide.previewYTarget }
+      ];
+      for (var targetIndex = 0; targetIndex < targets.length; targetIndex++) {
+        var entry = targets[targetIndex];
+        var target = entry.snapped && entry.snapped.kind === 'equal-gap'
+          ? entry.snapped
+          : (entry.preview && entry.preview.kind === 'equal-gap' ? entry.preview : null);
+        if (!target || !target.points || target.points.length !== 3) continue;
+        var snapped = target === entry.snapped;
+        var points = target.points;
+        context.save();
+        context.globalCompositeOperation = 'source-over';
+        context.lineCap = 'round';
+        context.lineWidth = snapped ? 1.5 : 1;
+        context.strokeStyle = snapped ? 'rgba(210,190,255,0.82)' : 'rgba(210,190,255,0.26)';
+        context.beginPath();
+        if (entry.axis === 'x') {
+          context.moveTo(points[0], target.otherValue);
+          context.lineTo(points[2], target.otherValue);
+          for (var xIndex = 0; xIndex < points.length; xIndex++) {
+            context.moveTo(points[xIndex], target.otherValue - 5);
+            context.lineTo(points[xIndex], target.otherValue + 5);
+          }
+        } else {
+          context.moveTo(target.otherValue, points[0]);
+          context.lineTo(target.otherValue, points[2]);
+          for (var yIndex = 0; yIndex < points.length; yIndex++) {
+            context.moveTo(target.otherValue - 5, points[yIndex]);
+            context.lineTo(target.otherValue + 5, points[yIndex]);
+          }
+        }
+        context.stroke();
+        context.restore();
+
+        var midpoint = (points[0] + points[2]) / 2;
+        var labelCandidates = entry.axis === 'x'
+          ? [{ x: midpoint, y: target.otherValue + 42 }, { x: midpoint, y: target.otherValue - 42 }]
+          : [{ x: target.otherValue + 54, y: midpoint }, { x: target.otherValue - 54, y: midpoint }];
+        context.font = '600 12px "Fira Code", monospace';
+        var chosen = this._chooseGravityWellOverlayLabelRect(
+          context,
+          [target.label || 'Equal gap'],
+          labelCandidates,
+          occupied
+        );
+        var rect = this._drawGravityWellOverlayLabel(
+          context,
+          [target.label || 'Equal gap'],
+          chosen.x + chosen.width / 2,
+          chosen.y + chosen.height / 2,
+          {
+            rect: chosen,
+            background: snapped ? 'rgba(18,12,30,0.84)' : 'rgba(18,12,30,0.64)',
+            border: snapped ? 'rgba(210,190,255,0.58)' : 'rgba(210,190,255,0.24)',
+            color: snapped ? 'rgba(242,235,255,0.98)' : 'rgba(242,235,255,0.68)'
+          }
+        );
+        occupied.push(rect);
+        layout.equalGapIndicators.push({
+          axis: entry.axis,
+          state: snapped ? 'snapped' : 'preview',
+          label: target.label || 'Equal gap',
+          sourceIds: target.sourceIds.slice(),
+          points: points.slice(),
+          rect: rect
+        });
+      }
     }),
     (b.prototype._drawGravityWellMeasurements = function(context, measurements, occupied, layout) {
       if (!context || !measurements || !measurements.length) return;
@@ -2819,9 +3193,13 @@
       if (!context || !guide) return;
       var xTargets = new Set(guide.alignedXTargetIds);
       var yTargets = new Set(guide.alignedYTargetIds);
+      var gapTargets = new Set(guide.equalGapSourceIds || []);
       var targetIds = [];
       xTargets.forEach(function(id) { targetIds.push(id); });
       yTargets.forEach(function(id) { if (!xTargets.has(id)) targetIds.push(id); });
+      gapTargets.forEach(function(id) {
+        if (!xTargets.has(id) && !yTargets.has(id)) targetIds.push(id);
+      });
       context.save();
       context.globalCompositeOperation = 'lighter';
       context.lineWidth = 2.5;
@@ -2833,7 +3211,8 @@
         var onY = yTargets.has(id);
         var color = onX && onY
           ? 'rgba(255,255,255,0.96)'
-          : (onX ? 'rgba(102,225,255,0.96)' : 'rgba(255,190,86,0.96)');
+          : (onX ? 'rgba(102,225,255,0.96)'
+            : (onY ? 'rgba(255,190,86,0.96)' : 'rgba(210,190,255,0.92)'));
         var coreRadius = Math.max(12, well.radius * 0.23);
         context.strokeStyle = color;
         context.shadowColor = color;
@@ -2918,6 +3297,9 @@
       this._gravityWellGuideState = guide;
       this._gravityWellOverlayLayout = guide ? {
         guideLabels: [],
+        snapGuides: [],
+        equalGapIndicators: [],
+        centerLabels: [],
         distanceLabels: [],
         metadataLabels: [],
         haloTargetIds: []
@@ -2950,6 +3332,7 @@
         height: activeCoreExtent * 2
       }];
       this._drawGravityWellCoordinateGuides(context, guide, occupied, layout);
+      this._drawGravityWellEqualGapIndicators(context, guide, occupied, layout);
       if (measurements.length) {
         this._drawGravityWellMeasurements(context, measurements, occupied, layout);
         this._drawGravityWellMetadata(context, measurements, occupied, layout);
@@ -3115,6 +3498,7 @@
         this.canvas.width = Math.max(1, Math.floor(w * this.dpr));
         this.canvas.height = Math.max(1, Math.floor(h * this.dpr));
         this.g.setTransform(this.dpr, 0, 0, this.dpr, 0, 0);
+        this._refreshGravityWellSnapAfterResize();
 
         // Rebuild particles (use CSS logical dimensions)
         if (this.selectedParticleIndices) this.selectedParticleIndices.clear();
