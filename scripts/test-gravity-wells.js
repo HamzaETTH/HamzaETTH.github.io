@@ -154,9 +154,9 @@ async function runDesktop(browser, options, browserErrors) {
   await page.mouse.click(1050, 120);
   const defaultClickPlacement = await page.evaluate(() => {
     const pn = window.particleInstance;
-    const well = pn.getSelectedGravityWell();
+    const well = pn.gravityWells[pn.gravityWells.length - 1];
     const result = well ? { type: well.type, x: well.x, y: well.y, radius: well.radius } : null;
-    pn.removeSelectedGravityWell();
+    if (well) pn.removeGravityWell(well.id);
     return result;
   });
 
@@ -2240,11 +2240,18 @@ async function runDragInfo(browser, options, browserErrors) {
     pn._gravityPointer.y = 314;
     pn.beginGravityWellPlacement('black', true);
     const committed = pn._commitGravityWellPlacement();
+    const layout = pn._gravityWellOverlayLayout;
     return {
       committed: committed ? { x: committed.x, y: committed.y } : null,
       draft: pn.gravityWellDraft,
       snap: pn._gravityWellSnapState,
-      guide: pn._gravityWellGuideState
+      guide: pn._gravityWellGuideState,
+      selectedId: pn.selectedGravityWellId,
+      selectedWellIds: Array.from(pn.selectedGravityWellIds),
+      informationScope: layout?.informationScope ?? null,
+      metadataCount: layout?.metadataRecords?.length || 0,
+      selectionMarkerCount: layout?.selectionMarkers?.length || 0,
+      overlayHidden: !pn._gravityWellOverlay || pn._gravityWellOverlay.style.display === 'none'
     };
   });
 
@@ -2559,7 +2566,10 @@ async function runDragInfo(browser, options, browserErrors) {
       escapeCleanup.guide === null && escapeCleanup.overlayHidden,
     commitPersistsSnapAndClearsTransientState: commitCleanup.committed?.x === 400 &&
       commitCleanup.committed?.y === 320 && commitCleanup.draft === null && commitCleanup.snap === null &&
-      commitCleanup.guide === null,
+      commitCleanup.guide === null && commitCleanup.selectedId === null &&
+      commitCleanup.selectedWellIds.length === 0 && commitCleanup.informationScope === null &&
+      commitCleanup.metadataCount === 0 && commitCleanup.selectionMarkerCount === 0 &&
+      commitCleanup.overlayHidden,
     clearAndDeletionCleanTransientState: clearCleanup.wellCount === 0 && clearCleanup.drag === null &&
       clearCleanup.snap === null && clearCleanup.guide === null && clearCleanup.overlayHidden &&
       deletionCleanup.drag === null && deletionCleanup.snap === null && deletionCleanup.guide === null &&

@@ -835,14 +835,25 @@ async function runPalette(page, screenshotDir) {
   await dragPaletteToken(page, 'white', { x: 137, y: 205 }, 30);
   const fractionalPaletteWells = await page.evaluate(() => {
     const pn = window.particleInstance;
+    const layout = pn._gravityWellOverlayLayout;
     return {
       width: pn.i.size.width,
       height: pn.i.size.height,
       wells: pn.gravityWells.map(well => ({ type: well.type, x: well.x, y: well.y })),
       snap: pn._gravityWellSnapState,
-      guide: pn._gravityWellGuideState
+      guide: pn._gravityWellGuideState,
+      selectedId: pn.selectedGravityWellId,
+      selectedWellIds: Array.from(pn.selectedGravityWellIds),
+      informationScope: layout?.informationScope ?? null,
+      metadataCount: layout?.metadataRecords?.length || 0,
+      selectionMarkerCount: layout?.selectionMarkers?.length || 0,
+      overlayHidden: !pn._gravityWellOverlay || pn._gravityWellOverlay.style.display === 'none'
     };
   });
+  if (screenshotDir) {
+    fs.mkdirSync(screenshotDir, { recursive: true });
+    await page.screenshot({ path: path.join(screenshotDir, 'mobile-well-placement-released.png') });
+  }
   assert.strictEqual(fractionalPaletteWells.wells[0].x, fractionalPaletteWells.width / 2,
     'touch palette placement should snap to the canvas center X slot');
   assert.strictEqual(fractionalPaletteWells.wells[0].y, fractionalPaletteWells.height / 2,
@@ -853,6 +864,18 @@ async function runPalette(page, screenshotDir) {
     'touch palette placement should snap to the canvas quarter Y slot');
   assert.strictEqual(fractionalPaletteWells.snap, null, 'fraction palette commit left snap state behind');
   assert.strictEqual(fractionalPaletteWells.guide, null, 'fraction palette commit left guide state behind');
+  assert.strictEqual(fractionalPaletteWells.selectedId, null,
+    'touch palette placement should not leave the new well selected');
+  assert.deepStrictEqual(fractionalPaletteWells.selectedWellIds, [],
+    'touch palette placement should not leave a persistent well selection');
+  assert.strictEqual(fractionalPaletteWells.informationScope, null,
+    'touch palette placement should not leave well information visible');
+  assert.strictEqual(fractionalPaletteWells.metadataCount, 0,
+    'touch palette placement should clear well metadata after drop');
+  assert.strictEqual(fractionalPaletteWells.selectionMarkerCount, 0,
+    'touch palette placement should clear the cyan selection ellipse after drop');
+  assert.strictEqual(fractionalPaletteWells.overlayHidden, true,
+    'touch palette placement should hide the guide overlay after drop');
 
   await page.evaluate(() => window.particleInstance.clearGravityWells());
   await dragPaletteToken(page, 'black', { x: 110, y: 360 }, 31);

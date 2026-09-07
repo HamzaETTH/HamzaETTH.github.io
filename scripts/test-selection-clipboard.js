@@ -203,6 +203,17 @@ async function main() {
       pn.gravityWells[0].y = 250;
       pn.gravityWells[1].x = 800;
       pn.gravityWells[1].y = 500;
+      pn.options.gravityWellForceMultiplier = 0;
+      [[150, 150], [300, 300]].forEach(([x, y], index) => {
+        pn.posX[index] = x;
+        pn.posY[index] = y;
+        pn.velX[index] = 0;
+        pn.velY[index] = 0;
+        pn.o[index].x = x;
+        pn.o[index].y = y;
+        pn.o[index].velocity.x = 0;
+        pn.o[index].velocity.y = 0;
+      });
       pn.clearObjectSelection();
     });
 
@@ -338,7 +349,6 @@ async function main() {
         } : null
       };
     });
-
     const firstLiveSources = await page.evaluate(selectedWellId => {
       const pn = window.particleInstance;
       const particles = [

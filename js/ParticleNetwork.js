@@ -2380,6 +2380,7 @@
       well.strength = draft.strength;
       well.innerColor = draft.innerColor;
       well.outerColor = draft.outerColor;
+      this._clearObjectSelectionState();
       this._emitGravityWellsChange();
       return well;
     }),
