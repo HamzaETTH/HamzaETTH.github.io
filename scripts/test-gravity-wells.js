@@ -564,7 +564,11 @@ async function runDesktop(browser, options, browserErrors) {
     return state;
   }, auraWheelTarget);
 
-  const particleCountBeforeWellWheel = await page.evaluate(() => window.particleInstance.o.length);
+  const particleCountBeforeWellWheel = await page.evaluate(() => {
+    const pn = window.particleInstance;
+    pn.clearObjectSelection();
+    return pn.o.length;
+  });
   await page.mouse.move(420, 250);
   await page.mouse.wheel(0, -100);
   await waitForFrames(page, 2);
@@ -572,17 +576,26 @@ async function runDesktop(browser, options, browserErrors) {
     const pn = window.particleInstance;
     const well = pn.gravityWells[0];
     const label = document.querySelector('.gravity-well-strength-label');
+    const layout = pn._gravityWellOverlayLayout;
     return {
       strength: well.strength,
       selectedId: pn.selectedGravityWellId,
+      selectedWellIds: Array.from(pn.selectedGravityWellIds),
       wellId: well.id,
       particleCount: pn.o.length,
       visualSpeed: pn.glRenderer.gravityWellRenderer.diagnostics.maxVisualSpeed,
       forceLabel: label?.textContent,
       forceLabelType: label?.dataset.force,
-      forceLabelVisible: label?.classList.contains('is-visible')
+      forceLabelVisible: label?.classList.contains('is-visible'),
+      informationScope: layout?.informationScope ?? null,
+      metadataCount: layout?.metadataRecords?.length || 0,
+      selectionMarkerCount: layout?.selectionMarkers?.length || 0,
+      selectionOverlayHidden: getComputedStyle(document.querySelector('.particle-selection-overlay')).display === 'none'
     };
   });
+  if (options.screenshotDir) {
+    await page.screenshot({ path: path.join(options.screenshotDir, 'wheel-strength-without-selection.png') });
+  }
   await page.mouse.wheel(0, 100);
   await waitForFrames(page, 2);
   const wheelDecreased = await page.evaluate(() => window.particleInstance.gravityWells[0].strength);
@@ -632,6 +645,7 @@ async function runDesktop(browser, options, browserErrors) {
 
   const dragBefore = await page.evaluate(() => {
     const pn = window.particleInstance;
+    pn.clearObjectSelection();
     const well = pn.gravityWells[0];
     return { id: well.id, x: well.x, y: well.y, radius: well.radius, strength: well.strength, particleCount: pn.o.length };
   });
@@ -645,9 +659,11 @@ async function runDesktop(browser, options, browserErrors) {
     const well = pn.getGravityWell(id);
     const radiusLabel = document.querySelector('.gravity-well-radius-label');
     const strengthLabel = document.querySelector('.gravity-well-strength-label');
+    const layout = pn._gravityWellOverlayLayout;
     return {
       dragId: pn._gravityWellDrag?.id,
       selectedId: pn.selectedGravityWellId,
+      selectedWellIds: Array.from(pn.selectedGravityWellIds),
       x: well.x,
       y: well.y,
       radius: well.radius,
@@ -658,6 +674,8 @@ async function runDesktop(browser, options, browserErrors) {
       radiusLabelVisible: !!radiusLabel && getComputedStyle(radiusLabel).display !== 'none',
       strengthLabelVisible: !!strengthLabel && strengthLabel.classList.contains('is-visible'),
       measurementCount: pn._gravityWellMeasurements.length,
+      selectionMarkerCount: layout?.selectionMarkers?.length || 0,
+      selectionOverlayHidden: getComputedStyle(document.querySelector('.particle-selection-overlay')).display === 'none',
       attractionForce: pn.attractionForce,
       repulsionForce: pn.repulsionForce
     };
@@ -688,17 +706,27 @@ async function runDesktop(browser, options, browserErrors) {
     const pn = window.particleInstance;
     const well = pn.getGravityWell(id);
     const radiusLabel = document.querySelector('.gravity-well-radius-label');
+    const layout = pn._gravityWellOverlayLayout;
     return {
       drag: pn._gravityWellDrag,
+      selectedId: pn.selectedGravityWellId,
+      selectedWellIds: Array.from(pn.selectedGravityWellIds),
       x: well.x,
       y: well.y,
       radius: well.radius,
       strength: well.strength,
       draggingCursor: pn.canvas.classList.contains('gravity-well-dragging'),
       radiusLabelHidden: !!radiusLabel && getComputedStyle(radiusLabel).display === 'none',
-      measurementCount: pn._gravityWellMeasurements.length
+      measurementCount: pn._gravityWellMeasurements.length,
+      informationScope: layout?.informationScope ?? null,
+      metadataCount: layout?.metadataRecords?.length || 0,
+      selectionMarkerCount: layout?.selectionMarkers?.length || 0,
+      selectionOverlayHidden: getComputedStyle(document.querySelector('.particle-selection-overlay')).display === 'none'
     };
   }, dragBefore.id);
+  if (options.screenshotDir) {
+    await page.screenshot({ path: path.join(options.screenshotDir, 'drag-release-clean.png') });
+  }
   await page.mouse.wheel(0, -100);
   const dragAfterReleasedWheel = await page.evaluate(id => {
     const well = window.particleInstance.getGravityWell(id);
@@ -716,6 +744,7 @@ async function runDesktop(browser, options, browserErrors) {
   await page.mouse.click(420, 250);
   const coreSelection = await page.evaluate(() => ({
     selectedType: window.particleInstance.getSelectedGravityWell()?.type,
+    selectedWells: Array.from(window.particleInstance.selectedGravityWellIds),
     attractionForce: window.particleInstance.attractionForce,
     repulsionForce: window.particleInstance.repulsionForce
   }));
@@ -1448,7 +1477,7 @@ async function runDesktop(browser, options, browserErrors) {
       movedRulers.every(measurement => measurement.fromX === 650 && measurement.fromY === 360),
     placementRulersClearOnCancel: cancelledRulers.count === 0 && cancelledRulers.overlayHidden,
     doubleClickReversesBlackHole: blackReversed.strength === -100 && blackReversed.visualType === 'white' &&
-      blackReversed.innerColor === '#dffcff' && blackReversed.outerColor === '#6b5cff' && blackReversed.selected &&
+      blackReversed.innerColor === '#dffcff' && blackReversed.outerColor === '#6b5cff' && !blackReversed.selected &&
       blackReversed.particleCount === particleCountBeforeDoubleClick && blackReversed.forcesClear &&
       blackReversed.cursorCaptureInactive,
     secondDoubleClickRestoresBlackHole: blackRestored.strength === 100 && blackRestored.visualType === 'black',
@@ -1475,8 +1504,11 @@ async function runDesktop(browser, options, browserErrors) {
     framebuffersSized: placed.fbo.sceneWidth === placed.backing.width && placed.fbo.sceneHeight === placed.backing.height &&
       placed.fbo.fieldWidth === Math.ceil(placed.backing.width / 2) && placed.fbo.fieldHeight === Math.ceil(placed.backing.height / 2),
     compositionRan: placed.renderPasses > 0,
-    wheelAdjustsHoveredStrength: wheelIncreased.strength === 13 && wheelDecreased === 12 &&
-      wheelIncreased.selectedId === wheelIncreased.wellId && wheelIncreased.particleCount === particleCountBeforeWellWheel,
+    wheelAdjustsHoveredStrengthWithoutSelecting: wheelIncreased.strength === 13 && wheelDecreased === 12 &&
+      wheelIncreased.selectedId === null && !wheelIncreased.selectedWellIds.length &&
+      wheelIncreased.informationScope === null && wheelIncreased.metadataCount === 0 &&
+      wheelIncreased.selectionMarkerCount === 0 && wheelIncreased.selectionOverlayHidden &&
+      wheelIncreased.particleCount === particleCountBeforeWellWheel,
     wheelStrengthRequiresCoreOrb: auraWheelState.strength === auraWheelTarget.strength &&
       auraWheelState.particleCount === auraWheelTarget.particleCount && auraWheelState.particleAdjustments === 1 &&
       !auraWheelState.forceLabelVisible,
@@ -1487,7 +1519,8 @@ async function runDesktop(browser, options, browserErrors) {
     wheelStrengthStopsAtZeroWithoutFlipping: wheelAtZero.strength === 0 && wheelAtZero.visualType === 'black' &&
       wheelAtZero.visualInnerColor === '#ff8080' && wheelAtZero.visualOuterColor === '#3633ff',
     strengthDrivesVisualSpeed: wheelIncreased.visualSpeed > 1 && wheelAboveFormerLimit.visualSpeed > wheelIncreased.visualSpeed,
-    clickDragMovesExistingWell: dragHeld.dragId === dragBefore.id && dragHeld.selectedId === dragBefore.id &&
+    clickDragMovesExistingWellWithoutSelectionMarker: dragHeld.dragId === dragBefore.id && dragHeld.selectedId === dragBefore.id &&
+      !dragHeld.selectedWellIds.length && dragHeld.selectionMarkerCount === 0 && dragHeld.selectionOverlayHidden &&
       dragHeld.x === dragBefore.x + 80 && dragHeld.y === dragBefore.y + 50 && dragHeld.draggingCursor &&
       !dragHeld.attractionForce && !dragHeld.repulsionForce,
     grabbedWheelResizesOnly: dragHeld.radius === dragBefore.radius + 5 && dragHeld.strength === dragBefore.strength &&
@@ -1497,11 +1530,14 @@ async function runDesktop(browser, options, browserErrors) {
     grabbedWheelRespectsRadiusBounds: heldRadiusMaximum.radius === 500 && heldRadiusMaximum.label === '500 px' &&
       heldRadiusMinimum.radius === 24 && heldRadiusMinimum.label === '24 px',
     dragReleaseCleansState: !dragReleased.drag && !dragReleased.draggingCursor &&
+      dragReleased.selectedId === null && !dragReleased.selectedWellIds.length &&
       dragReleased.x === dragHeld.x && dragReleased.y === dragHeld.y && dragReleased.radiusLabelHidden &&
-      dragReleased.measurementCount === 0,
+      dragReleased.measurementCount === 0 && dragReleased.informationScope === null &&
+      dragReleased.metadataCount === 0 && dragReleased.selectionMarkerCount === 0 && dragReleased.selectionOverlayHidden,
     releasedWheelReturnsToStrength: dragAfterReleasedWheel.radius === dragReleased.radius &&
       dragAfterReleasedWheel.strength === dragReleased.strength + 1,
-    coreSelectionConsumesClick: coreSelection.selectedType === 'black' && !coreSelection.attractionForce && !coreSelection.repulsionForce,
+    normalWellClickIsTransient: coreSelection.selectedType == null && !coreSelection.selectedWells.length &&
+      !coreSelection.attractionForce && !coreSelection.repulsionForce,
     escapeDeselects: deselected,
     escapeCancelsDraft: cancelState.count === countBeforeCancel && cancelState.draft === null,
     rightClickCancelsDraft: rightClickCancelState.count === countBeforeCancel && rightClickCancelState.draft === null &&

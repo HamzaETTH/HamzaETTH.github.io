@@ -628,7 +628,9 @@ async function main() {
     }), setup.outsideWellId);
 
     await page.mouse.move(800, 500);
-    await page.mouse.wheel(0, -1);
+    await page.keyboard.down('Control');
+    await page.mouse.click(800, 500);
+    await page.keyboard.up('Control');
     await page.keyboard.press('Control+c');
     const singleWellCopy = await page.evaluate(expectedId => {
       const pn = window.particleInstance;
@@ -890,7 +892,7 @@ async function main() {
         pasteUndos[2].particleCount === 4 && pasteUndos[2].wellCount === 2 && pasteUndos[2].undoDepth === 0,
       ctrlZRestoresHoveredWellDeletion: hoveredWellDelete.removed && hoveredWellDelete.undoDepth === 1 &&
         hoveredWellDeleteUndo.restored && hoveredWellDeleteUndo.undoDepth === 0,
-      singleWellActionCollapsesMarqueeSelection: singleWellCopy.primary === singleWellCopy.expectedId &&
+      explicitSingleWellSelectionCollapsesMarqueeSelection: singleWellCopy.primary === singleWellCopy.expectedId &&
         singleWellCopy.selectedWells.join(',') === singleWellCopy.expectedId && !singleWellCopy.selectedParticles.length &&
         singleWellCopy.copiedWells.join(',') === singleWellCopy.expectedId && singleWellCopy.copiedParticles === 0,
       ctrlASelectsEveryObjectWithoutGathering: selectAll.gatherInactive &&

@@ -1057,6 +1057,7 @@
 	      state.holdTimer = null;
 	    }),
 	    (b.prototype._resetMobileGesture = function(stopWellDrag, keepStrengthLabel) {
+	      var interactionWellId = this._mobileGesture ? this._mobileGesture.wellId : null;
 	      this._cancelMobileHold();
 	      if (stopWellDrag && this._gravityWellDrag) this._stopGravityWellDrag();
 	      if (!keepStrengthLabel) this._hideGravityWellStrengthLabel();
@@ -1079,6 +1080,9 @@
 	        strengthStartY: 0,
 	        strengthStart: 0
 	      };
+	      if (interactionWellId && this._clearTransientGravityWellSelection(interactionWellId)) {
+	        this._emitGravityWellsChange();
+	      }
 	    }),
 	    (b.prototype._updateMobileForces = function() {
 	      var state = this._mobileGesture;
@@ -1172,8 +1176,7 @@
 	      if (state.mode === 'idle') {
 	        var hit = this._hitTestGravityWellVisual(pos.x, pos.y);
 	        if (hit) {
-	          this._clearObjectSelectionState();
-	          this._selectSingleGravityWellState(hit.id);
+	          this._selectTransientGravityWellState(hit.id);
 	          state.mode = 'well-pending';
 	          state.primaryId = evt.pointerId;
 	          state.wellId = hit.id;
@@ -1398,6 +1401,21 @@
 	      if (this.selectedParticleIndices) this.selectedParticleIndices.clear();
 	      this._clearSelectionOverlay();
 	      return selectedId;
+	    }),
+	    (b.prototype._selectTransientGravityWellState = function(id) {
+	      var selectedId = this.getGravityWell(id) ? id : null;
+	      this.selectedGravityWellId = selectedId;
+	      if (this.selectedGravityWellIds) this.selectedGravityWellIds.clear();
+	      if (this.selectedParticleIndices) this.selectedParticleIndices.clear();
+	      this._clearSelectionOverlay();
+	      return selectedId;
+	    }),
+	    (b.prototype._clearTransientGravityWellSelection = function(id) {
+	      if (!id || this.selectedGravityWellId !== id ||
+	          (this.selectedGravityWellIds && this.selectedGravityWellIds.has(id))) return false;
+	      this.selectedGravityWellId = null;
+	      this._clearSelectionOverlay();
+	      return true;
 	    }),
 	    (b.prototype._ensureSelectionMarquee = function() {
 	      if (this._selectionMarqueeElement) return this._selectionMarqueeElement;
@@ -2011,6 +2029,7 @@
 	      return this._selectionOverlayContext;
 	    }),
 	    (b.prototype._clearSelectionOverlay = function() {
+	      this._selectionMarkerDiagnostics = [];
 	      if (!this._selectionOverlay || !this._selectionOverlayContext || !this.i) return;
 	      var dpr = window.devicePixelRatio || 1;
 	      this._selectionOverlayContext.setTransform(dpr, 0, 0, dpr, 0, 0);
@@ -2170,7 +2189,6 @@
       if (!well) return null;
       var strength = Number.isFinite(well.strength) ? well.strength : this.options.gravityWellStrength || 12;
       if (strength === 0) strength = this.options.gravityWellStrength || 12;
-      this._selectSingleGravityWellState(well.id);
       return this.updateGravityWell(well.id, { strength: -strength });
     }),
     (b.prototype.removeGravityWell = function(id) {
@@ -2733,7 +2751,7 @@
       if (!well) return false;
 	      this._clearInteractivePointerForces(pointerId !== 'mouse');
       this._hideGravityWellStrengthLabel();
-      this._selectSingleGravityWellState(well.id);
+      this._selectTransientGravityWellState(well.id);
       this._clearGravityWellSnapState();
       this._gravityWellDrag = {
         id: well.id,
@@ -2756,6 +2774,7 @@
       this._clearGravityWellSnapState();
       if (this.canvas) this.canvas.classList.remove('gravity-well-dragging');
       this._updateGravityWellRadiusLabel();
+      if (this._clearTransientGravityWellSelection(drag.id)) this._emitGravityWellsChange();
       return true;
     }),
     (b.prototype._handleGravityWellPointerMove = function(x, y, inputKind, bypassSnap) {
@@ -4186,7 +4205,6 @@
           var position = this._mapToLogicalCanvas(event);
           var hoveredWell = this._hitTestGravityWell(position.x, position.y);
           if (hoveredWell) {
-            this._selectSingleGravityWellState(hoveredWell.id);
             var currentStrength = Number.isFinite(hoveredWell.strength) ? hoveredWell.strength : 0;
             var strengthDirection = currentStrength < 0 ? -1 : 1;
             var strengthMagnitude = Math.abs(currentStrength);

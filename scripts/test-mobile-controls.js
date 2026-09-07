@@ -457,6 +457,8 @@ async function runGestures(page, screenshotDir) {
     return {
       x: well.x,
       y: well.y,
+      selectedId: pn.selectedGravityWellId,
+      selectedWellIds: Array.from(pn.selectedGravityWellIds),
       state: pn._gravityWellSnapState ? { ...pn._gravityWellSnapState } : null,
       guide: pn._getGravityWellGuideState ? pn._getGravityWellGuideState() : null,
       measurements: pn._getGravityWellMeasurements().map(measurement => ({ ...measurement })),
@@ -503,7 +505,14 @@ async function runGestures(page, screenshotDir) {
   await page.evaluate(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))));
   const mobileSnapCancelled = await page.evaluate(() => {
     const pn = window.particleInstance;
-    return { snap: pn._gravityWellSnapState, guide: pn._gravityWellGuideState, drag: pn._gravityWellDrag };
+    return {
+      snap: pn._gravityWellSnapState,
+      guide: pn._gravityWellGuideState,
+      drag: pn._gravityWellDrag,
+      selectedId: pn.selectedGravityWellId,
+      selectedWellIds: Array.from(pn.selectedGravityWellIds),
+      selectionMarkers: pn._gravityWellOverlayLayout?.selectionMarkers || []
+    };
   });
   assert.deepStrictEqual({ x: mobileSnapEntered.x, y: mobileSnapEntered.y }, { x: 260, y: 700 },
     'touch snapping did not use the 12px entry threshold on both axes');
@@ -516,6 +525,9 @@ async function runGestures(page, screenshotDir) {
   assert(mobileSnapEntered.layout?.metadataRecords?.length === mobileSnapEntered.measurements.length &&
     mobileSnapEntered.layout.metadataRecords.every(record => record.positionLabel && record.radiusLabel && record.behaviorLabel),
     'touch drag measurements did not expose target metadata');
+  assert(mobileSnapEntered.selectedId === mobileSnapIds.active && !mobileSnapEntered.selectedWellIds.length &&
+    !mobileSnapEntered.layout?.selectionMarkers?.length,
+  'touch drag promoted transient manipulation into persistent well selection');
   assert(mobileRadiusOnly.x === 260 && mobileRadiusOnly.y === 700 && mobileRadiusOnly.radius > 60 &&
     mobileRadiusOnly.snap?.snapXTargetId === mobileSnapIds.targetX &&
     mobileRadiusOnly.snap?.snapYTargetId === mobileSnapIds.targetY &&
@@ -532,7 +544,14 @@ async function runGestures(page, screenshotDir) {
     cssWidth: '390px',
     cssHeight: '844px'
   }, 'gravity overlay did not keep logical CSS coordinates at DPR2');
-  assert.deepStrictEqual(mobileSnapCancelled, { snap: null, guide: null, drag: null },
+  assert.deepStrictEqual(mobileSnapCancelled, {
+    snap: null,
+    guide: null,
+    drag: null,
+    selectedId: null,
+    selectedWellIds: [],
+    selectionMarkers: []
+  },
     'touch pointer cancellation left transient snap or guide state behind');
 
   const movedWell = await page.evaluate(() => {
@@ -544,11 +563,23 @@ async function runGestures(page, screenshotDir) {
   await sendCanvasPointer(page, 'pointermove', 1, { x: 215, y: 445 });
   await sendCanvasPointer(page, 'pointerup', 1, { x: 215, y: 445 }, 0);
   const moved = await page.evaluate(id => {
-    const well = window.particleInstance.getGravityWell(id);
-    return { x: well.x, y: well.y, radius: well.radius, strength: well.strength };
+    const pn = window.particleInstance;
+    const well = pn.getGravityWell(id);
+    const selectionOverlay = document.querySelector('.particle-selection-overlay');
+    return {
+      x: well.x,
+      y: well.y,
+      radius: well.radius,
+      strength: well.strength,
+      selectedId: pn.selectedGravityWellId,
+      selectedWellIds: Array.from(pn.selectedGravityWellIds),
+      selectionOverlayHidden: !selectionOverlay || getComputedStyle(selectionOverlay).display === 'none'
+    };
   }, movedWell);
   assert(moved.x > 200 && moved.y > 435, 'one-finger well drag did not move the well');
   assert.strictEqual(moved.radius, 80);
+  assert(moved.selectedId === null && !moved.selectedWellIds.length && moved.selectionOverlayHidden,
+    'one-finger well drag left persistent well selection after release');
 
   const adjustOrigin = { x: 150, y: 700 };
   await sendCanvasPointer(page, 'pointerdown', 1, { x: moved.x, y: moved.y });
