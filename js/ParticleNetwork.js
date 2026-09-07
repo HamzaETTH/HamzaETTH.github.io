@@ -794,6 +794,7 @@
       this._gravityWellSnapState = null;
       this._gravityWellGuideState = null;
       this._gravityWellOverlayLayout = null;
+      this._gravityWellAlignmentSheenTime = 0;
       this._mobileGesture = null;
       this._mobileLayoutMedia = window.matchMedia
         ? window.matchMedia('(hover: none) and (pointer: coarse)')
@@ -2799,11 +2800,15 @@
       }
       return visible;
     }),
-    (b.prototype._prepareGravityWellFrame = function() {
-      this._frameGravityWells = this._getVisibleGravityWells();
+    (b.prototype._gravityWellUsesReducedMotion = function() {
       var motionMode = this.options.gravityWellMotion || 'system';
       var systemReducedMotion = !!(window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches);
-      var reducedMotion = motionMode === 'static' || (motionMode === 'system' && systemReducedMotion);
+      return motionMode === 'static' || (motionMode === 'system' && systemReducedMotion);
+    }),
+    (b.prototype._prepareGravityWellFrame = function() {
+      this._frameGravityWells = this._getVisibleGravityWells();
+      var reducedMotion = this._gravityWellUsesReducedMotion();
+      this._gravityWellAlignmentSheenTime = reducedMotion ? 0 : performance.now() * 0.001;
       if (this.glRenderer && this.glRenderer.setGravityWells) {
         this.glRenderer.setGravityWells(this._frameGravityWells, {
           reducedMotion: reducedMotion,
@@ -3189,41 +3194,72 @@
         layout.metadataLabels.push({ targetId: measurement.targetId, lines: lines, rect: rect });
       }
     }),
-    (b.prototype._drawGravityWellAlignmentHalos = function(context, guide, layout) {
+    (b.prototype._drawGravityWellAlignmentSheen = function(context, guide, layout) {
       if (!context || !guide) return;
       var xTargets = new Set(guide.alignedXTargetIds);
       var yTargets = new Set(guide.alignedYTargetIds);
       var gapTargets = new Set(guide.equalGapSourceIds || []);
-      var targetIds = [];
-      xTargets.forEach(function(id) { targetIds.push(id); });
-      yTargets.forEach(function(id) { if (!xTargets.has(id)) targetIds.push(id); });
-      gapTargets.forEach(function(id) {
-        if (!xTargets.has(id) && !yTargets.has(id)) targetIds.push(id);
+      var targets = [];
+      var activeTarget = guide.activeId ? this.getGravityWell(guide.activeId) : null;
+      targets.push(activeTarget || {
+        id: 'gravity-well-draft',
+        x: guide.x,
+        y: guide.y,
+        radius: guide.radius
       });
-      context.save();
-      context.globalCompositeOperation = 'lighter';
-      context.lineWidth = 2.5;
-      for (var i = 0; i < targetIds.length; i++) {
-        var id = targetIds[i];
+      var targetIds = new Set();
+      xTargets.forEach(function(id) { targetIds.add(id); });
+      yTargets.forEach(function(id) { targetIds.add(id); });
+      gapTargets.forEach(function(id) {
+        targetIds.add(id);
+      });
+      targetIds.forEach(function(id) {
         var well = this.getGravityWell(id);
-        if (!well) continue;
-        var onX = xTargets.has(id);
-        var onY = yTargets.has(id);
-        var color = onX && onY
-          ? 'rgba(255,255,255,0.96)'
-          : (onX ? 'rgba(102,225,255,0.96)'
-            : (onY ? 'rgba(255,190,86,0.96)' : 'rgba(210,190,255,0.92)'));
-        var coreRadius = Math.max(12, well.radius * 0.23);
-        context.strokeStyle = color;
-        context.shadowColor = color;
-        context.shadowBlur = 12;
+        if (well) targets.push(well);
+      }, this);
+      var sheenPhase = (0.5 + this._gravityWellAlignmentSheenTime * 0.18) % 1;
+      for (var i = 0; i < targets.length; i++) {
+        var target = targets[i];
+        if (!target || !Number.isFinite(target.x) || !Number.isFinite(target.y)) continue;
+        var coreRadius = Math.max(4, (Number.isFinite(target.radius) ? target.radius : 0) * 0.18);
+        var halfWidth = coreRadius * 0.86;
+        var lensY = target.y - coreRadius * 0.24;
+        var lensHalfHeight = coreRadius * 0.22;
+        context.save();
+        context.globalCompositeOperation = 'source-over';
         context.beginPath();
-        if (context.ellipse) context.ellipse(well.x, well.y, coreRadius, coreRadius * 0.72, 0, 0, Math.PI * 2);
-        else context.arc(well.x, well.y, coreRadius, 0, Math.PI * 2);
-        context.stroke();
-        layout.haloTargetIds.push(id);
+        context.moveTo(target.x - halfWidth, lensY);
+        context.bezierCurveTo(
+          target.x - halfWidth * 0.42, lensY - lensHalfHeight,
+          target.x + halfWidth * 0.42, lensY - lensHalfHeight,
+          target.x + halfWidth, lensY
+        );
+        context.bezierCurveTo(
+          target.x + halfWidth * 0.42, lensY + lensHalfHeight,
+          target.x - halfWidth * 0.42, lensY + lensHalfHeight,
+          target.x - halfWidth, lensY
+        );
+        context.closePath();
+        var base = context.createLinearGradient(target.x - halfWidth, lensY, target.x + halfWidth, lensY);
+        base.addColorStop(0, 'rgba(255,173,42,0.12)');
+        base.addColorStop(0.5, 'rgba(255,199,72,0.62)');
+        base.addColorStop(1, 'rgba(255,173,42,0.12)');
+        context.fillStyle = base;
+        context.fill();
+        context.clip();
+        var sweepX = target.x - halfWidth + halfWidth * 2 * sheenPhase;
+        var sweepWidth = Math.max(3, coreRadius * 0.34);
+        var sweep = context.createLinearGradient(sweepX - sweepWidth, lensY, sweepX + sweepWidth, lensY);
+        sweep.addColorStop(0, 'rgba(255,224,148,0)');
+        sweep.addColorStop(0.44, 'rgba(255,219,126,0.18)');
+        sweep.addColorStop(0.5, 'rgba(255,247,204,0.72)');
+        sweep.addColorStop(0.56, 'rgba(255,219,126,0.18)');
+        sweep.addColorStop(1, 'rgba(255,224,148,0)');
+        context.fillStyle = sweep;
+        context.fillRect(target.x - halfWidth, lensY - lensHalfHeight, halfWidth * 2, lensHalfHeight * 2);
+        context.restore();
+        layout.alignmentSheenTargetIds.push(target.id);
       }
-      context.restore();
     }),
     (b.prototype._drawGravityWellFallback = function(wells) {
       var context = this._ensureGravityWellOverlay();
@@ -3302,7 +3338,7 @@
         centerLabels: [],
         distanceLabels: [],
         metadataLabels: [],
-        haloTargetIds: []
+        alignmentSheenTargetIds: []
       } : null;
       var renderer = this.glRenderer;
       var webglRendered = !!(renderer && renderer.gl && renderer.gravityWellRenderer &&
@@ -3331,13 +3367,13 @@
         width: activeCoreExtent * 2,
         height: activeCoreExtent * 2
       }];
+      this._drawGravityWellAlignmentSheen(context, guide, layout);
       this._drawGravityWellCoordinateGuides(context, guide, occupied, layout);
       this._drawGravityWellEqualGapIndicators(context, guide, occupied, layout);
       if (measurements.length) {
         this._drawGravityWellMeasurements(context, measurements, occupied, layout);
         this._drawGravityWellMetadata(context, measurements, occupied, layout);
       }
-      this._drawGravityWellAlignmentHalos(context, guide, layout);
     }),
     (b.prototype.init = function () {
       if (

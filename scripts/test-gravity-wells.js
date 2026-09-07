@@ -54,6 +54,35 @@ async function dispatchTouchDrag(page, start, end, pointerId) {
   }, { start, end, pointerId });
 }
 
+async function dispatchPointerPlacement(page, point, pointerId, pointerType) {
+  return page.evaluate(({ point, pointerId, pointerType }) => {
+    const pn = window.particleInstance;
+    const canvas = pn.canvas;
+    const rect = canvas.getBoundingClientRect();
+    function send(type, buttons) {
+      canvas.dispatchEvent(new PointerEvent(type, {
+        bubbles: true,
+        cancelable: true,
+        pointerId,
+        pointerType,
+        isPrimary: true,
+        buttons,
+        clientX: rect.left + point.x,
+        clientY: rect.top + point.y
+      }));
+    }
+    send('pointerdown', 1);
+    send('pointermove', 1);
+    const snap = pn._gravityWellSnapState ? JSON.parse(JSON.stringify(pn._gravityWellSnapState)) : null;
+    send('pointerup', 0);
+    const well = pn.gravityWells[pn.gravityWells.length - 1];
+    return {
+      well: well ? { type: well.type, x: well.x, y: well.y } : null,
+      snap
+    };
+  }, { point, pointerId, pointerType });
+}
+
 async function load(page, url) {
   await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 30000 });
   await page.waitForFunction(() => window.particleInstance && window.particleInstance.glRenderer, null, { timeout: 30000 });
@@ -1553,6 +1582,7 @@ async function runDragInfo(browser, options, browserErrors) {
   }, ids);
   if (options.screenshotDir) {
     await page.screenshot({ path: path.join(options.screenshotDir, 'drag-info-desktop.png') });
+    await page.screenshot({ path: path.join(options.screenshotDir, 'snap-horizontal-black-white-desktop.png') });
   }
 
   await page.mouse.move(411, 331);
@@ -1733,6 +1763,27 @@ async function runDragInfo(browser, options, browserErrors) {
       network.addGravityWell('white', 300, 300, 60),
       network.addGravityWell('white', 500, 300, 60)
     ]);
+    const exact512Extension = resolve(1145, 300, network => [
+      network.addGravityWell('white', 128, 300, 60),
+      network.addGravityWell('white', 640, 300, 60)
+    ]);
+    const zeroGap = resolve(407, 300, network => [
+      network.addGravityWell('white', 400, 300, 60),
+      network.addGravityWell('white', 400, 300, 60)
+    ]);
+    const outOfBoundsExtension = resolve(1274, 300, network => [
+      network.addGravityWell('white', 100, 300, 60),
+      network.addGravityWell('white', 700, 300, 60)
+    ]);
+    const wellOverEqualGap = resolve(400, 300, network => [
+      network.addGravityWell('white', 300, 300, 60),
+      network.addGravityWell('white', 500, 300, 60),
+      network.addGravityWell('white', 400, 600, 60)
+    ]);
+    const equalGapOverFraction = resolve(width / 4, 300, network => [
+      network.addGravityWell('white', width / 4 - 100, 300, 60),
+      network.addGravityWell('white', width / 4 + 100, 300, 60)
+    ]);
     pn.clearGravityWells();
     pn._gravityPointer = { x: width / 2 + 7, y: height / 2 - 7 };
     pn.beginGravityWellPlacement('black', true);
@@ -1747,14 +1798,16 @@ async function runDragInfo(browser, options, browserErrors) {
     return { width, height, quarterThird, independentX, independentY, preview, centerTie,
       shiftBypass, virtualHeld, virtualReleased, horizontalMidpoint, horizontalExtension, verticalMidpoint, verticalExtension,
       regularRowRejectsNonAdjacentExtension, regularRowRejectsMidpointInsert, irregularRowRejectsExtension,
-      misaligned, offRow, keyboardFraction, repositionFraction };
+      misaligned, offRow, exact512Extension, zeroGap, outOfBoundsExtension,
+      wellOverEqualGap, equalGapOverFraction, keyboardFraction, repositionFraction };
   });
 
   const snapGuideVisuals = {};
   await page.evaluate(() => {
     const pn = window.particleInstance;
     pn.clearGravityWells();
-    const active = pn.addGravityWell('black', 90, 90, 60);
+    const active = pn.addGravityWell('white', 90, 90, 60);
+    pn.addGravityWell('black', pn.i.size.width / 2, 150, 60);
     pn._startGravityWellDrag(active, active.x, active.y, 'mouse');
     pn._handleGravityWellPointerMove(pn.i.size.width / 4 + 24, 61, 'mouse', false);
   });
@@ -1798,6 +1851,7 @@ async function runDragInfo(browser, options, browserErrors) {
   await page.evaluate(() => {
     const pn = window.particleInstance;
     pn.clearGravityWells();
+    pn.options.gravityWellMotion = 'static';
     const active = pn.addGravityWell('black', 90, 300, 60);
     pn.addGravityWell('white', 300, 300, 60);
     pn.addGravityWell('white', 500, 300, 60);
@@ -1812,7 +1866,117 @@ async function runDragInfo(browser, options, browserErrors) {
   if (options.screenshotDir) {
     await page.screenshot({ path: path.join(options.screenshotDir, 'snap-equal-gap-desktop.png') });
   }
+  const captureAlignmentSheenFrame = () => page.evaluate(() => {
+    const pn = window.particleInstance;
+    const overlay = pn._gravityWellOverlay;
+    const context = overlay.getContext('2d');
+    const dpr = overlay.width / pn.i.size.width;
+    const guide = pn._gravityWellGuideState;
+    const source = pn.getGravityWell(guide.equalGapSourceIds[0]);
+    const coreRadius = Math.max(4, source.radius * 0.18);
+    const readPixel = (x, y) => Array.from(context.getImageData(
+      Math.max(0, Math.min(overlay.width - 1, Math.round(x * dpr))),
+      Math.max(0, Math.min(overlay.height - 1, Math.round(y * dpr))),
+      1,
+      1
+    ).data);
+    const regionRadius = Math.ceil(coreRadius * dpr);
+    const region = context.getImageData(
+      Math.max(0, Math.round(source.x * dpr) - regionRadius),
+      Math.max(0, Math.round(source.y * dpr) - regionRadius),
+      regionRadius * 2 + 1,
+      regionRadius * 2 + 1
+    ).data;
+    let hash = 2166136261;
+    for (let i = 0; i < region.length; i++) {
+      hash ^= region[i];
+      hash = Math.imul(hash, 16777619);
+    }
+    const oldHaloRadius = Math.max(12, source.radius * 0.23);
+    return {
+      hash: hash >>> 0,
+      time: pn._gravityWellAlignmentSheenTime,
+      targetIds: pn._gravityWellOverlayLayout.alignmentSheenTargetIds.slice(),
+      storedColors: pn.gravityWells.map(well => ({ id: well.id, innerColor: well.innerColor, outerColor: well.outerColor })),
+      corePixel: readPixel(source.x + coreRadius * 0.4, source.y - coreRadius * 0.24),
+      oldPerimeterPixel: readPixel(source.x, source.y - oldHaloRadius * 0.72)
+    };
+  });
+  const initialSheenColors = await page.evaluate(() => window.particleInstance.gravityWells.map(well => ({
+    id: well.id,
+    innerColor: well.innerColor,
+    outerColor: well.outerColor
+  })));
+  const staticSheenA = await captureAlignmentSheenFrame();
+  await page.waitForTimeout(220);
+  await waitForFrames(page, 2);
+  const staticSheenB = await captureAlignmentSheenFrame();
+  await page.evaluate(() => { window.particleInstance.options.gravityWellMotion = 'animate'; });
+  await waitForFrames(page, 2);
+  const animatedSheenA = await captureAlignmentSheenFrame();
+  await page.waitForTimeout(320);
+  await waitForFrames(page, 2);
+  const animatedSheenB = await captureAlignmentSheenFrame();
+  await page.emulateMedia({ reducedMotion: 'reduce' });
+  await page.evaluate(() => { window.particleInstance.options.gravityWellMotion = 'system'; });
+  await waitForFrames(page, 2);
+  const systemSheenA = await captureAlignmentSheenFrame();
+  await page.waitForTimeout(220);
+  await waitForFrames(page, 2);
+  const systemSheenB = await captureAlignmentSheenFrame();
+  await page.evaluate(() => {
+    const pn = window.particleInstance;
+    pn.options.gravityWellMotion = 'static';
+    pn.options.trails = true;
+  });
+  await waitForFrames(page, 3);
+  const trailsSheen = await captureAlignmentSheenFrame();
+  await page.evaluate(() => {
+    const pn = window.particleInstance;
+    pn.options.trails = false;
+    pn.__alignmentSheenTestRenderer = pn.glRenderer;
+    pn.glRenderer = null;
+  });
+  await waitForFrames(page, 3);
+  const fallbackSheen = await captureAlignmentSheenFrame();
+  await page.evaluate(() => {
+    const pn = window.particleInstance;
+    pn.glRenderer = pn.__alignmentSheenTestRenderer;
+    delete pn.__alignmentSheenTestRenderer;
+    pn.options.gravityWellMotion = 'animate';
+  });
+  await page.emulateMedia({ reducedMotion: 'no-preference' });
+  const alignmentSheen = {
+    initialColors: initialSheenColors,
+    staticA: staticSheenA,
+    staticB: staticSheenB,
+    animatedA: animatedSheenA,
+    animatedB: animatedSheenB,
+    systemA: systemSheenA,
+    systemB: systemSheenB,
+    trails: trailsSheen,
+    fallback: fallbackSheen
+  };
   await page.evaluate(() => window.particleInstance._stopGravityWellDrag('mouse'));
+
+  await page.evaluate(() => {
+    const pn = window.particleInstance;
+    pn.clearGravityWells();
+    pn.options.gravityWellMotion = 'static';
+    const active = pn.addGravityWell('white', 900, 90, 60);
+    pn.addGravityWell('black', 900, 250, 60);
+    pn._startGravityWellDrag(active, active.x, active.y, 'mouse');
+    pn._handleGravityWellPointerMove(907, 450, 'mouse', false);
+  });
+  await waitForFrames(page, 3);
+  if (options.screenshotDir) {
+    await page.screenshot({ path: path.join(options.screenshotDir, 'snap-vertical-black-white-desktop.png') });
+  }
+  await page.evaluate(() => {
+    const pn = window.particleInstance;
+    pn._stopGravityWellDrag('mouse');
+    pn.options.gravityWellMotion = 'animate';
+  });
 
   const resizeSnapStyle = await page.evaluate(() => {
     const pn = window.particleInstance;
@@ -2053,9 +2217,10 @@ async function runDragInfo(browser, options, browserErrors) {
       metadataById.get(ids.targetX)?.behaviorLabel === 'Absorb 12' &&
       metadataById.get(ids.targetY)?.behaviorLabel === 'Repel 7.5' &&
       metadataById.get(ids.invertedWhite)?.behaviorLabel === 'Absorb 8.25',
-    overlayLayoutPaintsGuidesMetadataAndHalos: snapped.layout && snapped.layout.guideLabels.length === 2 &&
-      snapped.layout.metadataLabels.length === 3 && snapped.layout.haloTargetIds.includes(ids.targetX) &&
-      snapped.layout.haloTargetIds.includes(ids.targetY) && snapped.metadataAlpha > 0,
+    overlayLayoutPaintsGuidesMetadataAndSheen: snapped.layout && snapped.layout.guideLabels.length === 2 &&
+      snapped.layout.metadataLabels.length === 3 && snapped.layout.alignmentSheenTargetIds.includes(ids.active) &&
+      snapped.layout.alignmentSheenTargetIds.includes(ids.targetX) &&
+      snapped.layout.alignmentSheenTargetIds.includes(ids.targetY) && snapped.metadataAlpha > 0,
     coordinateGuideDashAndAlignmentAreVisible: snapped.alignedGuideOnAlpha > snapped.alignedGuideGapAlpha,
     alignedGuideIsBrighterThanUnalignedGuide: snapped.alignedGuideOnAlpha > singleWell.guideOnAlpha &&
       singleWell.guideOnAlpha > singleWell.guideGapAlpha,
@@ -2119,6 +2284,19 @@ async function runDragInfo(browser, options, browserErrors) {
       canvasAndGapSnapping.misaligned.state?.snapXTarget?.kind !== 'equal-gap' &&
       canvasAndGapSnapping.offRow.x === 407 &&
       canvasAndGapSnapping.offRow.state?.snapXTarget?.kind !== 'equal-gap',
+    equalGapHandlesExact512ZeroAndBounds:
+      canvasAndGapSnapping.exact512Extension.x === 1152 &&
+      canvasAndGapSnapping.exact512Extension.state?.snapXTarget?.kind === 'equal-gap' &&
+      canvasAndGapSnapping.exact512Extension.state.snapXTarget.points[1] -
+        canvasAndGapSnapping.exact512Extension.state.snapXTarget.points[0] === 512 &&
+      canvasAndGapSnapping.exact512Extension.state.snapXTarget.points[2] -
+        canvasAndGapSnapping.exact512Extension.state.snapXTarget.points[1] === 512 &&
+      canvasAndGapSnapping.zeroGap.state?.snapXTarget?.kind !== 'equal-gap' &&
+      canvasAndGapSnapping.outOfBoundsExtension.x === 1274 &&
+      canvasAndGapSnapping.outOfBoundsExtension.state?.snapXTarget?.kind !== 'equal-gap',
+    snapTiePriorityPrefersWellThenEqualGap:
+      canvasAndGapSnapping.wellOverEqualGap.state?.snapXTarget?.kind === 'well' &&
+      canvasAndGapSnapping.equalGapOverFraction.state?.snapXTarget?.kind === 'equal-gap',
     keyboardAndSelectedRepositionUseFractionTargets:
       canvasAndGapSnapping.keyboardFraction.x === canvasAndGapSnapping.width / 2 &&
       canvasAndGapSnapping.keyboardFraction.y === canvasAndGapSnapping.height / 2 &&
@@ -2134,11 +2312,34 @@ async function runDragInfo(browser, options, browserErrors) {
       snapGuideVisuals.centered.guide?.centered === true &&
       snapGuideVisuals.centered.layout?.snapGuides?.length === 2 &&
       snapGuideVisuals.centered.layout?.centerLabels?.[0]?.label === 'Centered',
-    equalGapIndicatorsAndSourceHalosAreExposed:
+    equalGapIndicatorsAndSourceSheenAreExposed:
       snapGuideVisuals.equalGap.layout?.equalGapIndicators?.length === 1 &&
       snapGuideVisuals.equalGap.layout.equalGapIndicators[0].label === 'Equal gap' &&
       snapGuideVisuals.equalGap.layout.equalGapIndicators[0].sourceIds.every(id =>
-        snapGuideVisuals.equalGap.layout.haloTargetIds.includes(id)),
+        snapGuideVisuals.equalGap.layout.alignmentSheenTargetIds.includes(id)),
+    alignmentSheenIncludesActiveAndSources:
+      snapGuideVisuals.equalGap.layout?.alignmentSheenTargetIds?.includes(snapGuideVisuals.equalGap.guide.activeId) &&
+      snapGuideVisuals.equalGap.guide.equalGapSourceIds.every(id =>
+        snapGuideVisuals.equalGap.layout.alignmentSheenTargetIds.includes(id)),
+    alignmentSheenIsGoldAndInsideCore:
+      alignmentSheen.staticA.corePixel[3] > 20 &&
+      alignmentSheen.staticA.corePixel[0] > alignmentSheen.staticA.corePixel[1] &&
+      alignmentSheen.staticA.corePixel[1] > alignmentSheen.staticA.corePixel[2] &&
+      alignmentSheen.staticA.oldPerimeterPixel[3] === 0,
+    alignmentSheenPreservesStoredColors:
+      JSON.stringify(alignmentSheen.initialColors) === JSON.stringify(alignmentSheen.fallback.storedColors),
+    alignmentSheenMotionMatchesMode:
+      alignmentSheen.animatedA.time > 0 && alignmentSheen.animatedB.time > alignmentSheen.animatedA.time &&
+      alignmentSheen.animatedA.hash !== alignmentSheen.animatedB.hash &&
+      alignmentSheen.staticA.time === 0 && alignmentSheen.staticB.time === 0 &&
+      alignmentSheen.staticA.hash === alignmentSheen.staticB.hash &&
+      alignmentSheen.systemA.time === 0 && alignmentSheen.systemB.time === 0 &&
+      alignmentSheen.systemA.hash === alignmentSheen.systemB.hash,
+    alignmentSheenWorksWithTrailsAndFallback:
+      alignmentSheen.trails.targetIds.length === alignmentSheen.staticA.targetIds.length &&
+      alignmentSheen.fallback.targetIds.length === alignmentSheen.staticA.targetIds.length &&
+      alignmentSheen.trails.targetIds.every(id => alignmentSheen.staticA.targetIds.includes(id)) &&
+      alignmentSheen.fallback.targetIds.every(id => alignmentSheen.staticA.targetIds.includes(id)),
     fractionTargetsRecomputeAfterResize:
       resizedFractionSnap.width === 1200 && resizedFractionSnap.height === 800 &&
       resizedFractionSnap.x === 400 && resizedFractionSnap.y === 200,
@@ -2179,7 +2380,7 @@ async function runDragInfo(browser, options, browserErrors) {
   return { assertions, ids, snapped, held, released, outsideEntry, bypassed, reacquired,
     afterRelease, tieBreaking, whiteWellDrag, placementSharing, canvasAndGapSnapping, snapGuideVisuals,
     activeCenteredResize, equalGapPreviewBeforeResize, equalGapPreviewAfterResize,
-    resizedFractionSnap, singleWell, escapeCleanup, commitCleanup,
+    resizedFractionSnap, alignmentSheen, singleWell, escapeCleanup, commitCleanup,
     clearCleanup, deletionCleanup, destroyCleanup };
 }
 
@@ -2249,6 +2450,19 @@ async function runTouch(browser, options, browserErrors) {
     };
   }, beforePhysics);
 
+  await page.evaluate(() => window.particleInstance.clearGravityWells());
+  await page.getByRole('button', { name: 'Add Black Hole' }).click();
+  const touchCenterPlacement = await dispatchPointerPlacement(page, { x: 201, y: 427 }, 21, 'touch');
+  await page.evaluate(() => window.particleInstance.clearGravityWells());
+  await page.getByRole('button', { name: 'Add White Hole' }).click();
+  const penCenterPlacement = await dispatchPointerPlacement(page, { x: 205, y: 432 }, 22, 'pen');
+  await page.evaluate(() => {
+    const pn = window.particleInstance;
+    pn.clearGravityWells();
+    pn.addGravityWell('black', 80, 520, 80);
+    pn.addGravityWell('white', 235, 690, 80);
+  });
+
   const animateOverride = await page.evaluate(() => {
     const ui = window.particleSettingsUi;
     ui.params.gravityWellMotion = 'animate';
@@ -2280,6 +2494,15 @@ async function runTouch(browser, options, browserErrors) {
     touchRulersTrackPlacementAndDrag: firstTouchMeasurements.length === 0 && secondTouchMeasurements.length === 1 &&
       directTouchMeasurements.length === 1 && secondTouchMeasurements[0].label === '258 px',
     touchStateClean: touchState.draft === null && touchState.activePointers === 0,
+    touchAndPenPaletteSnapToPhoneCenter:
+      touchCenterPlacement.well?.type === 'black' && touchCenterPlacement.well.x === 195 &&
+      touchCenterPlacement.well.y === 422 &&
+      touchCenterPlacement.snap?.snapXTarget?.fraction === 1 / 2 &&
+      touchCenterPlacement.snap?.snapYTarget?.fraction === 1 / 2 &&
+      penCenterPlacement.well?.type === 'white' && penCenterPlacement.well.x === 195 &&
+      penCenterPlacement.well.y === 422 && penCenterPlacement.snap?.inputKind === 'pen' &&
+      penCenterPlacement.snap?.snapXTarget?.fraction === 1 / 2 &&
+      penCenterPlacement.snap?.snapYTarget?.fraction === 1 / 2,
     hoverUsesLogicalCoordinates: highDprPointerState.dpr === 2 &&
       Math.abs(highDprPointerState.x - 95) <= 1 && Math.abs(highDprPointerState.y - 320) <= 1,
     panelFitsViewport: touchState.panelWidth <= 366,
@@ -2296,7 +2519,7 @@ async function runTouch(browser, options, browserErrors) {
   await context.close();
   return { assertions, highDprPointerState, defaultMotion, systemOverride, firstTouchMeasurements,
     secondTouchMeasurements, directTouchMeasurements, touchState,
-    animateOverride, overrideAnimationTime, restoredMotion };
+    touchCenterPlacement, penCenterPlacement, animateOverride, overrideAnimationTime, restoredMotion };
 }
 
 async function runReloadCursor(browser, options, browserErrors) {
@@ -2361,6 +2584,9 @@ async function main() {
     const networkSource = fs.readFileSync(path.join(__dirname, '..', 'js', 'ParticleNetwork.js'), 'utf8');
     const guideMethodStart = networkSource.indexOf('(b.prototype._drawGravityWellCoordinateGuides');
     const metadataMethodStart = networkSource.indexOf('(b.prototype._drawGravityWellMeasurements', guideMethodStart);
+    const sheenMethodStart = networkSource.indexOf('(b.prototype._drawGravityWellAlignmentSheen');
+    const fallbackMethodStart = networkSource.indexOf('(b.prototype._drawGravityWellFallback', sheenMethodStart);
+    const sheenMethodSource = networkSource.slice(sheenMethodStart, fallbackMethodStart);
     const dashMatches = networkSource.match(/setLineDash/g) || [];
     const dashIndex = networkSource.indexOf('setLineDash');
     const assertions = {
@@ -2370,6 +2596,9 @@ async function main() {
       ...reloadCursor.assertions,
       noDashedGravityRadius: !rendererSource.includes('selectionRing') &&
         dashMatches.length === 1 && dashIndex > guideMethodStart && dashIndex < metadataMethodStart,
+      noFormerAlignmentHaloPerimeter: sheenMethodStart >= 0 && fallbackMethodStart > sheenMethodStart &&
+        !networkSource.includes('_drawGravityWellAlignmentHalos') && !networkSource.includes('haloTargetIds') &&
+        !sheenMethodSource.includes('.ellipse(') && !sheenMethodSource.includes('.stroke()'),
       noBrowserErrors: browserErrors.length === 0
     };
     const passed = Object.values(assertions).every(Boolean);
