@@ -108,6 +108,47 @@ async function main() {
         stop();
         return { ...pn.lineDetailDiagnostics };
       };
+      const captureAdmittedPairs = (elapsedSeconds, ignoredParticleIndex) => {
+        const renderer = pn.glRenderer;
+        if (!renderer || typeof renderer.addLine !== 'function') {
+          return { diagnostics: frame(elapsedSeconds), pairs: [], leftBins: [], captured: false };
+        }
+
+        const coordinateToIndex = new Map();
+        const coordinateKey = (x, y) => `${Number(x).toFixed(4)}:${Number(y).toFixed(4)}`;
+        for (let i = 0; i < pn.numParticles; i++) {
+          coordinateToIndex.set(coordinateKey(pn.o[i].x, pn.o[i].y), i);
+        }
+
+        const pairs = [];
+        const leftBins = new Array(4).fill(0);
+        const originalAddLine = renderer.addLine;
+        renderer.addLine = function (x1, y1, color1, x2, y2, color2) {
+          const indexA = coordinateToIndex.get(coordinateKey(x1, y1));
+          const indexB = coordinateToIndex.get(coordinateKey(x2, y2));
+          if (indexA != null && indexB != null &&
+              indexA !== ignoredParticleIndex && indexB !== ignoredParticleIndex) {
+            const midpointX = (x1 + x2) * 0.5;
+            if (midpointX < pn.i.size.width * 0.5) {
+              const low = Math.min(indexA, indexB);
+              const high = Math.max(indexA, indexB);
+              pairs.push(`${low}:${high}`);
+              const bin = Math.min(3, Math.floor(midpointX / (pn.i.size.width * 0.125)));
+              leftBins[bin]++;
+            }
+          }
+          return originalAddLine.call(this, x1, y1, color1, x2, y2, color2);
+        };
+
+        let diagnostics;
+        try {
+          diagnostics = frame(elapsedSeconds);
+        } finally {
+          renderer.addLine = originalAddLine;
+        }
+        pairs.sort();
+        return { diagnostics, pairs, leftBins, captured: true };
+      };
 
       const levelLimits = [
         { name: 'Full', maxLinks: 48, maxSegments: 96000 },
@@ -142,6 +183,9 @@ async function main() {
       pn._lineDetailQualityIndex = 2;
       pn._lineDetailStartupTime = performance.now() - 5000;
       pn._lineDetailPressure = false;
+      pn._lineDetailFramePressure = false;
+      pn._lineDetailPreviousCandidateSegments = 0;
+      pn.lineDetailDiagnostics.candidateSegments = 0;
       pn._lineDetailRecoverySeconds = 0;
       for (let i = 0; i < 6; i++) frame(0.5);
       const recoveryAfterThreeSeconds = pn._lineDetailQualityIndex;
@@ -156,6 +200,9 @@ async function main() {
       pn._lineDetailQualityIndex = 1;
       pn._lineDetailStartupTime = performance.now() - 5000;
       pn._lineDetailPressure = false;
+      pn._lineDetailFramePressure = false;
+      pn._lineDetailPreviousCandidateSegments = 0;
+      pn.lineDetailDiagnostics.candidateSegments = 0;
       for (let i = 0; i < 3; i++) frame(0.5);
       const unrelatedLowFpsQuality = pn._lineDetailQualityIndex;
 
@@ -177,6 +224,7 @@ async function main() {
 
       pn.options.trails = false;
       pn.options.lineJitter = false;
+      const webgl = frame(1 / 60);
       const savedRenderer = pn.glRenderer;
       pn.glRenderer = null;
       const fallback = frame(1 / 60);
@@ -216,6 +264,131 @@ async function main() {
       }
       spatialBudget.total = spatialBudget.left + spatialBudget.right;
 
+      setScene(1656, false);
+      Object.assign(pn.options, {
+        adaptiveLineDetail: true,
+        cellularLineClusters: false,
+        particleInteractionDistance: 50,
+        lineConnectionDistance: 100,
+        maxColorChangeDistance: 100,
+        proximityEffectDistance: 100,
+        lineJitter: false,
+        trails: false
+      });
+      pn.initGrid();
+      const thresholdWidth = pn.i.size.width;
+      const thresholdHeight = pn.i.size.height;
+      const thresholdColumns = Math.ceil(thresholdWidth / 100);
+      const thresholdRows = Math.ceil(thresholdHeight / 100);
+      const thresholdCells = thresholdColumns * thresholdRows;
+      const thresholdPositions = [];
+      for (let i = 0; i < pn.numParticles; i++) {
+        const cell = i % thresholdCells;
+        const cellX = cell % thresholdColumns;
+        const cellY = Math.floor(cell / thresholdColumns);
+        const slot = Math.floor(i / thresholdCells);
+        const cellWidth = Math.min(100, thresholdWidth - cellX * 100);
+        const cellHeight = Math.min(100, thresholdHeight - cellY * 100);
+        thresholdPositions.push({
+          x: cellX * 100 + ((slot % 4) + 0.5) * cellWidth / 4,
+          y: cellY * 100 + (Math.floor(slot / 4) + 0.5) * cellHeight / 4
+        });
+      }
+      const thresholdDonorCells = [10, 11, 23, 24, 36, 37, 49, 50];
+      const thresholdDonors = thresholdDonorCells.map(cell => cell + 15 * thresholdCells);
+      const thresholdMover = thresholdDonors[thresholdDonors.length - 1];
+      const thresholdTargetPositions = thresholdDonors.map((_, index) => ({
+        x: 1204 + index * 9,
+        y: index % 2 === 0 ? 5 : 95
+      }));
+      const applyThresholdOccupancy = dense => {
+        for (let i = 0; i < pn.numParticles; i++) {
+          const position = thresholdPositions[i];
+          const particle = pn.o[i];
+          particle.x = position.x;
+          particle.y = position.y;
+          particle.velocity.x = 0;
+          particle.velocity.y = 0;
+          pn.posX[i] = position.x;
+          pn.posY[i] = position.y;
+          pn.velX[i] = 0;
+          pn.velY[i] = 0;
+        }
+        const relocatedCount = dense ? thresholdDonors.length : thresholdDonors.length - 1;
+        for (let i = 0; i < relocatedCount; i++) {
+          const particleIndex = thresholdDonors[i];
+          const position = thresholdTargetPositions[i];
+          pn.o[particleIndex].x = position.x;
+          pn.o[particleIndex].y = position.y;
+          pn.posX[particleIndex] = position.x;
+          pn.posY[particleIndex] = position.y;
+        }
+      };
+      const thresholdFrame = dense => {
+        applyThresholdOccupancy(dense);
+        const result = captureAdmittedPairs(1 / 143.7, thresholdMover);
+        result.maxCellOccupancy = Math.max(...pn.grid.map(cell => cell.length));
+        result.leftCount = result.pairs.length;
+        return result;
+      };
+      pn._lineDetailQualityIndex = 0;
+      pn._lineDetailStartupTime = performance.now() - 5000;
+      pn._lineDetailLowFpsSeconds = 0;
+      pn._lineDetailRecoverySeconds = 0;
+      pn._lineDetailPressure = false;
+      pn._lineDetailFramePressure = false;
+      pn._lineDetailPreviousCandidateSegments = 0;
+      pn.lineDetailDiagnostics.candidateSegments = 0;
+      const thresholdWarm = thresholdFrame(false);
+      const thresholdLowA = thresholdFrame(false);
+      const thresholdHighA = thresholdFrame(true);
+      const thresholdLowB = thresholdFrame(false);
+      const thresholdHighB = thresholdFrame(true);
+      const thresholdFrames = [thresholdLowA, thresholdHighA, thresholdLowB, thresholdHighB];
+      const thresholdReferencePairs = JSON.stringify(thresholdLowA.pairs);
+      const thresholdReferenceBins = JSON.stringify(thresholdLowA.leftBins);
+      const thresholdStability = {
+        warm: {
+          candidateSegments: thresholdWarm.diagnostics.candidateSegments,
+          pressure: thresholdWarm.diagnostics.pressure,
+          qualityLevel: thresholdWarm.diagnostics.qualityLevel
+        },
+        occupancies: thresholdFrames.map(result => result.maxCellOccupancy),
+        pressures: thresholdFrames.map(result => result.diagnostics.pressure),
+        qualityLevels: thresholdFrames.map(result => result.diagnostics.qualityLevel),
+        candidateSegments: thresholdFrames.map(result => result.diagnostics.candidateSegments),
+        admittedCounts: thresholdFrames.map(result => result.leftCount),
+        leftBins: thresholdFrames.map(result => result.leftBins),
+        captured: thresholdFrames.every(result => result.captured),
+        pairSignaturesStable: thresholdFrames.every(result => JSON.stringify(result.pairs) === thresholdReferencePairs),
+        admittedCountsStable: thresholdFrames.every(result => result.leftCount === thresholdLowA.leftCount),
+        leftBinsStable: thresholdFrames.every(result => JSON.stringify(result.leftBins) === thresholdReferenceBins)
+      };
+
+      const pressureProbe = (count, previousCandidateSegments, pressure) => {
+        setScene(count);
+        pn._lineDetailQualityIndex = 0;
+        pn._lineDetailStartupTime = performance.now() + 10000;
+        pn._lineDetailPressure = pressure;
+        pn._lineDetailFramePressure = pressure;
+        pn._lineDetailPreviousCandidateSegments = previousCandidateSegments;
+        pn.lineDetailDiagnostics.candidateSegments = previousCandidateSegments;
+        const diagnostics = frame(1 / 143.7);
+        return {
+          pressure: diagnostics.pressure,
+          maxCellOccupancy: diagnostics.maxCellOccupancy,
+          qualityLevel: diagnostics.qualityLevel
+        };
+      };
+      const pressureHysteresis = {
+        segmentEntry: pressureProbe(20, 2048, false),
+        segmentBand: pressureProbe(20, 1537, true),
+        segmentExit: pressureProbe(20, 1536, true),
+        occupancyEntry: pressureProbe(24, 0, false),
+        occupancyBand: pressureProbe(21, 0, true),
+        occupancyExit: pressureProbe(20, 0, true)
+      };
+
       setScene(40, false);
       window.applyParamsToNetwork(pn, { ...pn.options, particleSize: 6 });
       const particleSizeAfterApply = {
@@ -241,6 +414,7 @@ async function main() {
         expectedBypassLines,
         jitter,
         trails,
+        webgl,
         fallback,
         reducedMotion,
         coverageMode,
@@ -248,6 +422,8 @@ async function main() {
         gridOnlyMode,
         spatialDiagnostics,
         spatialBudget,
+        thresholdStability,
+        pressureHysteresis,
         particleSizeAfterApply,
         particleSizeAfterFrame,
         cellularIsGentlerInitially: cellularMode.acceptedLogicalLines > coverageMode.acceptedLogicalLines,
@@ -290,13 +466,21 @@ async function main() {
       hysteresisStable: runtime.hysteresisQuality === 1,
       lowFpsWithoutPressureDoesNotReduce: runtime.unrelatedLowFpsQuality <= 1,
       bypassRestoresUnlimited: runtime.bypass.candidateConnections === runtime.expectedBypassLines &&
+        runtime.bypass.candidateSegments === runtime.expectedBypassLines &&
         runtime.bypass.acceptedLogicalLines === runtime.expectedBypassLines &&
         runtime.bypass.emittedSegments === runtime.expectedBypassLines &&
         runtime.bypass.coverageRejections === 0 && runtime.bypass.hardBudgetRejections === 0 &&
         runtime.bypass.pressure === false,
       jitterAccounting: runtime.jitter.emittedSegments === runtime.jitter.acceptedLogicalLines * 6 &&
+        runtime.jitter.candidateSegments === runtime.jitter.candidateConnections * 6 &&
         runtime.jitter.emittedSegments <= 96000,
-      trailsAndFallback: runtime.trails.acceptedLogicalLines > 0 && runtime.fallback.acceptedLogicalLines > 0,
+      trailsAndFallback: runtime.trails.acceptedLogicalLines === runtime.jitter.acceptedLogicalLines &&
+        runtime.trails.candidateSegments === runtime.jitter.candidateSegments &&
+        runtime.webgl.acceptedLogicalLines === runtime.fallback.acceptedLogicalLines &&
+        runtime.webgl.candidateSegments === runtime.fallback.candidateSegments &&
+        runtime.webgl.emittedSegments === runtime.fallback.emittedSegments &&
+        runtime.webgl.coverageRejections === runtime.fallback.coverageRejections &&
+        runtime.webgl.hardBudgetRejections === runtime.fallback.hardBudgetRejections,
       reducedMotionAndGravityWell: runtime.reducedMotion.pressure === true,
       cellularOptionIsGentler: runtime.cellularIsGentlerInitially,
       gridWorksWithoutAdaptive: runtime.gridOnlyMode.pressure === true &&
@@ -306,6 +490,27 @@ async function main() {
       spatialBudgetCoversBothSides: runtime.spatialBudget.total > 0 &&
         runtime.spatialBudget.left > runtime.spatialBudget.total * 0.3 &&
         runtime.spatialBudget.right > runtime.spatialBudget.total * 0.3,
+      thresholdPressureIsFrameLatched: runtime.thresholdStability.captured &&
+        runtime.thresholdStability.warm.candidateSegments >= 2048 &&
+        runtime.thresholdStability.warm.pressure === false &&
+        runtime.thresholdStability.warm.qualityLevel === 'Full' &&
+        runtime.thresholdStability.occupancies.join(',') === '23,24,23,24' &&
+        runtime.thresholdStability.pressures.every(Boolean) &&
+        runtime.thresholdStability.qualityLevels.every(level => level === 'Full') &&
+        runtime.thresholdStability.candidateSegments.every(count => count >= 2048) &&
+        runtime.thresholdStability.pairSignaturesStable &&
+        runtime.thresholdStability.admittedCountsStable &&
+        runtime.thresholdStability.leftBinsStable,
+      pressureUsesSchmittThresholds: runtime.pressureHysteresis.segmentEntry.pressure === true &&
+        runtime.pressureHysteresis.segmentEntry.maxCellOccupancy === 20 &&
+        runtime.pressureHysteresis.segmentBand.pressure === true &&
+        runtime.pressureHysteresis.segmentExit.pressure === false &&
+        runtime.pressureHysteresis.occupancyEntry.pressure === true &&
+        runtime.pressureHysteresis.occupancyEntry.maxCellOccupancy === 24 &&
+        runtime.pressureHysteresis.occupancyBand.pressure === true &&
+        runtime.pressureHysteresis.occupancyBand.maxCellOccupancy === 21 &&
+        runtime.pressureHysteresis.occupancyExit.pressure === false &&
+        Object.values(runtime.pressureHysteresis).every(result => result.qualityLevel === 'Full'),
       particleSizeControlPersists: runtime.particleSizeAfterApply.option === 6 &&
         runtime.particleSizeAfterApply.objects && runtime.particleSizeAfterApply.typed &&
         runtime.particleSizeAfterFrame.objects && runtime.particleSizeAfterFrame.typed &&

@@ -287,7 +287,9 @@
 
   var LINE_DETAIL_TILE_SIZE = 24;
   var LINE_DETAIL_PRESSURE_SEGMENTS = 2048;
+  var LINE_DETAIL_PRESSURE_RELEASE_SEGMENTS = 1536;
   var LINE_DETAIL_DENSITY_THRESHOLD = 24;
+  var LINE_DETAIL_DENSITY_RELEASE_THRESHOLD = 20;
   var LINE_DETAIL_LEVELS = [
     { name: 'Full', maxLinks: 48, maxSegments: 96000, tileCapacity: 2048, sampleRate: 0.2 },
     { name: 'Balanced', maxLinks: 16, maxSegments: 32000, tileCapacity: 192, sampleRate: 0.08 },
@@ -302,11 +304,13 @@
   function createLineDetailDiagnostics() {
     return {
       candidateConnections: 0,
+      candidateSegments: 0,
       acceptedLogicalLines: 0,
       emittedSegments: 0,
       coverageRejections: 0,
       hardBudgetRejections: 0,
       coverageTileCrossings: 0,
+      maxCellOccupancy: 0,
       pressure: false,
       qualityLevel: 'Full'
     };
@@ -316,11 +320,13 @@
     var diagnostics = network.lineDetailDiagnostics ||
       (network.lineDetailDiagnostics = createLineDetailDiagnostics());
     diagnostics.candidateConnections = 0;
+    diagnostics.candidateSegments = 0;
     diagnostics.acceptedLogicalLines = 0;
     diagnostics.emittedSegments = 0;
     diagnostics.coverageRejections = 0;
     diagnostics.hardBudgetRejections = 0;
     diagnostics.coverageTileCrossings = 0;
+    diagnostics.maxCellOccupancy = 0;
     diagnostics.pressure = false;
     diagnostics.qualityLevel = LINE_DETAIL_LEVELS[network._lineDetailQualityIndex || 0].name;
     return diagnostics;
@@ -398,12 +404,15 @@
   }
 
   function prepareLineDetailFrame(network) {
+    network._lineDetailPreviousCandidateSegments =
+      network.lineDetailDiagnostics && network.lineDetailDiagnostics.candidateSegments || 0;
     var diagnostics = resetLineDetailDiagnostics(network);
     if (network.options.adaptiveLineDetail !== true && network.options.cellularLineClusters !== true) {
       network._lineDetailQualityIndex = 0;
       network._lineDetailLowFpsSeconds = 0;
       network._lineDetailRecoverySeconds = 0;
       network._lineDetailPressure = false;
+      network._lineDetailFramePressure = false;
       diagnostics.qualityLevel = 'Full';
       return false;
     }
@@ -412,18 +421,28 @@
     return true;
   }
 
-  function beginLineDetailFrame(network, now, elapsedSeconds, densityPressure) {
+  function beginLineDetailFrame(network, now, elapsedSeconds, maxCellOccupancy) {
     var diagnostics = network.lineDetailDiagnostics;
+    var previousCandidateSegments = network._lineDetailPreviousCandidateSegments || 0;
+    var pressureShouldEnter = previousCandidateSegments >= LINE_DETAIL_PRESSURE_SEGMENTS ||
+      maxCellOccupancy >= LINE_DETAIL_DENSITY_THRESHOLD;
+    var pressureShouldExit = previousCandidateSegments <= LINE_DETAIL_PRESSURE_RELEASE_SEGMENTS &&
+      maxCellOccupancy <= LINE_DETAIL_DENSITY_RELEASE_THRESHOLD;
+    if (pressureShouldEnter) {
+      network._lineDetailPressure = true;
+    } else if (pressureShouldExit) {
+      network._lineDetailPressure = false;
+    }
+    network._lineDetailFramePressure = network._lineDetailPressure;
     if (network.options.adaptiveLineDetail === true) {
-      var adaptationPressure = densityPressure || network._lineDetailPressure;
-      updateLineDetailQuality(network, now, elapsedSeconds, adaptationPressure);
+      updateLineDetailQuality(network, now, elapsedSeconds, network._lineDetailFramePressure);
     } else {
       network._lineDetailQualityIndex = 0;
       network._lineDetailLowFpsSeconds = 0;
       network._lineDetailRecoverySeconds = 0;
     }
-    network._lineDetailPressure = !!densityPressure;
-    diagnostics.pressure = network._lineDetailPressure;
+    diagnostics.maxCellOccupancy = maxCellOccupancy;
+    diagnostics.pressure = network._lineDetailFramePressure;
     diagnostics.qualityLevel = LINE_DETAIL_LEVELS[network._lineDetailQualityIndex].name;
   }
 
@@ -502,15 +521,11 @@
   function evaluateAdaptiveLine(network, particleA, particleB, alphaFactor, segmentCount) {
     var diagnostics = network.lineDetailDiagnostics;
     diagnostics.candidateConnections++;
+    diagnostics.candidateSegments += segmentCount;
     if (network.options.adaptiveLineDetail !== true && network.options.cellularLineClusters !== true) {
       diagnostics.acceptedLogicalLines++;
       diagnostics.emittedSegments += segmentCount;
       return alphaFactor;
-    }
-
-    if (!network._lineDetailPressure && diagnostics.emittedSegments >= LINE_DETAIL_PRESSURE_SEGMENTS) {
-      network._lineDetailPressure = true;
-      diagnostics.pressure = true;
     }
 
     var indexA = particleA.index | 0;
@@ -518,7 +533,7 @@
     var links = network._lineDetailLinkCounts;
     var budgetStartTile = -1;
     var budgetEndTile = -1;
-    if (network._lineDetailPressure) {
+    if (network._lineDetailFramePressure) {
       var cellularClusters = network.options.cellularLineClusters === true;
       var levels = cellularClusters ? CELLULAR_LINE_DETAIL_LEVELS : LINE_DETAIL_LEVELS;
       var level = levels[network._lineDetailQualityIndex];
@@ -768,6 +783,8 @@
       this._lineDetailLowFpsSeconds = 0;
       this._lineDetailRecoverySeconds = 0;
       this._lineDetailPressure = false;
+      this._lineDetailFramePressure = false;
+      this._lineDetailPreviousCandidateSegments = 0;
       this._lineDetailLinkCounts = null;
       this._lineDetailParticleTiles = null;
       this._lineDetailCoverage = null;
@@ -4423,7 +4440,7 @@
       }
       var grid = this.grid;
       var lineDetailEnabled = prepareLineDetailFrame(this);
-      var lineDensityPressure = false;
+      var lineMaxCellOccupancy = 0;
 
       // Assign particles to grid cells
       for (i = 0; i < numParticles; i++) {
@@ -4438,7 +4455,9 @@
         var cellIndex = gridX + gridY * gridWidth;
         if (grid[cellIndex].length === 0) this._touchedCells.push(cellIndex);
         grid[cellIndex].push(particle);
-        if (grid[cellIndex].length === LINE_DETAIL_DENSITY_THRESHOLD) lineDensityPressure = true;
+        if (lineDetailEnabled && grid[cellIndex].length > lineMaxCellOccupancy) {
+          lineMaxCellOccupancy = grid[cellIndex].length;
+        }
         if (lineDetailEnabled) {
           var coverageX = Math.min(
             Math.max(Math.floor(particle.x / LINE_DETAIL_TILE_SIZE), 0),
@@ -4544,7 +4563,7 @@
         }
       }
 
-      if (lineDetailEnabled) beginLineDetailFrame(this, now, elapsedSeconds, lineDensityPressure);
+      if (lineDetailEnabled) beginLineDetailFrame(this, now, elapsedSeconds, lineMaxCellOccupancy);
 
       if ((this.glRenderer && this.glRenderer.addLine) || options.blackHoleLineColor === true) {
         prepareFrameLineColors(this);
