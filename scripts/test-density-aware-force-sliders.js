@@ -250,6 +250,160 @@ async function main() {
     assert(resetRange.attraction.max >= resetRange.params.attraction);
     assert(resetRange.repulsion.max >= resetRange.params.repulsion);
 
+    const forceProfileMemory = await page.evaluate(async () => {
+      const ui = window.particleSettingsUi;
+      const pn = window.particleInstance;
+      const bindings = {};
+      function visit(api) {
+        for (const child of Array.from(api.children || [])) visit(child);
+        for (const tabPage of Array.from(api.pages || [])) visit(tabPage);
+        if (api.label) bindings[api.label] = api;
+      }
+      visit(ui.pane);
+
+      const requiredLabels = [
+        'Particle Attraction',
+        'Particle Repulsion',
+        'Interaction Distance',
+        'Attraction Force',
+        'Repulsion Force'
+      ];
+      if (requiredLabels.some(label => !bindings[label])) {
+        throw new Error('force-profile controls were not found');
+      }
+
+      const controllers = Object.fromEntries(requiredLabels.map(label => [label, bindings[label].controller]));
+      const textInput = label => bindings[label].controller.valueController.textC_.view.element.querySelector('input');
+      const toggleInput = label => bindings[label].element.querySelector('input');
+      const nextFrame = () => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+      async function toggle(label) {
+        toggleInput(label).click();
+        await nextFrame();
+      }
+      async function setNumber(label, value) {
+        const input = textInput(label);
+        input.focus();
+        bindings[label].controller.value.setRawValue(value);
+        input.blur();
+        await nextFrame();
+      }
+      function state() {
+        return {
+          attractionEnabled: ui.params.particleAttraction,
+          repulsionEnabled: ui.params.particleRepulsion,
+          distance: ui.params.particleInteractionDistance,
+          attractionForce: ui.params.particleAttractionForce,
+          repulsionForce: ui.params.particleRepulsionForce,
+          optionDistance: pn.options.particleInteractionDistance,
+          optionAttractionForce: pn.options.particleAttractionForce,
+          optionRepulsionForce: pn.options.particleRepulsionForce,
+          attractionMaximum: bindings['Attraction Force'].controller.valueController.sliderC_.props.get('max'),
+          repulsionMaximum: bindings['Repulsion Force'].controller.valueController.sliderC_.props.get('max')
+        };
+      }
+
+      ui.doReset();
+      await nextFrame();
+      await toggle('Particle Attraction');
+      await setNumber('Interaction Distance', 84);
+      await setNumber('Attraction Force', 4.35);
+      const attractionSet = state();
+
+      const distanceInput = textInput('Interaction Distance');
+      distanceInput.focus();
+      await toggle('Particle Repulsion');
+      const repulsionDefault = state();
+      const focusPreservedOnSwitch = document.activeElement === distanceInput;
+      await setNumber('Interaction Distance', 37);
+      await setNumber('Repulsion Force', 4.1);
+      const repulsionSet = state();
+      await toggle('Particle Repulsion');
+      const repulsionOff = state();
+      await toggle('Particle Repulsion');
+      const repulsionRestored = state();
+      await toggle('Particle Attraction');
+      const attractionRestored = state();
+      ui.params.particleAttractionForce = 7.35;
+      window.applyParamsToNetwork(pn, ui.params);
+      await toggle('Particle Attraction');
+      await toggle('Particle Attraction');
+      const highAttractionRestored = state();
+      await toggle('Particle Repulsion');
+      await toggle('Particle Attraction');
+      const highAttractionRepeated = state();
+
+      await setNumber('Interaction Distance', 55);
+      await setNumber('Attraction Force', 0);
+      await toggle('Particle Repulsion');
+      await toggle('Particle Attraction');
+      const zeroRestored = state();
+
+      ui.doReset();
+      await nextFrame();
+      await toggle('Particle Attraction');
+      const attractionAfterReset = state();
+      await toggle('Particle Repulsion');
+      const repulsionAfterReset = state();
+      ui.doReset();
+
+      return {
+        attractionSet,
+        repulsionDefault,
+        repulsionSet,
+        repulsionOff,
+        repulsionRestored,
+        attractionRestored,
+        highAttractionRestored,
+        highAttractionRepeated,
+        zeroRestored,
+        attractionAfterReset,
+        repulsionAfterReset,
+        focusPreservedOnSwitch,
+        bindingIdentityPreserved: requiredLabels.every(label => bindings[label].controller === controllers[label])
+      };
+    });
+    assert.deepStrictEqual(
+      [forceProfileMemory.attractionSet.distance, forceProfileMemory.attractionSet.attractionForce],
+      [84, 4.35]
+    );
+    assert.deepStrictEqual(
+      [forceProfileMemory.repulsionDefault.distance, forceProfileMemory.repulsionDefault.repulsionForce],
+      [initial.interactionDistance, 3]
+    );
+    assert.deepStrictEqual(
+      [forceProfileMemory.repulsionSet.distance, forceProfileMemory.repulsionSet.repulsionForce],
+      [37, 4.1]
+    );
+    assert.strictEqual(forceProfileMemory.repulsionOff.repulsionEnabled, false);
+    assert.deepStrictEqual(
+      [forceProfileMemory.repulsionRestored.distance, forceProfileMemory.repulsionRestored.repulsionForce],
+      [37, 4.1]
+    );
+    assert.deepStrictEqual(
+      [forceProfileMemory.attractionRestored.distance, forceProfileMemory.attractionRestored.attractionForce],
+      [84, 4.35]
+    );
+    for (const restored of [forceProfileMemory.highAttractionRestored, forceProfileMemory.highAttractionRepeated]) {
+      assert.deepStrictEqual([restored.distance, restored.attractionForce], [84, 7.35]);
+      assert.strictEqual(restored.attractionEnabled, true);
+      assert.strictEqual(restored.repulsionEnabled, false);
+      assert(restored.attractionMaximum >= restored.attractionForce);
+    }
+    assert.deepStrictEqual(
+      [forceProfileMemory.zeroRestored.distance, forceProfileMemory.zeroRestored.attractionForce],
+      [55, 0]
+    );
+    assert.deepStrictEqual(
+      [forceProfileMemory.attractionAfterReset.distance, forceProfileMemory.attractionAfterReset.attractionForce],
+      [initial.interactionDistance, 5]
+    );
+    assert.deepStrictEqual(
+      [forceProfileMemory.repulsionAfterReset.distance, forceProfileMemory.repulsionAfterReset.repulsionForce],
+      [initial.interactionDistance, 3]
+    );
+    assert.strictEqual(forceProfileMemory.focusPreservedOnSwitch, true);
+    assert.strictEqual(forceProfileMemory.bindingIdentityPreserved, true);
+
     await page.evaluate(() => {
       const ui = window.particleSettingsUi;
       const pn = window.particleInstance;
@@ -376,6 +530,7 @@ async function main() {
       },
       hiddenPanel,
       reset,
+      forceProfileMemory,
       resized: {
         particleCount: resized.particleCount,
         canvas: `${resized.width}x${resized.height}`,

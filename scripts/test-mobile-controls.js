@@ -513,7 +513,8 @@ async function runGestures(page, screenshotDir) {
   assert.deepStrictEqual(mobileOutsideEntry, { x: 273, y: 713 }, 'touch snapping reacquired outside the 12px entry threshold');
   assert(mobileSnapEntered.guide && mobileSnapEntered.guide.xLabel === 'X 260 px' &&
     mobileSnapEntered.guide.yLabel === 'Y 700 px', 'touch drag did not expose coordinate guides');
-  assert(mobileSnapEntered.measurements.every(measurement => measurement.radiusLabel && measurement.behaviorLabel),
+  assert(mobileSnapEntered.layout?.metadataRecords?.length === mobileSnapEntered.measurements.length &&
+    mobileSnapEntered.layout.metadataRecords.every(record => record.positionLabel && record.radiusLabel && record.behaviorLabel),
     'touch drag measurements did not expose target metadata');
   assert(mobileRadiusOnly.x === 260 && mobileRadiusOnly.y === 700 && mobileRadiusOnly.radius > 60 &&
     mobileRadiusOnly.snap?.snapXTargetId === mobileSnapIds.targetX &&
@@ -522,6 +523,9 @@ async function runGestures(page, screenshotDir) {
   'radius-only touch adjustment changed the snapped center or cleared annotations');
   assert(mobileSnapEntered.layout && mobileSnapEntered.layout.guideLabels.length === 2 &&
     mobileSnapEntered.layout.metadataLabels.length === 2, 'DPR2 touch drag did not paint shared overlay annotations');
+  assert(mobileSnapEntered.layout.gridLines.length === 10 &&
+    mobileSnapEntered.layout.centerMarker?.x === 195 && mobileSnapEntered.layout.centerMarker?.y === 422,
+  'DPR2 touch drag did not expose the full logical-coordinate grid and center marker');
   assert.deepStrictEqual(mobileSnapEntered.overlay, {
     width: 780,
     height: 1688,

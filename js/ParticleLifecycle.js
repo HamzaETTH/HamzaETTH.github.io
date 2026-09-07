@@ -120,6 +120,8 @@
       this._gravityWellSnapState = null;
       this._gravityWellGuideState = null;
       this._gravityWellOverlayLayout = null;
+      this.gravityWellInfoExpanded = false;
+      this._selectionMarkerDiagnostics = null;
       this.p = null;
 
       if (this.performanceMonitor && this.performanceMonitor.destroy) this.performanceMonitor.destroy();

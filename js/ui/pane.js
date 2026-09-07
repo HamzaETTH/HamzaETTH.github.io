@@ -88,6 +88,16 @@ function handleDeleteSelectionHotkey(pn) {
   if (pn && typeof pn.removeGravityWellUnderPointer === 'function') pn.removeGravityWellUnderPointer();
 }
 
+function handleGravityWellInfoHotkey(pn, event, manager = window.hotkeyManager) {
+  if (event && event.repeat) return;
+  const enabled = pn && typeof pn.toggleGravityWellInfo === 'function'
+    ? pn.toggleGravityWellInfo()
+    : false;
+  if (manager && typeof manager.showToast === 'function') {
+    manager.showToast(`Gravity well info: ${enabled ? 'Enabled' : 'Disabled'}`, { duration: 1500 });
+  }
+}
+
 function recommendedParticleForceMaximum(pn) {
   const particleCount = Number.isFinite(pn && pn.numParticles) ? Math.max(0, pn.numParticles) : 0;
   const distance = Number.isFinite(pn && pn.options && pn.options.particleInteractionDistance)
@@ -230,6 +240,49 @@ async function buildPane() {
   const PARAMS = buildParamsFromNetwork(pn);
   // Snapshot current as reset baseline rather than global defaults
   const DEFAULTS = { ...PARAMS };
+  const forceProfileDefaults = {
+    attraction: {
+      distance: DEFAULTS.particleInteractionDistance,
+      force: DEFAULTS.particleAttractionForce
+    },
+    repulsion: {
+      distance: DEFAULTS.particleInteractionDistance,
+      force: DEFAULTS.particleRepulsionForce
+    }
+  };
+  const forceProfiles = {
+    attraction: { ...forceProfileDefaults.attraction },
+    repulsion: { ...forceProfileDefaults.repulsion }
+  };
+  let refreshingParticleForceControls = false;
+
+  function forceParamKey(mode) {
+    return mode === 'attraction' ? 'particleAttractionForce' : 'particleRepulsionForce';
+  }
+
+  function captureParticleForceProfile(mode) {
+    if (!mode || !forceProfiles[mode]) return;
+    forceProfiles[mode].distance = PARAMS.particleInteractionDistance;
+    forceProfiles[mode].force = PARAMS[forceParamKey(mode)];
+  }
+
+  function restoreParticleForceProfile(mode) {
+    const profile = forceProfiles[mode];
+    if (!profile) return;
+    PARAMS.particleInteractionDistance = profile.distance;
+    PARAMS[forceParamKey(mode)] = profile.force;
+  }
+
+  function resetParticleForceProfiles() {
+    Object.assign(forceProfiles.attraction, forceProfileDefaults.attraction);
+    Object.assign(forceProfiles.repulsion, forceProfileDefaults.repulsion);
+  }
+
+  function currentParticleForceMode() {
+    if (PARAMS.particleAttraction && !PARAMS.particleRepulsion) return 'attraction';
+    if (PARAMS.particleRepulsion && !PARAMS.particleAttraction) return 'repulsion';
+    return null;
+  }
   const initialRecommendedParticleForceMaximum = recommendedParticleForceMaximum(pn);
   const WELL_PARAMS = {
     radius: pn.options.gravityWellRadius || 150,
@@ -241,6 +294,8 @@ async function buildPane() {
   // Shared reset that truly restores defaults and clears transient state
   function doReset() {
     Object.keys(DEFAULTS).forEach(k => { PARAMS[k] = DEFAULTS[k]; });
+    resetParticleForceProfiles();
+    pn.gravityWellInfoExpanded = false;
     applyParamsToNetwork(pn, PARAMS);
     // Clear transient forces and effects
     try {
@@ -265,7 +320,14 @@ async function buildPane() {
       }
     } catch (_) {}
     updateParticleForceRanges(true);
-    if (typeof pane.refresh === 'function') pane.refresh();
+    if (typeof pane.refresh === 'function') {
+      refreshingParticleForceControls = true;
+      try {
+        pane.refresh();
+      } finally {
+        refreshingParticleForceControls = false;
+      }
+    }
   }
 
   // Top-level Performance Overlay checkbox (pinned at top)
@@ -357,23 +419,66 @@ async function buildPane() {
   // Particle collisions and forces
   const bindParticleCollision = mainParticles.addBinding(PARAMS, 'particleCollision', { label: 'Particle Collision' }).on('change', () => { applyParamsToNetwork(pn, PARAMS); updateVisibility(); });
   const bindParticleAttraction = mainParticles.addBinding(PARAMS, 'particleAttraction', { label: 'Particle Attraction' }).on('change', () => {
-    if (PARAMS.particleAttraction) {
-      PARAMS.particleRepulsion = false;
-      bindParticleRepulsion.refresh();
+    if (refreshingParticleForceControls) return;
+    refreshingParticleForceControls = true;
+    try {
+      if (PARAMS.particleAttraction) {
+        if (PARAMS.particleRepulsion) captureParticleForceProfile('repulsion');
+        PARAMS.particleRepulsion = false;
+        restoreParticleForceProfile('attraction');
+        setParticleForceBindingMaximum(
+          bindParticleAttractionForce,
+          Math.max(PARTICLE_FORCE_RECOMMENDED_MAX, PARAMS.particleAttractionForce)
+        );
+      } else {
+        captureParticleForceProfile('attraction');
+      }
+      applyParamsToNetwork(pn, PARAMS);
+      if (PARAMS.particleAttraction) {
+        bindParticleInteractionDistance.refresh();
+        bindParticleAttractionForce.refresh();
+      }
+      if (!PARAMS.particleRepulsion) {
+        bindParticleRepulsion.refresh();
+      }
+      updateVisibility();
+      updateParticleForceRanges(true);
+    } finally {
+      refreshingParticleForceControls = false;
     }
-    applyParamsToNetwork(pn, PARAMS);
-    updateVisibility();
   });
   const bindParticleRepulsion = mainParticles.addBinding(PARAMS, 'particleRepulsion', { label: 'Particle Repulsion' }).on('change', () => {
-    if (PARAMS.particleRepulsion) {
-      PARAMS.particleAttraction = false;
-      bindParticleAttraction.refresh();
+    if (refreshingParticleForceControls) return;
+    refreshingParticleForceControls = true;
+    try {
+      if (PARAMS.particleRepulsion) {
+        if (PARAMS.particleAttraction) captureParticleForceProfile('attraction');
+        PARAMS.particleAttraction = false;
+        restoreParticleForceProfile('repulsion');
+        setParticleForceBindingMaximum(
+          bindParticleRepulsionForce,
+          Math.max(PARTICLE_FORCE_RECOMMENDED_MAX, PARAMS.particleRepulsionForce)
+        );
+      } else {
+        captureParticleForceProfile('repulsion');
+      }
+      applyParamsToNetwork(pn, PARAMS);
+      if (PARAMS.particleRepulsion) {
+        bindParticleInteractionDistance.refresh();
+        bindParticleRepulsionForce.refresh();
+      }
+      if (!PARAMS.particleAttraction) {
+        bindParticleAttraction.refresh();
+      }
+      updateVisibility();
+      updateParticleForceRanges(true);
+    } finally {
+      refreshingParticleForceControls = false;
     }
-    applyParamsToNetwork(pn, PARAMS);
-    updateVisibility();
   });
   const bindParticleInteractionDistance = mainParticles.addBinding(PARAMS, 'particleInteractionDistance', { min: 0, max: 200, step: 1, label: 'Interaction Distance' }).on('change', () => {
     applyParamsToNetwork(pn, PARAMS);
+    captureParticleForceProfile(currentParticleForceMode());
     updateParticleForceRanges();
   });
   const bindParticleAttractionForce = mainParticles.addBinding(PARAMS, 'particleAttractionForce', {
@@ -383,6 +488,7 @@ async function buildPane() {
     label: 'Attraction Force'
   }).on('change', () => {
     applyParamsToNetwork(pn, PARAMS);
+    captureParticleForceProfile(currentParticleForceMode());
     updateParticleForceRanges();
   });
   const bindParticleRepulsionForce = mainParticles.addBinding(PARAMS, 'particleRepulsionForce', {
@@ -392,6 +498,7 @@ async function buildPane() {
     label: 'Repulsion Force'
   }).on('change', () => {
     applyParamsToNetwork(pn, PARAMS);
+    captureParticleForceProfile(currentParticleForceMode());
     updateParticleForceRanges();
   });
 
@@ -923,6 +1030,9 @@ async function buildPane() {
       else pn.beginGravityWellPlacement('black', true);
     }, 'Add Black Hole (Shift+B Benchmark)');
     window.hotkeyManager.register('w', () => pn.beginGravityWellPlacement('white', true), 'Add White Hole');
+    window.hotkeyManager.register('i', (context, event) => {
+      handleGravityWellInfoHotkey(pn, event, window.hotkeyManager);
+    }, 'Toggle Gravity Well Information');
     window.hotkeyManager.register('l', () => {
       const capped = pn.toggleGravityWellAccelerationCap();
       window.hotkeyManager.showToast(`Gravity acceleration: ${capped ? `Capped at ${pn.gravityWellAccelerationLimit}` : 'Unlimited'}`, { duration: 1500 });
@@ -1078,6 +1188,9 @@ function registerBootstrapHotkeys() {
     window._benchmarkRunner.start();
   }, 'Add Black Hole (Shift+B Benchmark)');
   manager.register('w', () => pn.beginGravityWellPlacement('white', true), 'Add White Hole');
+  manager.register('i', (context, event) => {
+    handleGravityWellInfoHotkey(pn, event, manager);
+  }, 'Toggle Gravity Well Information');
   manager.register('l', () => {
     const capped = pn.toggleGravityWellAccelerationCap();
     manager.showToast(`Gravity acceleration: ${capped ? `Capped at ${pn.gravityWellAccelerationLimit}` : 'Unlimited'}`, { duration: 1500 });

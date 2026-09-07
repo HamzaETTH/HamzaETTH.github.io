@@ -87,6 +87,125 @@ async function main() {
       };
     });
 
+    await page.evaluate(() => {
+      const pn = window.particleInstance;
+      pn.selectedParticleIndices = new Set([2]);
+      pn._ensureAnimationLoop();
+    });
+    await page.keyboard.down('Control');
+    await page.mouse.click(250, 250);
+    const ctrlClickFirst = await page.evaluate(() => {
+      const pn = window.particleInstance;
+      return {
+        particles: Array.from(pn.selectedParticleIndices),
+        wells: Array.from(pn.selectedGravityWellIds),
+        primary: pn.selectedGravityWellId,
+        marquee: pn._selectionMarqueeState
+      };
+    });
+    await page.mouse.click(800, 500);
+    const ctrlClickSecond = await page.evaluate(() => {
+      const pn = window.particleInstance;
+      return {
+        particles: Array.from(pn.selectedParticleIndices),
+        wells: Array.from(pn.selectedGravityWellIds),
+        primary: pn.selectedGravityWellId,
+        marquee: pn._selectionMarqueeState
+      };
+    });
+    await page.mouse.click(800, 500);
+    const ctrlClickRemovedPrimary = await page.evaluate(() => {
+      const pn = window.particleInstance;
+      return {
+        particles: Array.from(pn.selectedParticleIndices),
+        wells: Array.from(pn.selectedGravityWellIds),
+        primary: pn.selectedGravityWellId
+      };
+    });
+    await page.mouse.click(800, 500);
+    await page.keyboard.up('Control');
+    await page.waitForTimeout(80);
+    const selectedWellMarkers = await page.evaluate(() => {
+      const pn = window.particleInstance;
+      const layout = pn._gravityWellOverlayLayout;
+      return {
+        markers: layout?.selectionMarkers?.map(marker => ({ ...marker })) || [],
+        distanceRecords: layout?.distanceRecords?.map(record => ({ ...record })) || [],
+        metadataRecords: layout?.metadataRecords?.map(record => ({ ...record })) || [],
+        scope: layout?.informationScope,
+        overlayVisible: pn._selectionOverlay?.style.display === 'block'
+      };
+    });
+
+    const groupGuideStart = await page.evaluate(() => {
+      const pn = window.particleInstance;
+      return pn.gravityWells.slice(0, 2).map(well => ({ id: well.id, x: well.x, y: well.y }));
+    });
+    await page.mouse.move(250, 250);
+    await page.mouse.down({ button: 'left' });
+    await page.mouse.move(410, 230, { steps: 3 });
+    await page.waitForTimeout(50);
+    const groupGridSnapped = await page.evaluate(start => {
+      const pn = window.particleInstance;
+      return {
+        wells: start.map(source => {
+          const well = pn.getGravityWell(source.id);
+          return { id: source.id, x: well.x, y: well.y, deltaX: well.x - source.x, deltaY: well.y - source.y };
+        }),
+        guide: pn._gravityWellGuideState ? JSON.parse(JSON.stringify(pn._gravityWellGuideState)) : null,
+        layout: pn._gravityWellOverlayLayout ? JSON.parse(JSON.stringify(pn._gravityWellOverlayLayout)) : null
+      };
+    }, groupGuideStart);
+    await page.keyboard.down('Shift');
+    await page.mouse.move(415, 235, { steps: 2 });
+    await page.waitForTimeout(50);
+    const groupGridBypassed = await page.evaluate(() => {
+      const pn = window.particleInstance;
+      return {
+        guide: pn._gravityWellGuideState ? JSON.parse(JSON.stringify(pn._gravityWellGuideState)) : null,
+        layout: pn._gravityWellOverlayLayout ? JSON.parse(JSON.stringify(pn._gravityWellOverlayLayout)) : null
+      };
+    });
+    await page.keyboard.up('Shift');
+    await page.mouse.up({ button: 'left' });
+
+    const twoWellPasteSetup = await page.evaluate(() => {
+      const pn = window.particleInstance;
+      pn.selectedParticleIndices.clear();
+      pn.selectedGravityWellIds = new Set(pn.gravityWells.slice(0, 2).map(well => well.id));
+      pn.selectedGravityWellId = pn.gravityWells[1].id;
+      pn.copyObjectSelection();
+      pn._gravityPointer = { x: 640, y: 180 };
+      return pn.pasteObjectSelection();
+    });
+    await page.waitForTimeout(80);
+    const twoWellPasteInfo = await page.evaluate(() => {
+      const pn = window.particleInstance;
+      const selectedIds = Array.from(pn.selectedGravityWellIds);
+      const layout = pn._gravityWellOverlayLayout;
+      const result = {
+        selectedIds,
+        primary: pn.selectedGravityWellId,
+        scope: layout?.informationScope,
+        distanceRecords: layout?.distanceRecords?.map(record => ({ ...record })) || [],
+        metadataRecords: layout?.metadataRecords?.map(record => ({ ...record })) || [],
+        markers: layout?.selectionMarkers?.map(marker => ({ ...marker })) || []
+      };
+      return result;
+    });
+    if (options.screenshotDir) {
+      await page.screenshot({ path: path.join(options.screenshotDir, 'selected-well-guides.png') });
+    }
+    await page.evaluate(() => {
+      const pn = window.particleInstance;
+      pn.undoObjectSelection();
+      pn.gravityWells[0].x = 250;
+      pn.gravityWells[0].y = 250;
+      pn.gravityWells[1].x = 800;
+      pn.gravityWells[1].y = 500;
+      pn.clearObjectSelection();
+    });
+
     await page.keyboard.down('Control');
     await page.mouse.move(100, 100);
     await page.mouse.down({ button: 'left' });
@@ -690,6 +809,39 @@ async function main() {
       paste.well.innerColor === paste.expectedWell.innerColor && paste.well.outerColor === paste.expectedWell.outerColor;
 
     const assertions = {
+      ctrlCmdClickTogglesWellsWithoutClearingParticles:
+        ctrlClickFirst.particles.join(',') === '2' &&
+        ctrlClickFirst.wells.join(',') === setup.selectedWellId &&
+        ctrlClickFirst.primary === setup.selectedWellId && !ctrlClickFirst.marquee &&
+        ctrlClickSecond.particles.join(',') === '2' && ctrlClickSecond.wells.length === 2 &&
+        ctrlClickSecond.wells.includes(setup.selectedWellId) && ctrlClickSecond.wells.includes(setup.outsideWellId) &&
+        ctrlClickSecond.primary === setup.outsideWellId && !ctrlClickSecond.marquee &&
+        ctrlClickRemovedPrimary.particles.join(',') === '2' &&
+        ctrlClickRemovedPrimary.wells.join(',') === setup.selectedWellId &&
+        ctrlClickRemovedPrimary.primary === setup.selectedWellId,
+      selectedWellsExposeMarkersAndUniqueInformation:
+        selectedWellMarkers.overlayVisible && selectedWellMarkers.scope === 'selection' &&
+        selectedWellMarkers.markers.length === 2 &&
+        selectedWellMarkers.markers.filter(marker => marker.primary).length === 1 &&
+        selectedWellMarkers.markers.some(marker => marker.id === setup.outsideWellId && marker.primary) &&
+        selectedWellMarkers.distanceRecords.length === 1 && selectedWellMarkers.metadataRecords.length === 2,
+      groupDragUsesPrimaryWellSnapAndFullGrid:
+        Boolean(groupGridSnapped.guide) && groupGridSnapped.guide.activeId === setup.outsideWellId &&
+        groupGridSnapped.wells.length === 2 &&
+        groupGridSnapped.wells.every(well => close(well.deltaX, 160) && close(well.deltaY, -20)) &&
+        groupGridSnapped.layout?.gridLines?.length === 10 &&
+        groupGridSnapped.layout.gridLines.some(line => line.axis === 'x' && close(line.fraction, 0.75) && line.state === 'snapped') &&
+        groupGridSnapped.layout.gridLines.some(line => line.axis === 'y' && close(line.fraction, 2 / 3) && line.state === 'snapped'),
+      shiftBypassesGroupSnapWithoutHidingGrid:
+        Boolean(groupGridBypassed.guide) && groupGridBypassed.guide.bypassSnap &&
+        groupGridBypassed.layout?.gridLines?.length === 10 &&
+        !groupGridBypassed.layout.gridLines.some(line => line.state === 'snapped'),
+      twoWellPasteImmediatelyShowsUniqueInformation:
+        twoWellPasteSetup?.wells === 2 && twoWellPasteInfo.selectedIds.length === 2 &&
+        twoWellPasteInfo.selectedIds.includes(twoWellPasteInfo.primary) &&
+        twoWellPasteInfo.scope === 'selection' && twoWellPasteInfo.distanceRecords.length === 1 &&
+        twoWellPasteInfo.metadataRecords.length === 2 && twoWellPasteInfo.markers.length === 2 &&
+        twoWellPasteInfo.distanceRecords[0].sourceId !== twoWellPasteInfo.distanceRecords[0].targetId,
       marqueeMatchesDesktopSelection: marquee.display === 'block' && marquee.borderStyle === 'dashed' &&
         marquee.backgroundColor !== 'rgba(0, 0, 0, 0)' && close(marquee.left, 100) && close(marquee.top, 100) &&
         close(marquee.width, 300, 2) && close(marquee.height, 300, 2) && marquee.cursor === 'crosshair',
@@ -780,6 +932,14 @@ async function main() {
       passed: Object.values(assertions).every(Boolean),
       assertions,
       browserErrors,
+      ctrlClickFirst,
+      ctrlClickSecond,
+      ctrlClickRemovedPrimary,
+      selectedWellMarkers,
+      groupGridSnapped,
+      groupGridBypassed,
+      twoWellPasteSetup,
+      twoWellPasteInfo,
       marquee,
       selected,
       groupDragging,

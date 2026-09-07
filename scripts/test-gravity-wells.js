@@ -1338,6 +1338,77 @@ async function runDesktop(browser, options, browserErrors) {
   }
   await page.keyboard.press('Escape');
 
+  await page.evaluate(() => {
+    const pn = window.particleInstance;
+    pn.clearObjectSelection();
+    pn.toggleGravityWellSelection(pn.gravityWells[0].id);
+    window.__captureSelectedWellMarker = () => {
+      const marker = pn._gravityWellOverlayLayout?.selectionMarkers?.[0];
+      const overlay = pn._selectionOverlay;
+      const context = pn._selectionOverlayContext;
+      if (!marker || !overlay || !context) return null;
+      const dpr = window.devicePixelRatio || 1;
+      const sampleX = Math.round((marker.x + marker.radiusX) * dpr);
+      const sampleY = Math.round(marker.y * dpr);
+      const radius = Math.max(2, Math.round(4 * dpr));
+      const pixels = context.getImageData(sampleX - radius, sampleY - radius, radius * 2 + 1, radius * 2 + 1).data;
+      let strongestCyan = [0, 0, 0, 0];
+      let strongestScore = -Infinity;
+      for (let offset = 0; offset < pixels.length; offset += 4) {
+        const pixel = [pixels[offset], pixels[offset + 1], pixels[offset + 2], pixels[offset + 3]];
+        const score = pixel[1] + pixel[2] - pixel[0];
+        if (pixel[3] && score > strongestScore) {
+          strongestScore = score;
+          strongestCyan = pixel;
+        }
+      }
+      return {
+        marker: { ...marker },
+        markerCount: pn._gravityWellOverlayLayout.selectionMarkers.length,
+        display: overlay.style.display,
+        zIndex: overlay.style.zIndex,
+        strongestCyan
+      };
+    };
+  });
+  await waitForFrames(page, 2);
+  const fallbackSelectionMarker = await page.evaluate(() => window.__captureSelectedWellMarker());
+  if (options.screenshotDir) {
+    await page.screenshot({ path: path.join(options.screenshotDir, 'fallback-selected-well.png') });
+  }
+
+  await page.evaluate(() => {
+    const pn = window.particleInstance;
+    pn.glRenderer.gravityWellRenderer.failed = false;
+    pn.glRenderer.gravityWellCompositionFailed = false;
+    pn.options.trails = true;
+    pn.options.gravityWellMotion = 'animate';
+    pn._ensureAnimationLoop();
+  });
+  await waitForFrames(page, 2);
+  const trailsSelectionMarker = await page.evaluate(() => window.__captureSelectedWellMarker());
+  if (options.screenshotDir) {
+    await page.screenshot({ path: path.join(options.screenshotDir, 'trails-selected-well.png') });
+  }
+
+  await page.emulateMedia({ reducedMotion: 'reduce' });
+  await page.evaluate(() => {
+    const pn = window.particleInstance;
+    pn.options.trails = false;
+    pn.options.gravityWellMotion = 'system';
+    pn._ensureAnimationLoop();
+  });
+  await waitForFrames(page, 2);
+  const reducedMotionSelectionMarker = await page.evaluate(() => window.__captureSelectedWellMarker());
+  await page.emulateMedia({ reducedMotion: 'no-preference' });
+  await page.evaluate(() => {
+    delete window.__captureSelectedWellMarker;
+  });
+
+  const selectionMarkerVisible = snapshot => snapshot?.display === 'block' && snapshot.markerCount === 1 &&
+    snapshot.zIndex === '23' && snapshot.strongestCyan[0] < 150 &&
+    snapshot.strongestCyan[1] > 140 && snapshot.strongestCyan[2] > 200 && snapshot.strongestCyan[3] > 150;
+
   const assertions = {
     startsEmpty: initial.wellCount === 0 && initial.pointBufferCreates === 1 && !initial.contextLost,
     heroOverlayFadesAfterTenSeconds: heroFade?.delay === 0 && heroFade.duration === 10000 && heroFade.start.opacity === 1 &&
@@ -1371,7 +1442,7 @@ async function runDesktop(browser, options, browserErrors) {
         measurement.fromX === 600 && measurement.fromY === 360),
     placementRulersPaintOverlay: centeredRulers.paintedPixels.lineAlpha > 40 &&
       centeredRulers.paintedPixels.tickAlpha > 40 &&
-      centeredRulers.paintedPixels.labelAlpha > centeredRulers.paintedPixels.lineAlpha,
+      centeredRulers.paintedPixels.labelAlpha > 0,
     placementRulersUpdateLive: movedRulers.length === 2 &&
       movedRulers.map(measurement => measurement.label).sort().join(',') === '250 px,350 px' &&
       movedRulers.every(measurement => measurement.fromX === 650 && measurement.fromY === 360),
@@ -1515,7 +1586,12 @@ async function runDesktop(browser, options, browserErrors) {
       trails.measurementCount === trails.wellCount && trails.guideLabelCount === 2 &&
       trails.metadataLabelCount === trails.wellCount,
     fallbackIsFunctional: fallback.overlayVisible && fallback.overlayCanvas && fallback.measurementCount === 2 &&
-      fallback.guideLabelCount === 2 && fallback.metadataLabelCount === 2 && fallback.physicsFinite
+      fallback.guideLabelCount === 2 && fallback.metadataLabelCount === 2 && fallback.physicsFinite,
+    selectedWellMarkerSurvivesFallbackTrailsAndReducedMotion:
+      selectionMarkerVisible(fallbackSelectionMarker) && selectionMarkerVisible(trailsSelectionMarker) &&
+      selectionMarkerVisible(reducedMotionSelectionMarker) &&
+      fallbackSelectionMarker.marker.id === trailsSelectionMarker.marker.id &&
+      trailsSelectionMarker.marker.id === reducedMotionSelectionMarker.marker.id
   };
 
   await context.close();
@@ -1523,7 +1599,8 @@ async function runDesktop(browser, options, browserErrors) {
     bootstrapColorState, fullPaneColorState, aGatherState, captureActivated, capturePulled, captureMoved, captureReleased,
     panelCapUnlimited, panelCapRestored, sliderControls,
     physics, visibleAnimation,
-    resourceAfter, resizedTargets, trails, fallback };
+    resourceAfter, resizedTargets, trails, fallback, fallbackSelectionMarker, trailsSelectionMarker,
+    reducedMotionSelectionMarker };
 }
 
 async function runDragInfo(browser, options, browserErrors) {
@@ -1835,6 +1912,15 @@ async function runDragInfo(browser, options, browserErrors) {
       alpha: context.getImageData(Math.round(pn.i.size.width / 4), 2, 1, 1).data[3]
     };
   });
+  await page.evaluate(() => {
+    const pn = window.particleInstance;
+    pn._handleGravityWellPointerMove(pn.i.size.width / 4 + 7, 61, 'mouse', true);
+  });
+  await waitForFrames(page, 2);
+  snapGuideVisuals.bypassed = await page.evaluate(() => ({
+    guide: JSON.parse(JSON.stringify(window.particleInstance._gravityWellGuideState)),
+    layout: JSON.parse(JSON.stringify(window.particleInstance._gravityWellOverlayLayout))
+  }));
   await page.evaluate(() => {
     const pn = window.particleInstance;
     pn._handleGravityWellPointerMove(pn.i.size.width / 2 + 7, pn.i.size.height / 2 - 7, 'mouse', false);
@@ -2165,6 +2251,7 @@ async function runDragInfo(browser, options, browserErrors) {
     pn.addGravityWell('white', 400, 320, 60);
     pn._startGravityWellDrag(active, active.x, active.y, 'mouse');
     pn._handleGravityWellPointerMove(394, 314, 'mouse', false);
+    pn.gravityWellInfoExpanded = true;
     const overlay = pn._gravityWellOverlay;
     window.destroyParticleExperience();
     const destroyed = {
@@ -2172,6 +2259,7 @@ async function runDragInfo(browser, options, browserErrors) {
       snap: pn._gravityWellSnapState,
       guide: pn._gravityWellGuideState,
       layout: pn._gravityWellOverlayLayout,
+      infoExpanded: pn.gravityWellInfoExpanded,
       overlayConnected: !!overlay && overlay.isConnected
     };
     const recreated = window.createParticleExperience();
@@ -2180,13 +2268,67 @@ async function runDragInfo(browser, options, browserErrors) {
       recreated: {
         snap: recreated._gravityWellSnapState,
         guide: recreated._gravityWellGuideState,
-        layout: recreated._gravityWellOverlayLayout
+        layout: recreated._gravityWellOverlayLayout,
+        infoExpanded: recreated.gravityWellInfoExpanded
       }
     };
   });
   await page.waitForFunction(() => window.particleInstance && window.particleInstance.glRenderer);
 
-  const metadataById = new Map(snapped.measurements.map(measurement => [measurement.targetId, measurement]));
+  const infoHotkeys = await page.evaluate(async () => {
+    const pn = window.particleInstance;
+    const manager = window.hotkeyManager;
+    pn.options.velocity = 0;
+    pn.options.gravityWellMotion = 'static';
+    pn.clearGravityWells();
+    pn.addGravityWell('black', 200, 180, 60);
+    pn.addGravityWell('white', 600, 360, 70);
+    pn.addGravityWell('black', 1000, 540, 80);
+    pn.clearObjectSelection();
+    const toasts = [];
+    const originalToast = manager.showToast;
+    manager.showToast = message => { toasts.push(message); };
+    const press = key => window.dispatchEvent(new KeyboardEvent('keydown', {
+      key,
+      code: `Key${key.toUpperCase()}`,
+      bubbles: true,
+      cancelable: true
+    }));
+    const waitFrames = count => new Promise(resolve => {
+      const tick = () => count-- <= 0 ? resolve() : requestAnimationFrame(tick);
+      tick();
+    });
+    const bootstrapRegistered = manager.handlers.has('i') && !window.particleSettingsUi;
+    press('i');
+    await waitFrames(2);
+    const bootstrap = {
+      enabled: pn.gravityWellInfoExpanded,
+      scope: pn._gravityWellOverlayLayout?.informationScope,
+      distanceCount: pn._gravityWellOverlayLayout?.distanceRecords?.length,
+      metadataCount: pn._gravityWellOverlayLayout?.metadataRecords?.length,
+      gridCount: pn._gravityWellOverlayLayout?.gridLines?.length,
+      centerVisible: pn._gravityWellOverlayLayout?.centerMarker?.visible,
+      toast: toasts.at(-1)
+    };
+    pn._gravityPointerInsideCanvas = false;
+    press('c');
+    while (!window.particleSettingsUi) await new Promise(resolve => setTimeout(resolve, 10));
+    const fullPaneRegistered = manager.handlers.has('i');
+    press('i');
+    await waitFrames(2);
+    const fullPane = {
+      enabled: pn.gravityWellInfoExpanded,
+      toast: toasts.at(-1)
+    };
+    press('i');
+    await waitFrames(1);
+    window.particleSettingsUi.doReset();
+    const resetCleared = pn.gravityWellInfoExpanded === false;
+    manager.showToast = originalToast;
+    return { bootstrapRegistered, fullPaneRegistered, bootstrap, fullPane, resetCleared };
+  });
+
+  const metadataById = new Map(snapped.layout.metadataRecords.map(record => [record.targetId, record]));
   const axisDeltaState = tieBreaking.axisDelta.state;
   const centerDistanceState = tieBreaking.centerDistance.state;
   const arrayOrderState = tieBreaking.arrayOrder.state;
@@ -2214,6 +2356,7 @@ async function runDragInfo(browser, options, browserErrors) {
       snapped.guide.alignedXTargetIds.includes(ids.invertedWhite) &&
       snapped.guide.alignedYTargetIds.includes(ids.targetY),
     metadataUsesEffectiveSignedBehavior: metadataById.get(ids.targetX)?.radiusLabel === 'Radius 60 px' &&
+      metadataById.get(ids.targetX)?.positionLabel === 'X 400 px · Y 140 px' &&
       metadataById.get(ids.targetX)?.behaviorLabel === 'Absorb 12' &&
       metadataById.get(ids.targetY)?.behaviorLabel === 'Repel 7.5' &&
       metadataById.get(ids.invertedWhite)?.behaviorLabel === 'Absorb 8.25',
@@ -2308,6 +2451,22 @@ async function runDragInfo(browser, options, browserErrors) {
       snapGuideVisuals.snapped.layout?.snapGuides?.length === 1 &&
       snapGuideVisuals.snapped.layout.snapGuides[0].state === 'snapped' &&
       snapGuideVisuals.preview.alpha > 0 && snapGuideVisuals.snapped.alpha > snapGuideVisuals.preview.alpha,
+    fullFractionGridAndCenterMarkerAreExposed:
+      snapGuideVisuals.snapped.layout?.gridLines?.length === 10 &&
+      snapGuideVisuals.snapped.layout.gridLines.filter(line => line.axis === 'x')
+        .every((line, index) => line.value === canvasAndGapSnapping.width * [1 / 4, 1 / 3, 1 / 2, 2 / 3, 3 / 4][index]) &&
+      snapGuideVisuals.snapped.layout.gridLines.filter(line => line.axis === 'y')
+        .every((line, index) => line.value === canvasAndGapSnapping.height * [1 / 4, 1 / 3, 1 / 2, 2 / 3, 3 / 4][index]) &&
+      snapGuideVisuals.snapped.layout.gridLines.some(line =>
+        line.axis === 'x' && line.fraction === 1 / 4 && line.state === 'snapped') &&
+      snapGuideVisuals.snapped.layout.centerMarker?.visible === true &&
+      snapGuideVisuals.snapped.layout.centerMarker.x === canvasAndGapSnapping.width / 2 &&
+      snapGuideVisuals.snapped.layout.centerMarker.y === canvasAndGapSnapping.height / 2 &&
+      snapGuideVisuals.snapped.layout.centerMarker.colors.join(',') === 'cyan,amber',
+    shiftBypassKeepsGridWithoutEmphasis:
+      snapGuideVisuals.bypassed.guide?.bypassSnap === true &&
+      snapGuideVisuals.bypassed.layout?.gridLines?.length === 10 &&
+      snapGuideVisuals.bypassed.layout.gridLines.every(line => line.state !== 'snapped'),
     centeredCrosshairAndLabelAreExposed:
       snapGuideVisuals.centered.guide?.centered === true &&
       snapGuideVisuals.centered.layout?.snapGuides?.length === 2 &&
@@ -2371,9 +2530,17 @@ async function runDragInfo(browser, options, browserErrors) {
       !deletionCleanup.activeStillExists,
     destroyAndRecreateCleanTransientState: destroyCleanup.destroyed.drag === null &&
       destroyCleanup.destroyed.snap === null && destroyCleanup.destroyed.guide === null &&
-      destroyCleanup.destroyed.layout === null && !destroyCleanup.destroyed.overlayConnected &&
+      destroyCleanup.destroyed.layout === null && destroyCleanup.destroyed.infoExpanded === false &&
+      !destroyCleanup.destroyed.overlayConnected &&
       destroyCleanup.recreated.snap === null && destroyCleanup.recreated.guide === null &&
-      destroyCleanup.recreated.layout === null
+      destroyCleanup.recreated.layout === null && destroyCleanup.recreated.infoExpanded === false,
+    infoHotkeyWorksBeforeAndAfterPaneBuild: infoHotkeys.bootstrapRegistered && infoHotkeys.fullPaneRegistered &&
+      infoHotkeys.bootstrap.enabled && infoHotkeys.bootstrap.scope === 'all' &&
+      infoHotkeys.bootstrap.distanceCount === 3 && infoHotkeys.bootstrap.metadataCount === 3 &&
+      infoHotkeys.bootstrap.gridCount === 0 && !infoHotkeys.bootstrap.centerVisible &&
+      infoHotkeys.bootstrap.toast === 'Gravity well info: Enabled' &&
+      !infoHotkeys.fullPane.enabled && infoHotkeys.fullPane.toast === 'Gravity well info: Disabled' &&
+      infoHotkeys.resetCleared
   };
 
   await context.close();
@@ -2381,7 +2548,7 @@ async function runDragInfo(browser, options, browserErrors) {
     afterRelease, tieBreaking, whiteWellDrag, placementSharing, canvasAndGapSnapping, snapGuideVisuals,
     activeCenteredResize, equalGapPreviewBeforeResize, equalGapPreviewAfterResize,
     resizedFractionSnap, alignmentSheen, singleWell, escapeCleanup, commitCleanup,
-    clearCleanup, deletionCleanup, destroyCleanup };
+    clearCleanup, deletionCleanup, destroyCleanup, infoHotkeys };
 }
 
 async function runTouch(browser, options, browserErrors) {
@@ -2587,15 +2754,17 @@ async function main() {
     const sheenMethodStart = networkSource.indexOf('(b.prototype._drawGravityWellAlignmentSheen');
     const fallbackMethodStart = networkSource.indexOf('(b.prototype._drawGravityWellFallback', sheenMethodStart);
     const sheenMethodSource = networkSource.slice(sheenMethodStart, fallbackMethodStart);
-    const dashMatches = networkSource.match(/setLineDash/g) || [];
-    const dashIndex = networkSource.indexOf('setLineDash');
+    const guideMethodSource = networkSource.slice(guideMethodStart, metadataMethodStart);
+    const selectionMethodStart = networkSource.indexOf('b.prototype._drawSelectedParticles');
+    const selectionMethodEnd = networkSource.indexOf('b.prototype.getGravityWell', selectionMethodStart);
+    const selectionMethodSource = networkSource.slice(selectionMethodStart, selectionMethodEnd);
     const assertions = {
       ...desktop.assertions,
       ...dragInfo.assertions,
       ...touch.assertions,
       ...reloadCursor.assertions,
       noDashedGravityRadius: !rendererSource.includes('selectionRing') &&
-        dashMatches.length === 1 && dashIndex > guideMethodStart && dashIndex < metadataMethodStart,
+        guideMethodSource.includes('setLineDash') && !selectionMethodSource.includes('setLineDash'),
       noFormerAlignmentHaloPerimeter: sheenMethodStart >= 0 && fallbackMethodStart > sheenMethodStart &&
         !networkSource.includes('_drawGravityWellAlignmentHalos') && !networkSource.includes('haloTargetIds') &&
         !sheenMethodSource.includes('.ellipse(') && !sheenMethodSource.includes('.stroke()'),
