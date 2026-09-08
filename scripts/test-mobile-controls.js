@@ -444,12 +444,12 @@ async function runGestures(page, screenshotDir) {
     const pn = window.particleInstance;
     pn.clearGravityWells();
     const active = pn.addGravityWell('black', 120, 420, 60);
-    const targetX = pn.addGravityWell('white', 260, 240, 60);
+    const targetX = pn.addGravityWell('white', 210, 240, 60);
     const targetY = pn.addGravityWell('black', 360, 700, 60);
     return { active: active.id, targetX: targetX.id, targetY: targetY.id };
   });
   await sendCanvasPointer(page, 'pointerdown', 1, { x: 120, y: 420 });
-  await sendCanvasPointer(page, 'pointermove', 1, { x: 250, y: 690 });
+  await sendCanvasPointer(page, 'pointermove', 1, { x: 220, y: 690 });
   await page.evaluate(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))));
   const mobileSnapEntered = await page.evaluate(ids => {
     const pn = window.particleInstance;
@@ -490,18 +490,18 @@ async function runGestures(page, screenshotDir) {
     };
   }, mobileSnapIds.active);
   await sendCanvasPointer(page, 'pointerup', 2, { x: mobileAdjustOrigin.x, y: mobileAdjustOrigin.y - 48 }, 0);
-  await sendCanvasPointer(page, 'pointermove', 1, { x: 275, y: 715 });
+  await sendCanvasPointer(page, 'pointermove', 1, { x: 225, y: 715 });
   const mobileSnapHeld = await page.evaluate(id => {
     const well = window.particleInstance.getGravityWell(id);
     return { x: well.x, y: well.y };
   }, mobileSnapIds.active);
-  await sendCanvasPointer(page, 'pointermove', 1, { x: 277, y: 720 });
-  await sendCanvasPointer(page, 'pointermove', 1, { x: 273, y: 713 });
+  await sendCanvasPointer(page, 'pointermove', 1, { x: 227, y: 720 });
+  await sendCanvasPointer(page, 'pointermove', 1, { x: 223, y: 713 });
   const mobileOutsideEntry = await page.evaluate(id => {
     const well = window.particleInstance.getGravityWell(id);
     return { x: well.x, y: well.y };
   }, mobileSnapIds.active);
-  await sendCanvasPointer(page, 'pointercancel', 1, { x: 273, y: 713 }, 0);
+  await sendCanvasPointer(page, 'pointercancel', 1, { x: 223, y: 713 }, 0);
   await page.evaluate(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))));
   const mobileSnapCancelled = await page.evaluate(() => {
     const pn = window.particleInstance;
@@ -514,13 +514,13 @@ async function runGestures(page, screenshotDir) {
       selectionMarkers: pn._gravityWellOverlayLayout?.selectionMarkers || []
     };
   });
-  assert.deepStrictEqual({ x: mobileSnapEntered.x, y: mobileSnapEntered.y }, { x: 260, y: 700 },
+  assert.deepStrictEqual({ x: mobileSnapEntered.x, y: mobileSnapEntered.y }, { x: 210, y: 700 },
     'touch snapping did not use the 12px entry threshold on both axes');
   assert.strictEqual(mobileSnapEntered.state?.snapXTargetId, mobileSnapIds.targetX);
   assert.strictEqual(mobileSnapEntered.state?.snapYTargetId, mobileSnapIds.targetY);
-  assert.deepStrictEqual(mobileSnapHeld, { x: 260, y: 700 }, 'touch snapping did not hold through the 16px release threshold');
-  assert.deepStrictEqual(mobileOutsideEntry, { x: 273, y: 713 }, 'touch snapping reacquired outside the 12px entry threshold');
-  assert(mobileSnapEntered.guide && mobileSnapEntered.guide.xLabel === 'X 260 px' &&
+  assert.deepStrictEqual(mobileSnapHeld, { x: 210, y: 700 }, 'touch snapping did not hold through the 16px release threshold');
+  assert.deepStrictEqual(mobileOutsideEntry, { x: 223, y: 713 }, 'touch snapping reacquired outside the 12px entry threshold');
+  assert(mobileSnapEntered.guide && mobileSnapEntered.guide.xLabel === 'X 210 px' &&
     mobileSnapEntered.guide.yLabel === 'Y 700 px', 'touch drag did not expose coordinate guides');
   assert(mobileSnapEntered.layout?.metadataRecords?.length === mobileSnapEntered.measurements.length &&
     mobileSnapEntered.layout.metadataRecords.every(record => record.positionLabel && record.radiusLabel && record.behaviorLabel),
@@ -528,16 +528,20 @@ async function runGestures(page, screenshotDir) {
   assert(mobileSnapEntered.selectedId === mobileSnapIds.active && !mobileSnapEntered.selectedWellIds.length &&
     !mobileSnapEntered.layout?.selectionMarkers?.length,
   'touch drag promoted transient manipulation into persistent well selection');
-  assert(mobileRadiusOnly.x === 260 && mobileRadiusOnly.y === 700 && mobileRadiusOnly.radius > 60 &&
+  assert(mobileRadiusOnly.x === 210 && mobileRadiusOnly.y === 700 && mobileRadiusOnly.radius > 60 &&
     mobileRadiusOnly.snap?.snapXTargetId === mobileSnapIds.targetX &&
     mobileRadiusOnly.snap?.snapYTargetId === mobileSnapIds.targetY &&
-    mobileRadiusOnly.guide?.xLabel === 'X 260 px' && mobileRadiusOnly.guide?.yLabel === 'Y 700 px',
+    mobileRadiusOnly.guide?.xLabel === 'X 210 px' && mobileRadiusOnly.guide?.yLabel === 'Y 700 px',
   'radius-only touch adjustment changed the snapped center or cleared annotations');
   assert(mobileSnapEntered.layout && mobileSnapEntered.layout.guideLabels.length === 2 &&
     mobileSnapEntered.layout.metadataLabels.length === 2, 'DPR2 touch drag did not paint shared overlay annotations');
-  assert(mobileSnapEntered.layout.gridLines.length === 10 &&
+  assert(mobileSnapEntered.layout.gridLines.length === 18 &&
+    mobileSnapEntered.layout.gridLines.some(line =>
+      line.axis === 'x' && line.fraction === 1 / 8 && line.tier === 'minor') &&
+    mobileSnapEntered.layout.gridLines.some(line =>
+      line.axis === 'y' && line.fraction === 7 / 8 && line.tier === 'minor') &&
     mobileSnapEntered.layout.centerMarker?.x === 195 && mobileSnapEntered.layout.centerMarker?.y === 422,
-  'DPR2 touch drag did not expose the full logical-coordinate grid and center marker');
+  'DPR2 touch drag did not expose the denser logical-coordinate grid and center marker');
   assert.deepStrictEqual(mobileSnapEntered.overlay, {
     width: 780,
     height: 1688,

@@ -79,11 +79,15 @@
   var gravityWellEqualGapAlignmentTolerance = 8;
   var gravityWellEqualGapRegularityTolerance = 8;
   var gravityWellCanvasFractions = [
-    { value: 1 / 4, label: '1/4' },
-    { value: 1 / 3, label: '1/3' },
-    { value: 1 / 2, label: '1/2' },
-    { value: 2 / 3, label: '2/3' },
-    { value: 3 / 4, label: '3/4' }
+    { value: 1 / 8, label: '1/8', tier: 'minor' },
+    { value: 1 / 4, label: '1/4', tier: 'major' },
+    { value: 1 / 3, label: '1/3', tier: 'major' },
+    { value: 3 / 8, label: '3/8', tier: 'minor' },
+    { value: 1 / 2, label: '1/2', tier: 'center' },
+    { value: 5 / 8, label: '5/8', tier: 'minor' },
+    { value: 2 / 3, label: '2/3', tier: 'major' },
+    { value: 3 / 4, label: '3/4', tier: 'major' },
+    { value: 7 / 8, label: '7/8', tier: 'minor' }
   ];
 
   function effectiveGravityWellType(well) {
@@ -2512,6 +2516,7 @@
             value: axisSize * fraction.value,
             fraction: fraction.value,
             fractionLabel: fraction.label,
+            tier: fraction.tier,
             sourceIds: [],
             order: order++
           });
@@ -3131,7 +3136,7 @@
       context.save();
       context.globalCompositeOperation = 'source-over';
       context.lineCap = 'butt';
-      context.setLineDash([5, 5]);
+      context.setLineDash([]);
       context.lineDashOffset = 0;
 
       for (var fractionIndex = 0; fractionIndex < gravityWellCanvasFractions.length; fractionIndex++) {
@@ -3139,34 +3144,39 @@
         var xValue = this.i.size.width * fraction.value;
         var xSnapped = !guide.bypassSnap && guide.snapXTarget &&
           guide.snapXTarget.kind === 'canvas' && guide.snapXTarget.fraction === fraction.value;
-        var isCenter = fraction.value === 1 / 2;
-        context.lineWidth = xSnapped ? 1.6 : (isCenter ? 1.05 : 0.75);
+        var isCenter = fraction.tier === 'center';
+        var isMinor = fraction.tier === 'minor';
+        context.lineWidth = xSnapped ? 1.7 : (isCenter ? 1.1 : (isMinor ? 0.55 : 0.85));
         context.strokeStyle = xSnapped
-          ? 'rgba(102,225,255,0.9)'
-          : (isCenter ? 'rgba(174,239,255,0.3)' : 'rgba(174,239,255,0.16)');
+          ? 'rgba(102,225,255,0.92)'
+          : (isCenter ? 'rgba(174,239,255,0.34)'
+            : (isMinor ? 'rgba(174,239,255,0.12)' : 'rgba(174,239,255,0.22)'));
         context.beginPath();
         context.moveTo(xValue, 0);
         context.lineTo(xValue, this.i.size.height);
         context.stroke();
         layout.gridLines.push({
           axis: 'x', value: xValue, fraction: fraction.value,
-          fractionLabel: fraction.label, state: xSnapped ? 'snapped' : (isCenter ? 'center' : 'idle')
+          fractionLabel: fraction.label, tier: fraction.tier,
+          state: xSnapped ? 'snapped' : (isCenter ? 'center' : 'idle')
         });
 
         var yValue = this.i.size.height * fraction.value;
         var ySnapped = !guide.bypassSnap && guide.snapYTarget &&
           guide.snapYTarget.kind === 'canvas' && guide.snapYTarget.fraction === fraction.value;
-        context.lineWidth = ySnapped ? 1.6 : (isCenter ? 1.05 : 0.75);
+        context.lineWidth = ySnapped ? 1.7 : (isCenter ? 1.1 : (isMinor ? 0.55 : 0.85));
         context.strokeStyle = ySnapped
-          ? 'rgba(255,190,86,0.9)'
-          : (isCenter ? 'rgba(255,213,145,0.3)' : 'rgba(255,213,145,0.16)');
+          ? 'rgba(255,190,86,0.92)'
+          : (isCenter ? 'rgba(255,213,145,0.34)'
+            : (isMinor ? 'rgba(255,213,145,0.12)' : 'rgba(255,213,145,0.22)'));
         context.beginPath();
         context.moveTo(0, yValue);
         context.lineTo(this.i.size.width, yValue);
         context.stroke();
         layout.gridLines.push({
           axis: 'y', value: yValue, fraction: fraction.value,
-          fractionLabel: fraction.label, state: ySnapped ? 'snapped' : (isCenter ? 'center' : 'idle')
+          fractionLabel: fraction.label, tier: fraction.tier,
+          state: ySnapped ? 'snapped' : (isCenter ? 'center' : 'idle')
         });
       }
 

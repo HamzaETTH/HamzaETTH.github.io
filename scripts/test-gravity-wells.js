@@ -1819,6 +1819,10 @@ async function runDragInfo(browser, options, browserErrors) {
       return result;
     }
     const quarterThird = resolve(width / 4 + 7, height / 3 - 7);
+    const eighths = [1 / 8, 3 / 8, 5 / 8, 7 / 8].map(fraction => ({
+      fraction,
+      result: resolve(width * fraction + 7, height * fraction - 7)
+    }));
     const independentX = resolve(width / 2 - 6, 53);
     const independentY = resolve(57, height * 3 / 4 + 6);
     const preview = resolve(width * 2 / 3 + 24, 61);
@@ -1908,7 +1912,7 @@ async function runDragInfo(browser, options, browserErrors) {
     pn._handleGravityWellPointerDown(width / 4 + 7, height / 3 - 7, 'mouse', 'mouse', false);
     const repositionFraction = { x: pn.gravityWellDraft.x, y: pn.gravityWellDraft.y };
     pn.cancelGravityWellPlacement();
-    return { width, height, quarterThird, independentX, independentY, preview, centerTie,
+    return { width, height, quarterThird, eighths, independentX, independentY, preview, centerTie,
       shiftBypass, virtualHeld, virtualReleased, horizontalMidpoint, horizontalExtension, verticalMidpoint, verticalExtension,
       regularRowRejectsNonAdjacentExtension, regularRowRejectsMidpointInsert, irregularRowRejectsExtension,
       misaligned, offRow, exact512Extension, zeroGap, outOfBoundsExtension,
@@ -2435,6 +2439,14 @@ async function runDragInfo(browser, options, browserErrors) {
       canvasAndGapSnapping.independentX.y === 53 &&
       canvasAndGapSnapping.independentY.x === 57 &&
       canvasAndGapSnapping.independentY.y === canvasAndGapSnapping.height * 3 / 4,
+    eighthCanvasTargetsSnapExactly:
+      canvasAndGapSnapping.eighths.every(({ fraction, result }) =>
+        result.x === canvasAndGapSnapping.width * fraction &&
+        result.y === canvasAndGapSnapping.height * fraction &&
+        result.state?.snapXTarget?.kind === 'canvas' &&
+        result.state.snapXTarget.fraction === fraction &&
+        result.state?.snapYTarget?.kind === 'canvas' &&
+        result.state.snapYTarget.fraction === fraction),
     fractionalCanvasPreviewAndCenterTiePriority:
       canvasAndGapSnapping.preview.state?.previewXTarget?.kind === 'canvas' &&
       canvasAndGapSnapping.preview.state.previewXTarget.fraction === 2 / 3 &&
@@ -2489,17 +2501,22 @@ async function runDragInfo(browser, options, browserErrors) {
       canvasAndGapSnapping.repositionFraction.x === canvasAndGapSnapping.width / 4 &&
       canvasAndGapSnapping.repositionFraction.y === canvasAndGapSnapping.height / 3,
     virtualGuidesPreviewThenBrightenWhenSnapped:
-      snapGuideVisuals.preview.layout?.snapGuides?.length === 1 &&
-      snapGuideVisuals.preview.layout.snapGuides[0].state === 'preview' &&
-      snapGuideVisuals.snapped.layout?.snapGuides?.length === 1 &&
-      snapGuideVisuals.snapped.layout.snapGuides[0].state === 'snapped' &&
+      snapGuideVisuals.preview.layout?.snapGuides?.some(line =>
+        line.axis === 'x' && line.fraction === 1 / 4 && line.state === 'preview') &&
+      snapGuideVisuals.snapped.layout?.snapGuides?.some(line =>
+        line.axis === 'x' && line.fraction === 1 / 4 && line.state === 'snapped') &&
       snapGuideVisuals.preview.alpha > 0 && snapGuideVisuals.snapped.alpha > snapGuideVisuals.preview.alpha,
     fullFractionGridAndCenterMarkerAreExposed:
-      snapGuideVisuals.snapped.layout?.gridLines?.length === 10 &&
+      snapGuideVisuals.snapped.layout?.gridLines?.length === 18 &&
       snapGuideVisuals.snapped.layout.gridLines.filter(line => line.axis === 'x')
-        .every((line, index) => line.value === canvasAndGapSnapping.width * [1 / 4, 1 / 3, 1 / 2, 2 / 3, 3 / 4][index]) &&
+        .every((line, index) => line.value === canvasAndGapSnapping.width *
+          [1 / 8, 1 / 4, 1 / 3, 3 / 8, 1 / 2, 5 / 8, 2 / 3, 3 / 4, 7 / 8][index]) &&
       snapGuideVisuals.snapped.layout.gridLines.filter(line => line.axis === 'y')
-        .every((line, index) => line.value === canvasAndGapSnapping.height * [1 / 4, 1 / 3, 1 / 2, 2 / 3, 3 / 4][index]) &&
+        .every((line, index) => line.value === canvasAndGapSnapping.height *
+          [1 / 8, 1 / 4, 1 / 3, 3 / 8, 1 / 2, 5 / 8, 2 / 3, 3 / 4, 7 / 8][index]) &&
+      snapGuideVisuals.snapped.layout.gridLines.filter(line => line.tier === 'minor').length === 8 &&
+      snapGuideVisuals.snapped.layout.gridLines.filter(line => line.tier === 'major').length === 8 &&
+      snapGuideVisuals.snapped.layout.gridLines.filter(line => line.tier === 'center').length === 2 &&
       snapGuideVisuals.snapped.layout.gridLines.some(line =>
         line.axis === 'x' && line.fraction === 1 / 4 && line.state === 'snapped') &&
       snapGuideVisuals.snapped.layout.centerMarker?.visible === true &&
@@ -2508,7 +2525,7 @@ async function runDragInfo(browser, options, browserErrors) {
       snapGuideVisuals.snapped.layout.centerMarker.colors.join(',') === 'cyan,amber',
     shiftBypassKeepsGridWithoutEmphasis:
       snapGuideVisuals.bypassed.guide?.bypassSnap === true &&
-      snapGuideVisuals.bypassed.layout?.gridLines?.length === 10 &&
+      snapGuideVisuals.bypassed.layout?.gridLines?.length === 18 &&
       snapGuideVisuals.bypassed.layout.gridLines.every(line => line.state !== 'snapped'),
     centeredCrosshairAndLabelAreExposed:
       snapGuideVisuals.centered.guide?.centered === true &&
@@ -2633,10 +2650,10 @@ async function runTouch(browser, options, browserErrors) {
   });
 
   await page.getByRole('button', { name: 'Add Black Hole' }).click();
-  const firstTouchMeasurements = await dispatchTouchDrag(page, { x: 60, y: 500 }, { x: 140, y: 500 }, 11);
+  const firstTouchMeasurements = await dispatchTouchDrag(page, { x: 70, y: 500 }, { x: 150, y: 500 }, 11);
   await page.getByRole('button', { name: 'Add White Hole' }).click();
-  const secondTouchMeasurements = await dispatchTouchDrag(page, { x: 235, y: 690 }, { x: 315, y: 690 }, 12);
-  const directTouchMeasurements = await dispatchTouchDrag(page, { x: 60, y: 500 }, { x: 80, y: 520 }, 13);
+  const secondTouchMeasurements = await dispatchTouchDrag(page, { x: 225, y: 690 }, { x: 305, y: 690 }, 12);
+  const directTouchMeasurements = await dispatchTouchDrag(page, { x: 70, y: 500 }, { x: 90, y: 520 }, 13);
   await waitForFrames(page, 4);
 
   const beforePhysics = await page.evaluate(() => ({ x: window.particleInstance.posX[0], y: window.particleInstance.posY[0] }));
@@ -2669,6 +2686,9 @@ async function runTouch(browser, options, browserErrors) {
   await page.evaluate(() => window.particleInstance.clearGravityWells());
   await page.getByRole('button', { name: 'Add White Hole' }).click();
   const penCenterPlacement = await dispatchPointerPlacement(page, { x: 205, y: 432 }, 22, 'pen');
+  await page.evaluate(() => window.particleInstance.clearGravityWells());
+  await page.getByRole('button', { name: 'Add Black Hole' }).click();
+  const touchEighthPlacement = await dispatchPointerPlacement(page, { x: 55, y: 100 }, 23, 'touch');
   await page.evaluate(() => {
     const pn = window.particleInstance;
     pn.clearGravityWells();
@@ -2705,7 +2725,7 @@ async function runTouch(browser, options, browserErrors) {
     touchPlacesBoth: touchState.wells.length === 2 && touchState.wells[0].type === 'black' && touchState.wells[1].type === 'white',
     touchDragSizes: touchState.wells.every(well => Math.abs(well.radius - 80) <= 2),
     touchRulersTrackPlacementAndDrag: firstTouchMeasurements.length === 0 && secondTouchMeasurements.length === 1 &&
-      directTouchMeasurements.length === 1 && secondTouchMeasurements[0].label === '258 px',
+      directTouchMeasurements.length === 1 && secondTouchMeasurements[0].label === '245 px',
     touchStateClean: touchState.draft === null && touchState.activePointers === 0,
     touchAndPenPaletteSnapToPhoneCenter:
       touchCenterPlacement.well?.type === 'black' && touchCenterPlacement.well.x === 195 &&
@@ -2716,6 +2736,12 @@ async function runTouch(browser, options, browserErrors) {
       penCenterPlacement.well.y === 422 && penCenterPlacement.snap?.inputKind === 'pen' &&
       penCenterPlacement.snap?.snapXTarget?.fraction === 1 / 2 &&
       penCenterPlacement.snap?.snapYTarget?.fraction === 1 / 2,
+    touchSnapsToEighthGrid:
+      touchEighthPlacement.well?.x === 390 / 8 && touchEighthPlacement.well?.y === 844 / 8 &&
+      touchEighthPlacement.snap?.snapXTarget?.fraction === 1 / 8 &&
+      touchEighthPlacement.snap?.snapYTarget?.fraction === 1 / 8 &&
+      touchEighthPlacement.snap?.snapXTarget?.tier === 'minor' &&
+      touchEighthPlacement.snap?.snapYTarget?.tier === 'minor',
     hoverUsesLogicalCoordinates: highDprPointerState.dpr === 2 &&
       Math.abs(highDprPointerState.x - 95) <= 1 && Math.abs(highDprPointerState.y - 320) <= 1,
     panelFitsViewport: touchState.panelWidth <= 366,
@@ -2732,7 +2758,8 @@ async function runTouch(browser, options, browserErrors) {
   await context.close();
   return { assertions, highDprPointerState, defaultMotion, systemOverride, firstTouchMeasurements,
     secondTouchMeasurements, directTouchMeasurements, touchState,
-    touchCenterPlacement, penCenterPlacement, animateOverride, overrideAnimationTime, restoredMotion };
+    touchCenterPlacement, penCenterPlacement, touchEighthPlacement,
+    animateOverride, overrideAnimationTime, restoredMotion };
 }
 
 async function runReloadCursor(browser, options, browserErrors) {

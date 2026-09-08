@@ -841,12 +841,13 @@ async function main() {
         Boolean(groupGridSnapped.guide) && groupGridSnapped.guide.activeId === setup.outsideWellId &&
         groupGridSnapped.wells.length === 2 &&
         groupGridSnapped.wells.every(well => close(well.deltaX, 160) && close(well.deltaY, -20)) &&
-        groupGridSnapped.layout?.gridLines?.length === 10 &&
+        groupGridSnapped.layout?.gridLines?.length === 18 &&
+        groupGridSnapped.layout.gridLines.filter(line => line.tier === 'minor').length === 8 &&
         groupGridSnapped.layout.gridLines.some(line => line.axis === 'x' && close(line.fraction, 0.75) && line.state === 'snapped') &&
         groupGridSnapped.layout.gridLines.some(line => line.axis === 'y' && close(line.fraction, 2 / 3) && line.state === 'snapped'),
       shiftBypassesGroupSnapWithoutHidingGrid:
         Boolean(groupGridBypassed.guide) && groupGridBypassed.guide.bypassSnap &&
-        groupGridBypassed.layout?.gridLines?.length === 10 &&
+        groupGridBypassed.layout?.gridLines?.length === 18 &&
         !groupGridBypassed.layout.gridLines.some(line => line.state === 'snapped'),
       twoWellPasteImmediatelyShowsUniqueInformation:
         twoWellPasteSetup?.wells === 2 && twoWellPasteInfo.selectedIds.length === 2 &&
