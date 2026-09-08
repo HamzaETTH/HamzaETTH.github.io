@@ -2375,6 +2375,28 @@ async function runDragInfo(browser, options, browserErrors) {
     return { bootstrapRegistered, fullPaneRegistered, bootstrap, fullPane, resetCleared };
   });
 
+  await page.setViewportSize({ width: 2560, height: 1440 });
+  await waitForFrames(page, 3);
+  await page.evaluate(() => {
+    const pn = window.particleInstance;
+    pn.clearGravityWells();
+    const active = pn.addGravityWell('black', 90, 90, 60);
+    pn._startGravityWellDrag(active, active.x, active.y, 'mouse');
+    pn._handleGravityWellPointerMove(pn.i.size.width / 4 + 7, 61, 'mouse', false);
+  });
+  await waitForFrames(page, 3);
+  const sixteenByNineGrid = await page.evaluate(() => {
+    const pn = window.particleInstance;
+    const overlay = pn._gravityWellOverlay;
+    const context = overlay.getContext('2d');
+    const fractions = [1 / 8, 1 / 4, 1 / 3, 3 / 8, 1 / 2, 5 / 8, 2 / 3, 3 / 4, 7 / 8];
+    return {
+      size: { width: pn.i.size.width, height: pn.i.size.height },
+      verticalAlpha: fractions.map(fraction => context.getImageData(Math.round(pn.i.size.width * fraction), 2, 1, 1).data[3]),
+      horizontalAlpha: fractions.map(fraction => context.getImageData(2, Math.round(pn.i.size.height * fraction), 1, 1).data[3])
+    };
+  });
+
   const metadataById = new Map(snapped.layout.metadataRecords.map(record => [record.targetId, record]));
   const axisDeltaState = tieBreaking.axisDelta.state;
   const centerDistanceState = tieBreaking.centerDistance.state;
@@ -2414,6 +2436,9 @@ async function runDragInfo(browser, options, browserErrors) {
     coordinateGuideDashAndAlignmentAreVisible: snapped.alignedGuideOnAlpha > snapped.alignedGuideGapAlpha,
     alignedGuideIsBrighterThanUnalignedGuide: snapped.alignedGuideOnAlpha > singleWell.guideOnAlpha &&
       singleWell.guideOnAlpha > singleWell.guideGapAlpha,
+    sixteenByNineGridLinesRemainVisible: sixteenByNineGrid.size.width === 2560 && sixteenByNineGrid.size.height === 1440 &&
+      sixteenByNineGrid.verticalAlpha.every(alpha => alpha >= 10) &&
+      sixteenByNineGrid.horizontalAlpha.every(alpha => alpha >= 10),
     overlayLabelsAvoidCollisions,
     overlayIsDecorative: snapped.overlayAriaHidden === 'true',
     deterministicTieBreakUsesAxisDelta: axisDeltaState &&
@@ -2611,7 +2636,7 @@ async function runDragInfo(browser, options, browserErrors) {
     afterRelease, tieBreaking, whiteWellDrag, placementSharing, canvasAndGapSnapping, snapGuideVisuals,
     activeCenteredResize, equalGapPreviewBeforeResize, equalGapPreviewAfterResize,
     resizedFractionSnap, alignmentSheen, singleWell, escapeCleanup, commitCleanup,
-    clearCleanup, deletionCleanup, destroyCleanup, infoHotkeys };
+    clearCleanup, deletionCleanup, destroyCleanup, infoHotkeys, sixteenByNineGrid };
 }
 
 async function runTouch(browser, options, browserErrors) {

@@ -462,6 +462,13 @@ async function main() {
       expectedMaximum(wheelAfter.particleCount, wheelAfter.interactionDistance, wheelAfter.width, wheelAfter.height, 1)
     );
 
+    await page.evaluate(() => window.particleInstance.setParticleCount(0));
+    await page.mouse.wheel(0, -100);
+    await waitForRangeSync(page);
+    const zeroCountWheelAfter = await snapshot(page);
+    assert.strictEqual(zeroCountWheelAfter.particleCount, 1, 'wheel-up should restore one particle from zero');
+    await page.evaluate(count => window.particleInstance.setParticleCount(count), wheelAfter.particleCount);
+
     const middleBefore = wheelAfter.particleCount;
     await page.mouse.down({ button: 'middle' });
     await page.waitForTimeout(220);
@@ -537,6 +544,7 @@ async function main() {
         maximum: resized.attraction.max
       },
       wheel: { before: wheelBefore.particleCount, after: wheelAfter.particleCount },
+      zeroCountWheelAfter: zeroCountWheelAfter.particleCount,
       middleSpawn: { before: middleBefore, after: middleAfter.particleCount },
       zeroAttraction,
       health,

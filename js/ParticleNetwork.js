@@ -3125,6 +3125,10 @@
     }),
     (b.prototype._drawGravityWellCoordinateGuides = function(context, guide, occupied, layout) {
       if (!context || !guide) return;
+      var guideDpr = window.devicePixelRatio || 1;
+      var alignGuideCoordinate = function(value) {
+        return (Math.round(value * guideDpr) + 0.5) / guideDpr;
+      };
       var xAligned = guide.alignedXTargetIds.length > 0;
       var yAligned = guide.alignedYTargetIds.length > 0;
       var xVirtual = guide.snapXTarget && guide.snapXTarget.kind === 'canvas'
@@ -3142,6 +3146,7 @@
       for (var fractionIndex = 0; fractionIndex < gravityWellCanvasFractions.length; fractionIndex++) {
         var fraction = gravityWellCanvasFractions[fractionIndex];
         var xValue = this.i.size.width * fraction.value;
+        var xDrawValue = alignGuideCoordinate(xValue);
         var xSnapped = !guide.bypassSnap && guide.snapXTarget &&
           guide.snapXTarget.kind === 'canvas' && guide.snapXTarget.fraction === fraction.value;
         var isCenter = fraction.tier === 'center';
@@ -3152,8 +3157,8 @@
           : (isCenter ? 'rgba(174,239,255,0.34)'
             : (isMinor ? 'rgba(174,239,255,0.12)' : 'rgba(174,239,255,0.22)'));
         context.beginPath();
-        context.moveTo(xValue, 0);
-        context.lineTo(xValue, this.i.size.height);
+        context.moveTo(xDrawValue, 0);
+        context.lineTo(xDrawValue, this.i.size.height);
         context.stroke();
         layout.gridLines.push({
           axis: 'x', value: xValue, fraction: fraction.value,
@@ -3162,6 +3167,7 @@
         });
 
         var yValue = this.i.size.height * fraction.value;
+        var yDrawValue = alignGuideCoordinate(yValue);
         var ySnapped = !guide.bypassSnap && guide.snapYTarget &&
           guide.snapYTarget.kind === 'canvas' && guide.snapYTarget.fraction === fraction.value;
         context.lineWidth = ySnapped ? 1.7 : (isCenter ? 1.1 : (isMinor ? 0.55 : 0.85));
@@ -3170,8 +3176,8 @@
           : (isCenter ? 'rgba(255,213,145,0.34)'
             : (isMinor ? 'rgba(255,213,145,0.12)' : 'rgba(255,213,145,0.22)'));
         context.beginPath();
-        context.moveTo(0, yValue);
-        context.lineTo(this.i.size.width, yValue);
+        context.moveTo(0, yDrawValue);
+        context.lineTo(this.i.size.width, yDrawValue);
         context.stroke();
         layout.gridLines.push({
           axis: 'y', value: yValue, fraction: fraction.value,
@@ -4746,7 +4752,7 @@
     }),
     (b.prototype.adjustParticleCount = function (increase) {
       var currentCount = this.numParticles|0;
-      return this.setParticleCount(increase ? currentCount * 2 : Math.floor(currentCount / 2));
+      return this.setParticleCount(increase ? Math.max(1, currentCount * 2) : Math.floor(currentCount / 2));
     }),
     (b.prototype._ensureParticleCapacity = function(required) {
       var currentCapacity = this.posX ? this.posX.length : 0;
