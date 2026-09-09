@@ -81,11 +81,9 @@
   var gravityWellCanvasFractions = [
     { value: 1 / 8, label: '1/8', tier: 'minor' },
     { value: 1 / 4, label: '1/4', tier: 'major' },
-    { value: 1 / 3, label: '1/3', tier: 'major' },
     { value: 3 / 8, label: '3/8', tier: 'minor' },
     { value: 1 / 2, label: '1/2', tier: 'center' },
     { value: 5 / 8, label: '5/8', tier: 'minor' },
-    { value: 2 / 3, label: '2/3', tier: 'major' },
     { value: 3 / 4, label: '3/4', tier: 'major' },
     { value: 7 / 8, label: '7/8', tier: 'minor' }
   ];
@@ -1199,7 +1197,7 @@
 	      }
 
 	      if (state.mode === 'idle') {
-	        var hit = this._hitTestGravityWellVisual(pos.x, pos.y);
+	        var hit = this._hitTestGravityWell(pos.x, pos.y);
 	        if (hit) {
 	          this._selectTransientGravityWellState(hit.id);
 	          state.mode = 'well-pending';
@@ -2964,7 +2962,7 @@
         }
         return true;
       }
-	      var hit = this._hitTestGravityWellVisual(x, y);
+	      var hit = this._hitTestGravityWell(x, y);
 	      if (hit) {
 	        return this._startGravityWellDrag(hit, x, y, pointerId);
 	      }
@@ -4130,7 +4128,7 @@
         }
         this._handleGravityWellPointerMove(pos.x, pos.y, 'mouse', evt.shiftKey);
         if (!this.gravityWellDraft && !this._gravityWellDrag) {
-          this.canvas.classList.toggle('gravity-well-hover', !!this._hitTestGravityWellVisual(pos.x, pos.y));
+	        this.canvas.classList.toggle('gravity-well-hover', !!this._hitTestGravityWell(pos.x, pos.y));
         }
       }.bind(this), true);
 
@@ -4206,7 +4204,7 @@
             return;
           }
           this.clearObjectSelection();
-          var visualHit = this._hitTestGravityWellVisual(pos.x, pos.y);
+	          var visualHit = this._hitTestGravityWell(pos.x, pos.y);
           if (!visualHit) {
             var now = performance.now();
             var previous = this._lastPrimaryEmptyDown;

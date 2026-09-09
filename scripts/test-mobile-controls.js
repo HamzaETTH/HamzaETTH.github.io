@@ -535,7 +535,7 @@ async function runGestures(page, screenshotDir) {
   'radius-only touch adjustment changed the snapped center or cleared annotations');
   assert(mobileSnapEntered.layout && mobileSnapEntered.layout.guideLabels.length === 2 &&
     mobileSnapEntered.layout.metadataLabels.length === 2, 'DPR2 touch drag did not paint shared overlay annotations');
-  assert(mobileSnapEntered.layout.gridLines.length === 18 &&
+  assert(mobileSnapEntered.layout.gridLines.length === 14 &&
     mobileSnapEntered.layout.gridLines.some(line =>
       line.axis === 'x' && line.fraction === 1 / 8 && line.tier === 'minor') &&
     mobileSnapEntered.layout.gridLines.some(line =>
@@ -862,8 +862,8 @@ async function runPalette(page, screenshotDir) {
     'touch palette placement should snap to the canvas center X slot');
   assert.strictEqual(fractionalPaletteWells.wells[0].y, fractionalPaletteWells.height / 2,
     'touch palette placement should snap to the canvas center Y slot');
-  assert.strictEqual(fractionalPaletteWells.wells[1].x, fractionalPaletteWells.width / 3,
-    'touch palette placement should snap to the canvas third X slot');
+	assert.strictEqual(fractionalPaletteWells.wells[1].x, fractionalPaletteWells.width * 3 / 8,
+	  'touch palette placement should snap to the nearest uniform eighth X slot');
   assert.strictEqual(fractionalPaletteWells.wells[1].y, fractionalPaletteWells.height / 4,
     'touch palette placement should snap to the canvas quarter Y slot');
   assert.strictEqual(fractionalPaletteWells.snap, null, 'fraction palette commit left snap state behind');

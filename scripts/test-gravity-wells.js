@@ -1818,14 +1818,14 @@ async function runDragInfo(browser, options, browserErrors) {
       pn._stopGravityWellDrag('mouse');
       return result;
     }
-    const quarterThird = resolve(width / 4 + 7, height / 3 - 7);
+    const quarterEighth = resolve(width / 4 + 7, height * 3 / 8 - 7);
     const eighths = [1 / 8, 3 / 8, 5 / 8, 7 / 8].map(fraction => ({
       fraction,
       result: resolve(width * fraction + 7, height * fraction - 7)
     }));
     const independentX = resolve(width / 2 - 6, 53);
     const independentY = resolve(57, height * 3 / 4 + 6);
-    const preview = resolve(width * 2 / 3 + 24, 61);
+    const preview = resolve(width * 3 / 4 + 24, 61);
     const centerTie = resolve(width / 2 - 4, 120, network => [
       network.addGravityWell('white', width / 2 - 8, 120, 60)
     ]);
@@ -1909,10 +1909,10 @@ async function runDragInfo(browser, options, browserErrors) {
     const selected = pn.addGravityWell('black', 80, 80, 60);
     pn.selectGravityWell(selected.id);
     pn.beginSelectedGravityWellPlacement();
-    pn._handleGravityWellPointerDown(width / 4 + 7, height / 3 - 7, 'mouse', 'mouse', false);
+    pn._handleGravityWellPointerDown(width / 4 + 7, height * 3 / 8 - 7, 'mouse', 'mouse', false);
     const repositionFraction = { x: pn.gravityWellDraft.x, y: pn.gravityWellDraft.y };
     pn.cancelGravityWellPlacement();
-    return { width, height, quarterThird, eighths, independentX, independentY, preview, centerTie,
+    return { width, height, quarterEighth, eighths, independentX, independentY, preview, centerTie,
       shiftBypass, virtualHeld, virtualReleased, horizontalMidpoint, horizontalExtension, verticalMidpoint, verticalExtension,
       regularRowRejectsNonAdjacentExtension, regularRowRejectsMidpointInsert, irregularRowRejectsExtension,
       misaligned, offRow, exact512Extension, zeroGap, outOfBoundsExtension,
@@ -2418,7 +2418,7 @@ async function runDragInfo(browser, options, browserErrors) {
     const pn = window.particleInstance;
     const overlay = pn._gravityWellOverlay;
     const context = overlay.getContext('2d');
-    const fractions = [1 / 8, 1 / 4, 1 / 3, 3 / 8, 1 / 2, 5 / 8, 2 / 3, 3 / 4, 7 / 8];
+    const fractions = [1 / 8, 1 / 4, 3 / 8, 1 / 2, 5 / 8, 3 / 4, 7 / 8];
     return {
       size: { width: pn.i.size.width, height: pn.i.size.height },
       verticalAlpha: fractions.map(fraction => context.getImageData(Math.round(pn.i.size.width * fraction), 2, 1, 1).data[3]),
@@ -2487,8 +2487,8 @@ async function runDragInfo(browser, options, browserErrors) {
       placementSharing.keyboard?.y === placementSharing.target.y &&
       placementSharing.reposition?.x === placementSharing.target.x && placementSharing.reposition?.y === placementSharing.target.y,
     fractionalCanvasTargetsSnapAxesIndependently:
-      canvasAndGapSnapping.quarterThird.x === canvasAndGapSnapping.width / 4 &&
-      canvasAndGapSnapping.quarterThird.y === canvasAndGapSnapping.height / 3 &&
+      canvasAndGapSnapping.quarterEighth.x === canvasAndGapSnapping.width / 4 &&
+      canvasAndGapSnapping.quarterEighth.y === canvasAndGapSnapping.height * 3 / 8 &&
       canvasAndGapSnapping.independentX.x === canvasAndGapSnapping.width / 2 &&
       canvasAndGapSnapping.independentX.y === 53 &&
       canvasAndGapSnapping.independentY.x === 57 &&
@@ -2503,7 +2503,7 @@ async function runDragInfo(browser, options, browserErrors) {
         result.state.snapYTarget.fraction === fraction),
     fractionalCanvasPreviewAndCenterTiePriority:
       canvasAndGapSnapping.preview.state?.previewXTarget?.kind === 'canvas' &&
-      canvasAndGapSnapping.preview.state.previewXTarget.fraction === 2 / 3 &&
+      canvasAndGapSnapping.preview.state.previewXTarget.fraction === 3 / 4 &&
       canvasAndGapSnapping.centerTie.state?.snapXTarget?.kind === 'canvas' &&
       canvasAndGapSnapping.centerTie.state.snapXTarget.fraction === 1 / 2,
     shiftBypassesFractionalCanvasTargets:
@@ -2553,7 +2553,7 @@ async function runDragInfo(browser, options, browserErrors) {
       canvasAndGapSnapping.keyboardFraction.x === canvasAndGapSnapping.width / 2 &&
       canvasAndGapSnapping.keyboardFraction.y === canvasAndGapSnapping.height / 2 &&
       canvasAndGapSnapping.repositionFraction.x === canvasAndGapSnapping.width / 4 &&
-      canvasAndGapSnapping.repositionFraction.y === canvasAndGapSnapping.height / 3,
+      canvasAndGapSnapping.repositionFraction.y === canvasAndGapSnapping.height * 3 / 8,
     virtualGuidesPreviewThenBrightenWhenSnapped:
       snapGuideVisuals.preview.layout?.snapGuides?.some(line =>
         line.axis === 'x' && line.fraction === 1 / 4 && line.state === 'preview') &&
@@ -2561,15 +2561,15 @@ async function runDragInfo(browser, options, browserErrors) {
         line.axis === 'x' && line.fraction === 1 / 4 && line.state === 'snapped') &&
       snapGuideVisuals.preview.alpha > 0 && snapGuideVisuals.snapped.alpha > snapGuideVisuals.preview.alpha,
     fullFractionGridAndCenterMarkerAreExposed:
-      snapGuideVisuals.snapped.layout?.gridLines?.length === 18 &&
+      snapGuideVisuals.snapped.layout?.gridLines?.length === 14 &&
       snapGuideVisuals.snapped.layout.gridLines.filter(line => line.axis === 'x')
         .every((line, index) => line.value === canvasAndGapSnapping.width *
-          [1 / 8, 1 / 4, 1 / 3, 3 / 8, 1 / 2, 5 / 8, 2 / 3, 3 / 4, 7 / 8][index]) &&
+          [1 / 8, 1 / 4, 3 / 8, 1 / 2, 5 / 8, 3 / 4, 7 / 8][index]) &&
       snapGuideVisuals.snapped.layout.gridLines.filter(line => line.axis === 'y')
         .every((line, index) => line.value === canvasAndGapSnapping.height *
-          [1 / 8, 1 / 4, 1 / 3, 3 / 8, 1 / 2, 5 / 8, 2 / 3, 3 / 4, 7 / 8][index]) &&
+          [1 / 8, 1 / 4, 3 / 8, 1 / 2, 5 / 8, 3 / 4, 7 / 8][index]) &&
       snapGuideVisuals.snapped.layout.gridLines.filter(line => line.tier === 'minor').length === 8 &&
-      snapGuideVisuals.snapped.layout.gridLines.filter(line => line.tier === 'major').length === 8 &&
+      snapGuideVisuals.snapped.layout.gridLines.filter(line => line.tier === 'major').length === 4 &&
       snapGuideVisuals.snapped.layout.gridLines.filter(line => line.tier === 'center').length === 2 &&
       snapGuideVisuals.snapped.layout.gridLines.some(line =>
         line.axis === 'x' && line.fraction === 1 / 4 && line.state === 'snapped') &&
