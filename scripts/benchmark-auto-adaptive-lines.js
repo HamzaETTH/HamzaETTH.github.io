@@ -133,7 +133,8 @@ async function main() {
     result.browserErrors = browserErrors;
     result.passed = result.activated && result.rendererHealthy && browserErrors.length === 0 &&
       result.before.frames > 0 && result.after.frames > 0 &&
-      result.after.medianEmittedSegments < result.before.medianEmittedSegments;
+      result.after.medianEmittedSegments < result.before.medianEmittedSegments &&
+      result.after.medianFrameMs < result.before.medianFrameMs;
     console.log('RESULTS_JSON=' + JSON.stringify(result));
     if (!result.passed) process.exitCode = 2;
   } finally {
