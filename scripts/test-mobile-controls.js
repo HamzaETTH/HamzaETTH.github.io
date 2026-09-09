@@ -784,8 +784,6 @@ async function runPalette(page, screenshotDir) {
     const rect = root.getBoundingClientRect();
     const holeRect = root.querySelector('.mobile-hole-bank').getBoundingClientRect();
     const countRect = root.querySelector('.mobile-particle-count-controls').getBoundingClientRect();
-    const buttonStyle = getComputedStyle(root.querySelector('[data-mobile-count="decrease"]'));
-    const readoutStyle = getComputedStyle(root.querySelector('[data-mobile-particle-count]'));
     return {
       display: getComputedStyle(root).display,
       opacity: Number(getComputedStyle(root).opacity),
@@ -799,9 +797,6 @@ async function runPalette(page, screenshotDir) {
       },
       groupGap: countRect.left - holeRect.right,
       flexDirection: getComputedStyle(root).flexDirection,
-      fontFamily: buttonStyle.fontFamily,
-      fontSize: parseFloat(buttonStyle.fontSize),
-      readoutFontSize: parseFloat(readoutStyle.fontSize),
       controls
     };
   });
@@ -815,9 +810,8 @@ async function runPalette(page, screenshotDir) {
   assert(layout.controls.every(control => Math.abs(control.top - layout.controls[0].top) < 1), 'toolbar buttons should share one row');
   assert(layout.groupGap <= 4, `toolbar group gap should be at most 4px, got ${layout.groupGap}`);
   assert(layout.rect.left >= 0 && layout.rect.top >= 0 && layout.rect.right <= 390 && layout.rect.bottom <= 844);
-  assert(Math.abs(layout.rect.left - 12) < 1, `phone toolbar should be top-left: ${JSON.stringify(layout.rect)}`);
-  assert(!layout.fontFamily.includes('Fira Code') && layout.fontSize >= 21 && layout.readoutFontSize >= 13,
-    `toolbar typography should use the larger readable UI font: ${JSON.stringify(layout)}`);
+  assert(Math.abs(390 - layout.rect.right - 12) < 1,
+    `phone toolbar should be top-right: ${JSON.stringify(layout.rect)}`);
 
   await page.evaluate(() => window.dispatchEvent(new PointerEvent('pointerdown', {
     bubbles: true,
@@ -1282,18 +1276,29 @@ async function runPalette(page, screenshotDir) {
     null,
     { timeout: 30000 }
   );
-  const mobilePaneAdaptive = await page.evaluate(() => ({
-    runtime: window.particleInstance.options.adaptiveLineDetail,
-    pane: window.particleSettingsUi.params.adaptiveLineDetail,
-    hasLabel: document.body.textContent.includes('Adaptive Line Detail'),
-    paneTop: document.getElementById('tp-container').getBoundingClientRect().top,
-    controlsBottom: document.querySelector('[data-mobile-particle-controls]').getBoundingClientRect().bottom
-  }));
+  const mobilePaneAdaptive = await page.evaluate(() => {
+    const container = document.getElementById('tp-container');
+    const label = Array.from(container.querySelectorAll('*')).find(element =>
+      element.children.length === 0 && element.textContent.trim() === 'Adaptive Line Detail');
+    const paneRect = container.getBoundingClientRect();
+    const labelStyle = label ? getComputedStyle(label) : null;
+    return {
+      runtime: window.particleInstance.options.adaptiveLineDetail,
+      pane: window.particleSettingsUi.params.adaptiveLineDetail,
+      hasLabel: Boolean(label),
+      paneTop: paneRect.top,
+      paneLeft: paneRect.left,
+      fontFamily: labelStyle?.fontFamily,
+      fontSize: labelStyle ? parseFloat(labelStyle.fontSize) : 0
+    };
+  });
   assert.strictEqual(mobilePaneAdaptive.runtime, true);
   assert.strictEqual(mobilePaneAdaptive.pane, true);
   assert.strictEqual(mobilePaneAdaptive.hasLabel, true);
-	assert.strictEqual(mobilePaneAdaptive.paneTop, 76,
-	  'the settings panel should use the 12px gap below the compact phone controls');
+	assert.strictEqual(mobilePaneAdaptive.paneTop, 12, 'the settings panel should be at the top-left');
+	assert.strictEqual(mobilePaneAdaptive.paneLeft, 12, 'the settings panel should be at the top-left');
+	assert(!mobilePaneAdaptive.fontFamily.includes('Fira Code') && mobilePaneAdaptive.fontSize >= 12,
+	  `the settings panel should use the larger readable UI font: ${JSON.stringify(mobilePaneAdaptive)}`);
   if (screenshotDir) {
     await page.screenshot({ path: path.join(screenshotDir, 'mobile-adaptive-line-detail.png') });
   }
@@ -1405,8 +1410,8 @@ async function runDesktop(browser, options, browserErrors) {
   assert.strictEqual(desktopLayout.hidden, false, 'quick controls should be visible on desktop');
   assert(desktopLayout.rect.left >= 0 && desktopLayout.rect.top >= 0 && desktopLayout.rect.right <= 1280 &&
     desktopLayout.rect.bottom <= 720, `desktop toolbar escaped the viewport: ${JSON.stringify(desktopLayout)}`);
-  assert(Math.abs(desktopLayout.rect.left - 12) < 1,
-    `desktop toolbar should be top-left: ${JSON.stringify(desktopLayout.rect)}`);
+  assert(Math.abs(1280 - desktopLayout.rect.right - 12) < 1,
+    `desktop toolbar should be top-right: ${JSON.stringify(desktopLayout.rect)}`);
   assert(desktopLayout.controls.length === 5 && desktopLayout.controls.every(control =>
     control.width >= 44 && control.height >= 44), 'desktop toolbar should retain five 44px targets');
 
@@ -1642,7 +1647,8 @@ async function runLandscape(browser, options, browserErrors) {
   });
   assert.notStrictEqual(layout.display, 'none');
   assert(layout.left >= 0 && layout.top >= 0 && layout.right <= 844 && layout.bottom <= 390);
-  assert(Math.abs(layout.left - 12) < 1, `landscape toolbar should be top-left: ${JSON.stringify(layout)}`);
+  assert(Math.abs(844 - layout.right - 12) < 1,
+    `landscape toolbar should be top-right: ${JSON.stringify(layout)}`);
   assert(layout.opacity < 0.6);
   assert.strictEqual(layout.flexDirection, 'row');
   assert(layout.width <= 240 && layout.height <= 56, `landscape toolbar is not compact: ${JSON.stringify(layout)}`);
@@ -1704,7 +1710,8 @@ async function runNarrow(browser, url, browserErrors) {
   assert(layout.left >= 0 && layout.top >= 0 && layout.right <= layout.viewportWidth &&
     layout.bottom <= layout.viewportHeight,
     `narrow toolbar escaped its viewport: ${JSON.stringify(layout)}`);
-  assert(Math.abs(layout.left - 12) < 1, `narrow toolbar should be top-left: ${JSON.stringify(layout)}`);
+  assert(Math.abs(layout.viewportWidth - layout.right - 12) < 1,
+    `narrow toolbar should be top-right: ${JSON.stringify(layout)}`);
   assert(layout.controls.every(control => control.width >= 44 && control.height >= 44));
   await page.focus('[data-mobile-particle-count-trigger]');
   await page.keyboard.press('Enter');

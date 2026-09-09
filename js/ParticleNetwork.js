@@ -948,7 +948,7 @@
         outerColor: white ? this.options.whiteHoleOuterColor : this.options.blackHoleOuterColor
       };
     }),
-    (b.prototype._gatherParticlesAt = function(x, y) {
+    (b.prototype._gatherParticlesAt = function(x, y, preserveVelocity) {
       if (!this.i || !this.posX || !this.posY || !this.velX || !this.velY) return 0;
       var targetX = Math.max(0, Math.min(this.i.size.width, Number.isFinite(x) ? x : this.i.size.width * 0.5));
       var targetY = Math.max(0, Math.min(this.i.size.height, Number.isFinite(y) ? y : this.i.size.height * 0.5));
@@ -962,8 +962,10 @@
         var distance = radius * Math.sqrt((i + 1) / (count + 1));
         this.posX[i] = targetX + Math.cos(angle) * distance;
         this.posY[i] = targetY + Math.sin(angle) * distance;
-        this.velX[i] = 0;
-        this.velY[i] = 0;
+        if (!preserveVelocity) {
+          this.velX[i] = 0;
+          this.velY[i] = 0;
+        }
       }
       this._syncObjectsFromSoA();
       return count;
@@ -1032,7 +1034,7 @@
     (b.prototype._startStartupGravitySequence = function() {
       if (this._destroyed || this._startupGravityState !== 'idle') return false;
       this._startupGravityState = 'waiting';
-      this._gatherParticlesAt(this.i.size.width * 0.5, this.i.size.height * 0.5);
+      this._gatherParticlesAt(this.i.size.width * 0.5, this.i.size.height * 0.5, true);
       var hero = document.querySelector('.center-text');
       if (!hero) {
         this.finishStartupGravitySequence();
@@ -2485,7 +2487,7 @@
           this.gravityWellAccelerationCapped = preset.motion.gravityWellAccelerationCapped;
           this.gravityWellAccelerationLimit = preset.motion.gravityWellAccelerationLimit;
         }
-        this._gatherParticlesAt(this.i.size.width * 0.5, this.i.size.height * 0.5);
+        this._gatherParticlesAt(this.i.size.width * 0.5, this.i.size.height * 0.5, true);
         this._invalidateGravityWellPresetInfluence(true);
         this._pushObjectSelectionUndo(entry);
       } finally { this._gravityWellPresetTransaction = false; }

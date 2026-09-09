@@ -40,6 +40,7 @@ async function main() {
         size: { ...pn.i.size },
         count: pn.gravityWells.length,
         farthest,
+        movingParticles: Array.from(pn.velX).filter((x, index) => x !== 0 || pn.velY[index] !== 0).length,
         gatherRadius: pn.options.gatherRadius,
         introTimer: pn._startupGravityIntroTimer != null
       };
@@ -47,7 +48,9 @@ async function main() {
     assert.equal(initial.state, 'waiting');
     assert.deepEqual(initial.center, { x: initial.size.width / 2, y: initial.size.height / 2 });
     assert.equal(initial.count, 0);
-    assert(initial.farthest <= initial.gatherRadius + 0.01);
+    assert(initial.farthest <= initial.gatherRadius + 4,
+      'startup particles were not initially clustered at the center');
+    assert(initial.movingParticles > 0, 'startup gather discarded all particle velocity');
     assert.equal(initial.introTimer, true);
 
     const oneShot = await page.evaluate(() => {
