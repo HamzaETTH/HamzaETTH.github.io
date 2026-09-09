@@ -84,14 +84,16 @@ async function main() {
       pn.options.particleRepulsion = false;
       pn.options.particleInteractionDistance = 47;
       const oldOptions = { ...pn.options };
-      const oldParticles = particles();
       pn._selectionUndoStack = [];
       let notifications = 0;
       const onChange = () => notifications++;
       window.addEventListener('particle-gravity-wells-change', onChange);
       pn.applyGravityWellPreset('cross-cage');
       check('applyAtomic', notifications === 1 && pn._selectionUndoStack.length === 1 && pn.gravityWells.length === 5);
-      check('applyPreservesParticles', oldParticles === particles());
+      const gathered = Array.from(pn.posX).every((x, index) =>
+        Math.hypot(x - pn.i.size.width / 2, pn.posY[index] - pn.i.size.height / 2) <= pn.options.gatherRadius + 0.01) &&
+        Array.from(pn.velX).every((x, index) => x === 0 && pn.velY[index] === 0);
+      check('applyGathersParticlesOnce', gathered && pn._startupGravityState === 'stopped');
       check('applyClearsSelection', !pn.selectedGravityWellId && !pn.selectedGravityWellIds.size && !pn.selectedParticleIndices.size);
       const allowed = new Set(['velocity', 'curvedDrift', 'gravityWellSpin', 'gravityWellForceMultiplier',
         'gravityWellAccelerationCapped', 'gravityWellAccelerationLimit', 'gravityWellsEnabled']);

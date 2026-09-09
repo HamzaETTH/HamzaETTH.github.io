@@ -82,7 +82,6 @@
       if (this._startupGravityWellTimer != null) clearTimeout(this._startupGravityWellTimer);
       this._startupGravityIntroTimer = null;
       this._startupGravityWellTimer = null;
-      this._startupGatherPoint = null;
       this._startupGravityWellId = null;
       this._startupGravityState = 'stopped';
       if (this.m != null) clearTimeout(this.m);

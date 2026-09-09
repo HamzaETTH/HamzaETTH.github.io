@@ -854,7 +854,6 @@
       this._gravityWellStrengthLabel = null;
       this._gravityWellStrengthLabelTimer = null;
       this._startupGravityState = 'idle';
-      this._startupGatherPoint = null;
       this._startupGravityWellId = null;
       this._startupGravityIntroTimer = null;
       this._startupGravityWellTimer = null;
@@ -974,15 +973,8 @@
       if (this._startupGravityWellTimer != null) clearTimeout(this._startupGravityWellTimer);
       this._startupGravityIntroTimer = null;
       this._startupGravityWellTimer = null;
-      this._startupGatherPoint = null;
       this._startupGravityWellId = null;
       this._startupGravityState = 'stopped';
-    }),
-    (b.prototype._releaseStartupGather = function() {
-      if (this._startupGravityState !== 'gathering') return false;
-      this._startupGatherPoint = null;
-      this._startupGravityState = 'waiting';
-      return true;
     }),
     (b.prototype._scheduleStartupGravityWellCycle = function() {
       if (this._destroyed || this._startupGravityState !== 'cycling' || !this._startupGravityWellId) return false;
@@ -1012,11 +1004,9 @@
       return true;
     }),
     (b.prototype.finishStartupGravitySequence = function() {
-      if (this._destroyed || (this._startupGravityState !== 'gathering' &&
-          this._startupGravityState !== 'waiting')) return null;
+      if (this._destroyed || this._startupGravityState !== 'waiting') return null;
       if (this._startupGravityIntroTimer != null) clearTimeout(this._startupGravityIntroTimer);
       this._startupGravityIntroTimer = null;
-      this._startupGatherPoint = null;
       var defaults = this._gravityWellDefaults('black');
       var useMobileRadius = !!(this._mobileLayoutMedia && this._mobileLayoutMedia.matches);
       var well = {
@@ -1041,9 +1031,8 @@
     }),
     (b.prototype._startStartupGravitySequence = function() {
       if (this._destroyed || this._startupGravityState !== 'idle') return false;
-      this._startupGravityState = 'gathering';
-      this._startupGatherPoint = { x: this.i.size.width * 0.5, y: this.i.size.height * 0.5 };
-      this._gatherParticlesAt(this._startupGatherPoint.x, this._startupGatherPoint.y);
+      this._startupGravityState = 'waiting';
+      this._gatherParticlesAt(this.i.size.width * 0.5, this.i.size.height * 0.5);
       var hero = document.querySelector('.center-text');
       if (!hero) {
         this.finishStartupGravitySequence();
@@ -1172,7 +1161,6 @@
 	    (b.prototype._startCursorCapture = function(x, y) {
 	      this._cancelCursorCaptureHold();
 	      if (!Number.isFinite(x) || !Number.isFinite(y)) return false;
-	      this._releaseStartupGather();
 	      this._cursorCaptureActive = true;
 	      this._cursorCapturePoint = { x: x, y: y };
 	      this._cursorCaptureAppliedPoint = { x: x, y: y };
@@ -2497,6 +2485,7 @@
           this.gravityWellAccelerationCapped = preset.motion.gravityWellAccelerationCapped;
           this.gravityWellAccelerationLimit = preset.motion.gravityWellAccelerationLimit;
         }
+        this._gatherParticlesAt(this.i.size.width * 0.5, this.i.size.height * 0.5);
         this._invalidateGravityWellPresetInfluence(true);
         this._pushObjectSelectionUndo(entry);
       } finally { this._gravityWellPresetTransaction = false; }
@@ -4314,10 +4303,6 @@
           this.o.push(particle);
         }
         this._initSoAFromObjects(this.o.length);
-        if (this._startupGravityState === 'gathering') {
-          this._startupGatherPoint = { x: w * 0.5, y: h * 0.5 };
-          this._gatherParticlesAt(this._startupGatherPoint.x, this._startupGatherPoint.y);
-        }
         if (this.performanceMonitor && this.performanceMonitor.setParticleCount) {
           this.performanceMonitor.setParticleCount(this.numParticles);
         }
@@ -4757,7 +4742,6 @@
             console.warn('[PN] Force hue sweep:', this.forceHueSweep ? 'ON' : 'OFF');
           } else if ((event.key === 'a' || event.key === 'A') && !event.ctrlKey && !event.metaKey) {
             // Hold-to-gather: while A is held, attract particles to pointer (use repulsionForce, which is attractive in this codebase)
-            this._releaseStartupGather();
             this._gatherActive = true;
             if (this.p && Number.isFinite(this.p.x) && Number.isFinite(this.p.y)) {
               if (!this.repulsionForce) this.repulsionForce = { x: this.p.x, y: this.p.y };
@@ -5193,9 +5177,6 @@
       }
       // Re-init SoA and grid
       this._initSoAFromObjects(target);
-      if (this._startupGravityState === 'gathering' && this._startupGatherPoint) {
-        this._gatherParticlesAt(this._startupGatherPoint.x, this._startupGatherPoint.y);
-      }
       if (this.p) this.p.index = target;
       this.initGrid();
       if (this.performanceMonitor && this.performanceMonitor.setParticleCount) {
@@ -5272,7 +5253,6 @@
       return count;
     }),
     (b.prototype._startMiddleMouseSpawn = function(x, y) {
-      this._releaseStartupGather();
       this._middleSpawnActive = true;
       this._middleSpawnPointer = { x: x, y: y };
       this._middleSpawnAccumulator = 0;
@@ -5322,13 +5302,12 @@
     // Update SoA physics for all particles
     (b.prototype._updateSoA = function() {
       var n = this.numParticles|0;
-      var startupGatherPoint = this._startupGravityState === 'gathering' ? this._startupGatherPoint : null;
       var ax = this.attractionForce ? this.attractionForce.x : 0;
       var ay = this.attractionForce ? this.attractionForce.y : 0;
-      var rx = startupGatherPoint ? startupGatherPoint.x : (this.repulsionForce ? this.repulsionForce.x : 0);
-      var ry = startupGatherPoint ? startupGatherPoint.y : (this.repulsionForce ? this.repulsionForce.y : 0);
-      var hasA = !startupGatherPoint && !!this.attractionForce;
-      var hasR = !!startupGatherPoint || !!this.repulsionForce;
+      var rx = this.repulsionForce ? this.repulsionForce.x : 0;
+      var ry = this.repulsionForce ? this.repulsionForce.y : 0;
+      var hasA = !!this.attractionForce;
+      var hasR = !!this.repulsionForce;
       var repR = this.options.repulsionRange;
       var repI = this.options.repulsionIntensity;
       var attR = this.options.attractionRange;

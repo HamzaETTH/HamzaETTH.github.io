@@ -29,14 +29,14 @@ async function main() {
 
     const initial = await page.evaluate(() => {
       const pn = window.particleInstance;
-      const point = pn._startupGatherPoint;
+      const point = { x: pn.i.size.width / 2, y: pn.i.size.height / 2 };
       let farthest = 0;
       for (let i = 0; i < pn.numParticles; i++) {
         farthest = Math.max(farthest, Math.hypot(pn.posX[i] - point.x, pn.posY[i] - point.y));
       }
       return {
         state: pn._startupGravityState,
-        point,
+        center: point,
         size: { ...pn.i.size },
         count: pn.gravityWells.length,
         farthest,
@@ -44,28 +44,49 @@ async function main() {
         introTimer: pn._startupGravityIntroTimer != null
       };
     });
-    assert.equal(initial.state, 'gathering');
-    assert.deepEqual(initial.point, { x: initial.size.width / 2, y: initial.size.height / 2 });
+    assert.equal(initial.state, 'waiting');
+    assert.deepEqual(initial.center, { x: initial.size.width / 2, y: initial.size.height / 2 });
     assert.equal(initial.count, 0);
     assert(initial.farthest <= initial.gatherRadius + 0.01);
     assert.equal(initial.introTimer, true);
 
+    const oneShot = await page.evaluate(() => {
+      const pn = window.particleInstance;
+      pn.options.particleAttraction = false;
+      pn.options.particleRepulsion = false;
+      pn.options.curvedDrift = false;
+      pn.__startupOriginalGather = pn._gatherParticlesAt;
+      pn.__startupGatherCallsAfterInit = 0;
+      pn._gatherParticlesAt = function() {
+        pn.__startupGatherCallsAfterInit++;
+        return pn.__startupOriginalGather.apply(this, arguments);
+      };
+      pn.posX[0] = 40;
+      pn.posY[0] = 40;
+      pn.velX[0] = 0;
+      pn.velY[0] = 0;
+      for (let i = 0; i < 60; i++) pn._updateSoA();
+      return { x: pn.posX[0], y: pn.posY[0] };
+    });
+    assert(Math.abs(oneShot.x - 40) < 0.01 && Math.abs(oneShot.y - 40) < 0.01,
+      'startup gather continued applying force after its initial placement');
+
     await page.setViewportSize({ width: 900, height: 700 });
-    await page.waitForFunction(() => {
+    await page.waitForFunction(() => window.particleInstance.i.size.width === 900 &&
+      window.particleInstance.i.size.height === 700);
+    const resized = await page.evaluate(() => {
       const pn = window.particleInstance;
-      return pn.i.size.width === 900 && pn.i.size.height === 700 &&
-        pn._startupGatherPoint?.x === 450 && pn._startupGatherPoint?.y === 350;
+      const result = {
+        state: pn._startupGravityState,
+        gatherCalls: pn.__startupGatherCallsAfterInit
+      };
+      pn._gatherParticlesAt = pn.__startupOriginalGather;
+      delete pn.__startupOriginalGather;
+      delete pn.__startupGatherCallsAfterInit;
+      return result;
     });
-    const resizedGather = await page.evaluate(() => {
-      const pn = window.particleInstance;
-      let farthest = 0;
-      for (let i = 0; i < pn.numParticles; i++) {
-        farthest = Math.max(farthest,
-          Math.hypot(pn.posX[i] - pn._startupGatherPoint.x, pn.posY[i] - pn._startupGatherPoint.y));
-      }
-      return { farthest, radius: pn.options.gatherRadius };
-    });
-    assert(resizedGather.farthest <= resizedGather.radius + 0.01);
+    assert.equal(resized.state, 'waiting');
+    assert.equal(resized.gatherCalls, 0, 'resize repeated the one-shot startup gather');
 
     await page.evaluate(() => {
       document.querySelector('.center-text').dispatchEvent(new AnimationEvent('animationend', {
@@ -80,7 +101,6 @@ async function main() {
         state: pn._startupGravityState,
         well: { ...well },
         trackedId: pn._startupGravityWellId,
-        gatherPoint: pn._startupGatherPoint,
         selectedId: pn.selectedGravityWellId,
         selectedIds: Array.from(pn.selectedGravityWellIds),
         introTimer: pn._startupGravityIntroTimer,
@@ -92,7 +112,6 @@ async function main() {
     assert.equal(black.well.id, black.trackedId);
     assert.equal(black.well.x, 450);
     assert.equal(black.well.y, 350);
-    assert.equal(black.gatherPoint, null);
     assert.equal(black.selectedId, null);
     assert.deepEqual(black.selectedIds, []);
     assert.equal(black.introTimer, null);
