@@ -576,6 +576,35 @@ async function runDesktop(browser, options, browserErrors) {
     return state;
   }, auraWheelTarget);
 
+  const shiftWheelBefore = await page.evaluate(() => {
+    const pn = window.particleInstance;
+    pn.clearObjectSelection();
+    const well = pn.gravityWells[0];
+    return { id: well.id, radius: well.radius, strength: well.strength, particleCount: pn.o.length };
+  });
+  await page.mouse.move(420, 250);
+  await page.keyboard.down('Shift');
+  await page.mouse.wheel(0, -100);
+  await page.keyboard.up('Shift');
+  const shiftWheelIncreased = await page.evaluate(id => {
+    const pn = window.particleInstance;
+    const well = pn.getGravityWell(id);
+    return {
+      radius: well.radius,
+      strength: well.strength,
+      particleCount: pn.o.length,
+      selectedId: pn.selectedGravityWellId,
+      selectedWellIds: Array.from(pn.selectedGravityWellIds)
+    };
+  }, shiftWheelBefore.id);
+  await page.keyboard.down('Shift');
+  await page.mouse.wheel(0, 100);
+  await page.keyboard.up('Shift');
+  const shiftWheelRestored = await page.evaluate(id => {
+    const well = window.particleInstance.getGravityWell(id);
+    return { radius: well.radius, strength: well.strength };
+  }, shiftWheelBefore.id);
+
   const particleCountBeforeWellWheel = await page.evaluate(() => {
     const pn = window.particleInstance;
     pn.clearObjectSelection();
@@ -765,6 +794,38 @@ async function runDesktop(browser, options, browserErrors) {
   }
   await page.keyboard.press('Escape');
   const deselected = await page.evaluate(() => window.particleInstance.selectedGravityWellId === null);
+
+  const rightClickTarget = await page.evaluate(() => {
+    const pn = window.particleInstance;
+    pn.clearObjectSelection();
+    const well = pn.gravityWells[0];
+    return { x: well.x, y: well.y };
+  });
+  await page.mouse.move(rightClickTarget.x, rightClickTarget.y);
+  await page.mouse.down({ button: 'right' });
+  const rightClickHeld = await page.evaluate(() => {
+    const pn = window.particleInstance;
+    return {
+      selectedId: pn.selectedGravityWellId,
+      selectedWellIds: Array.from(pn.selectedGravityWellIds),
+      drag: pn._gravityWellDrag,
+      attractionForce: pn.attractionForce,
+      repulsionForce: pn.repulsionForce
+    };
+  });
+  await page.mouse.move(rightClickTarget.x + 30, rightClickTarget.y + 20);
+  const rightClickMovedForce = await page.evaluate(() => window.particleInstance.attractionForce);
+  await page.mouse.up({ button: 'right' });
+  const rightClickReleased = await page.evaluate(() => {
+    const pn = window.particleInstance;
+    return {
+      selectedId: pn.selectedGravityWellId,
+      selectedWellIds: Array.from(pn.selectedGravityWellIds),
+      drag: pn._gravityWellDrag,
+      attractionForce: pn.attractionForce,
+      repulsionForce: pn.repulsionForce
+    };
+  });
 
   const countBeforeCancel = await page.evaluate(() => window.particleInstance.gravityWells.length);
   await page.mouse.move(500, 180);
@@ -1521,6 +1582,11 @@ async function runDesktop(browser, options, browserErrors) {
     framebuffersSized: placed.fbo.sceneWidth === placed.backing.width && placed.fbo.sceneHeight === placed.backing.height &&
       placed.fbo.fieldWidth === Math.ceil(placed.backing.width / 2) && placed.fbo.fieldHeight === Math.ceil(placed.backing.height / 2),
     compositionRan: placed.renderPasses > 0,
+    shiftWheelResizesHoveredWellWithoutSelecting: shiftWheelIncreased.radius === shiftWheelBefore.radius + 5 &&
+      shiftWheelIncreased.strength === shiftWheelBefore.strength &&
+      shiftWheelIncreased.particleCount === shiftWheelBefore.particleCount &&
+      shiftWheelIncreased.selectedId === null && !shiftWheelIncreased.selectedWellIds.length &&
+      shiftWheelRestored.radius === shiftWheelBefore.radius && shiftWheelRestored.strength === shiftWheelBefore.strength,
     wheelAdjustsHoveredStrengthWithoutSelecting: wheelIncreased.strength === 13 && wheelDecreased === 12 &&
       wheelIncreased.selectedId === null && !wheelIncreased.selectedWellIds.length &&
       wheelIncreased.informationScope === null && wheelIncreased.metadataCount === 0 &&
@@ -1556,6 +1622,13 @@ async function runDesktop(browser, options, browserErrors) {
     normalWellClickIsTransient: coreSelection.selectedType == null && !coreSelection.selectedWells.length &&
       !coreSelection.attractionForce && !coreSelection.repulsionForce,
     escapeDeselects: deselected,
+    rightClickUsesDefaultRepulsionWithoutSelecting: rightClickHeld.selectedId === null &&
+      !rightClickHeld.selectedWellIds.length && !rightClickHeld.drag &&
+      rightClickHeld.attractionForce?.x === rightClickTarget.x &&
+      rightClickHeld.attractionForce?.y === rightClickTarget.y && !rightClickHeld.repulsionForce &&
+      rightClickMovedForce?.x === rightClickTarget.x + 30 && rightClickMovedForce?.y === rightClickTarget.y + 20 &&
+      rightClickReleased.selectedId === null && !rightClickReleased.selectedWellIds.length &&
+      !rightClickReleased.drag && !rightClickReleased.attractionForce && !rightClickReleased.repulsionForce,
     escapeCancelsDraft: cancelState.count === countBeforeCancel && cancelState.draft === null,
     rightClickCancelsDraft: rightClickCancelState.count === countBeforeCancel && rightClickCancelState.draft === null &&
       !rightClickCancelState.attractionForce && !rightClickCancelState.repulsionForce && rightClickCancelState.labelHidden,

@@ -4576,6 +4576,10 @@
           evt.stopImmediatePropagation();
           return;
         }
+        if (evt.button === 2) {
+          this._lastPrimaryEmptyDown = null;
+          return;
+        }
         var pos = this._mapToLogicalCanvas(evt);
         if (evt.button === 0 && (evt.ctrlKey || evt.metaKey) && !this.gravityWellDraft) {
           var toggleHit = this._hitTestGravityWellVisual(pos.x, pos.y);
@@ -4731,15 +4735,25 @@
           var position = this._mapToLogicalCanvas(event);
           var hoveredWell = this._hitTestGravityWell(position.x, position.y);
           if (hoveredWell) {
-            var currentStrength = Number.isFinite(hoveredWell.strength) ? hoveredWell.strength : 0;
-            var strengthDirection = currentStrength < 0 ? -1 : 1;
-            var strengthMagnitude = Math.abs(currentStrength);
-            if (event.deltaY < 0) strengthMagnitude += 1;
-            else if (event.deltaY > 0) strengthMagnitude = Math.max(0, strengthMagnitude - 1);
-            this.updateGravityWell(hoveredWell.id, {
-              strength: strengthDirection * strengthMagnitude
-            });
-            this._showGravityWellStrengthLabel(hoveredWell);
+            if (event.shiftKey) {
+              var hoverRadiusStep = event.deltaY < 0 ? 5 : (event.deltaY > 0 ? -5 : 0);
+              if (hoverRadiusStep) {
+                this.updateGravityWell(hoveredWell.id, {
+                  radius: this._clampGravityWellRadius(hoveredWell.radius + hoverRadiusStep)
+                });
+              }
+              this._hideGravityWellStrengthLabel();
+            } else {
+              var currentStrength = Number.isFinite(hoveredWell.strength) ? hoveredWell.strength : 0;
+              var strengthDirection = currentStrength < 0 ? -1 : 1;
+              var strengthMagnitude = Math.abs(currentStrength);
+              if (event.deltaY < 0) strengthMagnitude += 1;
+              else if (event.deltaY > 0) strengthMagnitude = Math.max(0, strengthMagnitude - 1);
+              this.updateGravityWell(hoveredWell.id, {
+                strength: strengthDirection * strengthMagnitude
+              });
+              this._showGravityWellStrengthLabel(hoveredWell);
+            }
             event.preventDefault();
             return;
           }
