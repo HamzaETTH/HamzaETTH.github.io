@@ -123,10 +123,6 @@ function ensurePaneContainer() {
   if (!el) {
     el = document.createElement('div');
     el.id = 'tp-container';
-    el.style.position = 'fixed';
-    el.style.top = '12px';
-    el.style.right = '12px';
-    el.style.zIndex = '2000';
     el.style.display = 'none';
     document.body.appendChild(el);
   }

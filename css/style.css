@@ -606,6 +606,19 @@ h1 {
   max-width: 1128px;
 }
 
+#tp-container {
+  position: fixed;
+  top: 12px;
+  right: 12px;
+  z-index: 2000;
+}
+
+@media (hover: none) and (pointer: coarse) {
+  #tp-container {
+    top: calc(76px + env(safe-area-inset-top));
+  }
+}
+
 @media (min-width: 481px) {
   .container {
     padding-left: 24px;

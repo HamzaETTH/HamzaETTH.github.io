@@ -816,6 +816,8 @@
       this._gravityWellGuideState = null;
       this._gravityWellOverlayLayout = null;
       this.gravityWellInfoExpanded = false;
+      this._gravityWellInfluenceSnapshots = new Map();
+      this._gravityWellInfluenceRefreshCount = 0;
       this._gravityWellAlignmentSheenTime = 0;
       this._mobileGesture = null;
       this._mobileLayoutMedia = window.matchMedia
@@ -850,6 +852,8 @@
       this._selectionOverlay = null;
       this._selectionOverlayContext = null;
       this._selectionMarkerDiagnostics = [];
+      this._selectionSummaryVisible = false;
+      this._selectionSummaryLayout = null;
 
       this.init();
     }),
@@ -1404,6 +1408,7 @@
 	      this.selectedGravityWellId = null;
 	      if (this.selectedGravityWellIds) this.selectedGravityWellIds.clear();
 	      if (this.selectedParticleIndices) this.selectedParticleIndices.clear();
+	      this._selectionSummaryVisible = false;
 	      this._clearSelectionOverlay();
 	      return hadSelection;
 	    }),
@@ -1420,6 +1425,7 @@
 	        if (selectedId) this.selectedGravityWellIds.add(selectedId);
 	      }
 	      if (this.selectedParticleIndices) this.selectedParticleIndices.clear();
+	      this._selectionSummaryVisible = false;
 	      this._clearSelectionOverlay();
 	      return selectedId;
 	    }),
@@ -1428,6 +1434,7 @@
 	      this.selectedGravityWellId = selectedId;
 	      if (this.selectedGravityWellIds) this.selectedGravityWellIds.clear();
 	      if (this.selectedParticleIndices) this.selectedParticleIndices.clear();
+	      this._selectionSummaryVisible = false;
 	      this._clearSelectionOverlay();
 	      return selectedId;
 	    }),
@@ -1518,6 +1525,7 @@
 	      this.selectedParticleIndices = particles;
 	      this.selectedGravityWellIds = wells;
 	      this.selectedGravityWellId = wells.size ? wells.values().next().value : null;
+	      this._selectionSummaryVisible = particles.size + wells.size > 0;
 	      this._selectionMarqueeState = null;
 	      if (this._selectionMarqueeElement) this._selectionMarqueeElement.style.display = 'none';
 	      if (this.canvas) this.canvas.classList.remove('object-selection-active');
@@ -1583,7 +1591,8 @@
 	      this.selectedGravityWellId = selection.primaryWellId && selectedWells.has(selection.primaryWellId)
 	        ? selection.primaryWellId
 	        : (selectedWells.size ? selectedWells.values().next().value : null);
-	      if (!selectedParticles.size && !selectedWells.size) this._clearSelectionOverlay();
+	      this._selectionSummaryVisible = false;
+      if (!selectedParticles.size && !selectedWells.size) this._clearSelectionOverlay();
 	    }),
 	    (b.prototype._pushObjectSelectionUndo = function(entry) {
 	      if (!this._selectionUndoStack) this._selectionUndoStack = [];
@@ -2051,6 +2060,7 @@
 	    }),
 	    (b.prototype._clearSelectionOverlay = function() {
 	      this._selectionMarkerDiagnostics = [];
+	      this._selectionSummaryLayout = null;
 	      if (!this._selectionOverlay || !this._selectionOverlayContext || !this.i) return;
 	      var dpr = window.devicePixelRatio || 1;
 	      this._selectionOverlayContext.setTransform(dpr, 0, 0, dpr, 0, 0);
@@ -2060,7 +2070,7 @@
 	    (b.prototype._drawSelectedParticles = function() {
 	      var selectedParticles = this.selectedParticleIndices || new Set();
 	      var selectedWells = [];
-	      if (this.options.gravityWellsEnabled !== false && this.selectedGravityWellIds) {
+	      if (this.selectedGravityWellIds) {
 	        this.selectedGravityWellIds.forEach(function(id) {
 	          var well = this.getGravityWell(id);
 	          if (well) selectedWells.push(well);
@@ -2096,6 +2106,19 @@
 	      }, this);
 	      context.stroke();
 
+	      var bounds = { left: Infinity, right: -Infinity, top: Infinity, bottom: -Infinity };
+	      selectedParticles.forEach(function(index) {
+	        if (index < 0 || index >= this.numParticles) return;
+	        var particle = this.o[index];
+	        var particleX = this.posX ? this.posX[index] : particle.x;
+	        var particleY = this.posY ? this.posY[index] : particle.y;
+	        var radius = Math.max(4, (particle.size || this.options.particleSize || 2) + 3);
+	        bounds.left = Math.min(bounds.left, particleX - radius);
+	        bounds.right = Math.max(bounds.right, particleX + radius);
+	        bounds.top = Math.min(bounds.top, particleY - radius);
+	        bounds.bottom = Math.max(bounds.bottom, particleY + radius);
+	      }, this);
+
 	      for (var i = 0; i < selectedWells.length; i++) {
 	        var well = selectedWells[i];
 	        var radiusX = Math.max(1, well.radius) * 1.5;
@@ -2127,6 +2150,40 @@
 	        context.strokeStyle = 'rgba(92, 220, 255, 0.98)';
 	        context.lineWidth = 2;
 	        context.stroke();
+	        bounds.left = Math.min(bounds.left, well.x - radiusX - tickLength);
+	        bounds.right = Math.max(bounds.right, well.x + radiusX + tickLength);
+	        bounds.top = Math.min(bounds.top, well.y - radiusY - tickLength);
+	        bounds.bottom = Math.max(bounds.bottom, well.y + radiusY + tickLength);
+	      }
+	      if (this._selectionSummaryVisible && Number.isFinite(bounds.left)) {
+	        var particleCount = selectedParticles.size;
+	        var wellCount = selectedWells.length;
+	        var summary = particleCount + ' ' + (particleCount === 1 ? 'particle' : 'particles') +
+	          ' \u00b7 ' + wellCount + ' ' + (wellCount === 1 ? 'well' : 'wells');
+	        context.font = '600 12px "Fira Code", monospace';
+	        var summaryWidth = Math.ceil(context.measureText(summary).width) + 18;
+	        var summaryHeight = 28;
+	        var summaryX = Math.max(summaryWidth / 2 + 6, Math.min(this.i.size.width - summaryWidth / 2 - 6, (bounds.left + bounds.right) / 2));
+	        var aboveY = bounds.top - 12 - summaryHeight / 2;
+	        var summaryY = aboveY - summaryHeight / 2 >= 4
+	          ? aboveY
+	          : Math.min(this.i.size.height - summaryHeight / 2 - 4, bounds.bottom + 12 + summaryHeight / 2);
+	        context.fillStyle = 'rgba(7,10,18,0.9)';
+	        context.strokeStyle = 'rgba(92,220,255,0.88)';
+	        context.lineWidth = 1;
+	        context.beginPath();
+	        context.roundRect(summaryX - summaryWidth / 2, summaryY - summaryHeight / 2, summaryWidth, summaryHeight, 6);
+	        context.fill();
+	        context.stroke();
+	        context.fillStyle = '#dff7ff';
+	        context.textAlign = 'center';
+	        context.textBaseline = 'middle';
+	        context.fillText(summary, summaryX, summaryY + 0.5);
+	        this._selectionSummaryLayout = {
+	          text: summary,
+	          bounds: bounds,
+	          rect: { x: summaryX - summaryWidth / 2, y: summaryY - summaryHeight / 2, width: summaryWidth, height: summaryHeight }
+	        };
 	      }
 	      context.restore();
 	    }),
@@ -2184,11 +2241,35 @@
       this._ensureAnimationLoop();
       return this.selectedGravityWellIds.has(id);
     }),
-    (b.prototype.toggleGravityWellInfo = function() {
-      this.gravityWellInfoExpanded = !this.gravityWellInfoExpanded;
-      this._ensureAnimationLoop();
-      return this.gravityWellInfoExpanded;
-    }),
+	    (b.prototype.toggleGravityWellInfo = function() {
+	      this.gravityWellInfoExpanded = !this.gravityWellInfoExpanded;
+	      if (this.gravityWellInfoExpanded) this._refreshGravityWellInfluenceSnapshots(this.gravityWells);
+	      this._ensureAnimationLoop();
+	      return this.gravityWellInfoExpanded;
+	    }),
+	    (b.prototype._refreshGravityWellInfluenceSnapshots = function(wells) {
+	      if (!wells || !wells.length) return;
+	      this._gravityWellInfluenceRefreshCount++;
+	      for (var wellIndex = 0; wellIndex < wells.length; wellIndex++) {
+	        var well = wells[wellIndex];
+	        if (!well || !Number.isFinite(well.x) || !Number.isFinite(well.y)) continue;
+	        var key = well.id || 'gravity-well-draft';
+	        var strength = Number.isFinite(well.strength) ? well.strength : 0;
+	        var count = 0;
+	        if (strength !== 0) {
+	          var range = Math.max(0, Number.isFinite(well.radius) ? well.radius : 0) * 2;
+	          var rangeSquared = range * range;
+	          for (var particleIndex = 0; particleIndex < this.numParticles; particleIndex++) {
+	            var particleX = this.posX ? this.posX[particleIndex] : this.o[particleIndex].x;
+	            var particleY = this.posY ? this.posY[particleIndex] : this.o[particleIndex].y;
+	            var dx = particleX - well.x;
+	            var dy = particleY - well.y;
+	            if (dx * dx + dy * dy <= rangeSquared) count++;
+	          }
+	        }
+	        this._gravityWellInfluenceSnapshots.set(key, count);
+	      }
+	    }),
     (b.prototype.updateGravityWell = function(id, patch) {
       var well = this.getGravityWell(id);
       if (!well || !patch) return null;
@@ -2320,6 +2401,7 @@
         );
         this.gravityWellDraft.x = positioned.x;
         this.gravityWellDraft.y = positioned.y;
+	        this._refreshGravityWellInfluenceSnapshots([this.gravityWellDraft]);
       }
       this._emitGravityWellsChange();
 	      this._ensureAnimationLoop();
@@ -2342,6 +2424,7 @@
 	      );
 	      draft.x = positioned.x;
 	      draft.y = positioned.y;
+	      this._refreshGravityWellInfluenceSnapshots([draft]);
 	      this._emitGravityWellsChange();
 	      return true;
 	    }),
@@ -2375,6 +2458,7 @@
         return true;
       }
       if (this.gravityWellDraft) {
+	        this._gravityWellInfluenceSnapshots.delete(this.gravityWellDraft.editId || 'gravity-well-draft');
         this.gravityWellDraft = null;
         this._gravityPointerId = null;
         this._clearGravityWellSnapState();
@@ -2390,6 +2474,7 @@
     (b.prototype._commitGravityWellPlacement = function() {
       var draft = this.gravityWellDraft;
       if (!draft || !Number.isFinite(draft.x) || !Number.isFinite(draft.y)) return null;
+	  this._gravityWellInfluenceSnapshots.delete(draft.editId || 'gravity-well-draft');
       this.gravityWellDraft = null;
       this._gravityPointerId = null;
       this._clearGravityWellSnapState();
@@ -2402,6 +2487,7 @@
       well.innerColor = draft.innerColor;
       well.outerColor = draft.outerColor;
       this._clearObjectSelectionState();
+	  this._clearGravityWellOverlay();
       this._emitGravityWellsChange();
       return well;
     }),
@@ -2834,6 +2920,7 @@
         );
         draft.x = draftPosition.x;
         draft.y = draftPosition.y;
+	        this._refreshGravityWellInfluenceSnapshots([draft]);
         this._emitGravityWellsChange();
         return true;
       }
@@ -2844,6 +2931,7 @@
       if (!draft.sizedByPointer && pointerRadius < 2) return true;
       draft.sizedByPointer = true;
       draft.radius = this._clampGravityWellRadius(pointerRadius);
+	    this._refreshGravityWellInfluenceSnapshots([draft]);
       this._emitGravityWellsChange();
       return true;
     }),
@@ -2868,6 +2956,7 @@
           draft.phase = 'sizing';
           draft.dragging = true;
           this._gravityPointerId = pointerId;
+	        this._refreshGravityWellInfluenceSnapshots([draft]);
           this._emitGravityWellsChange();
         } else if (!draft.dragging) {
           this._handleGravityWellPointerMove(x, y);
@@ -2904,8 +2993,16 @@
       }
       var metadataForWell = function(well) {
         var effectiveType = effectiveGravityWellType(well);
+	      var influenceCount = this._gravityWellInfluenceSnapshots.get(well.id || 'gravity-well-draft');
+	      var influenceLabel = null;
+	      if (Number.isFinite(influenceCount)) {
+	        influenceLabel = (Number.isFinite(well.strength) && well.strength === 0)
+	          ? 'No influenced particles'
+	          : (effectiveType === 'white' ? 'Repelling ' : 'Attracting ') + influenceCount +
+	            ' ' + (influenceCount === 1 ? 'particle' : 'particles');
+	      }
         return {
-          targetId: well.id,
+	        targetId: well.id || 'gravity-well-draft',
           x: well.x,
           y: well.y,
           radius: well.radius,
@@ -2913,9 +3010,10 @@
           radiusLabel: 'Radius ' + Math.round(well.radius) + ' px',
           effectiveType: effectiveType,
           strengthMagnitude: Math.abs(Number.isFinite(well.strength) ? well.strength : 0),
-          behaviorLabel: (effectiveType === 'white' ? 'Repel ' : 'Absorb ') + formatGravityWellMagnitude(well)
+	        behaviorLabel: (effectiveType === 'white' ? 'Repel ' : 'Absorb ') + formatGravityWellMagnitude(well),
+	        influenceLabel: influenceLabel
         };
-      };
+	    }.bind(this);
       var distanceBetween = function(first, second) {
         var dx = second.x - first.x;
         var dy = second.y - first.y;
@@ -2933,6 +3031,7 @@
       };
 
       if (source && Number.isFinite(source.x) && Number.isFinite(source.y)) {
+	      if (this.gravityWellDraft) result.metadataRecords.push(metadataForWell(source));
         for (var i = 0; i < this.gravityWells.length; i++) {
           var target = this.gravityWells[i];
           if (target.id === excludedId) continue;
@@ -3454,7 +3553,8 @@
       context.font = '600 12px "Fira Code", monospace';
       for (var i = 0; i < measurements.length; i++) {
         var measurement = measurements[i];
-        var lines = [measurement.positionLabel, measurement.radiusLabel, measurement.behaviorLabel];
+	      var lines = [measurement.positionLabel, measurement.radiusLabel, measurement.behaviorLabel];
+	      if (measurement.influenceLabel) lines.push(measurement.influenceLabel);
         var verticalExtent = Math.max(14, measurement.radius * 0.48);
         var horizontalExtent = Math.max(18, measurement.radius * 0.55);
         var candidates = [
@@ -4214,9 +4314,10 @@
           var draft = this.gravityWellDraft;
           if (draft && draft.phase === 'positioning') {
             var radiusStep = event.deltaY < 0 ? 5 : (event.deltaY > 0 ? -5 : 0);
-            if (radiusStep) {
-              draft.radius = this._clampGravityWellRadius(draft.radius + radiusStep);
-              this._emitGravityWellsChange();
+          if (radiusStep) {
+            draft.radius = this._clampGravityWellRadius(draft.radius + radiusStep);
+	          this._refreshGravityWellInfluenceSnapshots([draft]);
+            this._emitGravityWellsChange();
             }
             event.preventDefault();
             return;

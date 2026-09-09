@@ -2375,6 +2375,35 @@ async function runDragInfo(browser, options, browserErrors) {
     return { bootstrapRegistered, fullPaneRegistered, bootstrap, fullPane, resetCleared };
   });
 
+  const influenceSnapshots = await page.evaluate(async () => {
+    const pn = window.particleInstance;
+    pn.clearGravityWells();
+    pn.o = pn.o.slice(0, 4);
+    [[100, 100], [180, 100], [260, 100], [500, 100]].forEach(([x, y], index) => {
+      pn.o[index].x = x; pn.o[index].y = y; pn.o[index].velocity.x = 0; pn.o[index].velocity.y = 0;
+    });
+    pn._initSoAFromObjects(4);
+    const attracting = pn.addGravityWell('black', 100, 100, 60);
+    const repelling = pn.addGravityWell('white', 500, 100, 60);
+    const zero = pn.addGravityWell('black', 260, 100, 60);
+    pn.updateGravityWell(zero.id, { strength: 0 });
+    const beforeRefreshes = pn._gravityWellInfluenceRefreshCount;
+    pn.toggleGravityWellInfo();
+    await new Promise(resolve => requestAnimationFrame(resolve));
+    const first = pn._gravityWellOverlayLayout.metadataRecords.map(record => ({ id: record.targetId, line: record.influenceLabel }));
+    const afterToggleRefreshes = pn._gravityWellInfluenceRefreshCount;
+    pn.posX[0] = 900;
+    await new Promise(resolve => requestAnimationFrame(resolve));
+    const cached = pn._gravityWellOverlayLayout.metadataRecords.map(record => ({ id: record.targetId, line: record.influenceLabel }));
+    const afterFrameRefreshes = pn._gravityWellInfluenceRefreshCount;
+    pn.toggleGravityWellInfo();
+    pn.beginGravityWellPlacement('black', true, 40);
+    pn._handleGravityWellPointerMove(500, 100, 'mouse', false);
+    await new Promise(resolve => requestAnimationFrame(resolve));
+    const placement = pn._gravityWellOverlayLayout.metadataRecords.find(record => record.targetId === 'gravity-well-draft');
+    return { beforeRefreshes, afterToggleRefreshes, afterFrameRefreshes, first, cached, placementLine: placement?.influenceLabel };
+  });
+
   await page.setViewportSize({ width: 2560, height: 1440 });
   await waitForFrames(page, 3);
   await page.evaluate(() => {
@@ -2628,7 +2657,15 @@ async function runDragInfo(browser, options, browserErrors) {
       infoHotkeys.bootstrap.gridCount === 0 && !infoHotkeys.bootstrap.centerVisible &&
       infoHotkeys.bootstrap.toast === 'Gravity well info: Enabled' &&
       !infoHotkeys.fullPane.enabled && infoHotkeys.fullPane.toast === 'Gravity well info: Disabled' &&
-      infoHotkeys.resetCleared
+      infoHotkeys.resetCleared,
+    influenceSnapshotsRefreshOnInfoAndPlacementOnly:
+      influenceSnapshots.afterToggleRefreshes === influenceSnapshots.beforeRefreshes + 1 &&
+      influenceSnapshots.afterFrameRefreshes === influenceSnapshots.afterToggleRefreshes &&
+      influenceSnapshots.first.some(record => record.line === 'Attracting 2 particles') &&
+      influenceSnapshots.first.some(record => record.line === 'Repelling 1 particle') &&
+      influenceSnapshots.first.some(record => record.line === 'No influenced particles') &&
+      JSON.stringify(influenceSnapshots.cached) === JSON.stringify(influenceSnapshots.first) &&
+      influenceSnapshots.placementLine === 'Attracting 1 particle'
   };
 
   await context.close();
@@ -2636,7 +2673,7 @@ async function runDragInfo(browser, options, browserErrors) {
     afterRelease, tieBreaking, whiteWellDrag, placementSharing, canvasAndGapSnapping, snapGuideVisuals,
     activeCenteredResize, equalGapPreviewBeforeResize, equalGapPreviewAfterResize,
     resizedFractionSnap, alignmentSheen, singleWell, escapeCleanup, commitCleanup,
-    clearCleanup, deletionCleanup, destroyCleanup, infoHotkeys, sixteenByNineGrid };
+    clearCleanup, deletionCleanup, destroyCleanup, infoHotkeys, influenceSnapshots, sixteenByNineGrid };
 }
 
 async function runTouch(browser, options, browserErrors) {

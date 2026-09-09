@@ -1234,9 +1234,15 @@ async function runPalette(page, screenshotDir) {
   const mobilePaneAdaptive = await page.evaluate(() => ({
     runtime: window.particleInstance.options.adaptiveLineDetail,
     pane: window.particleSettingsUi.params.adaptiveLineDetail,
-    hasLabel: document.body.textContent.includes('Adaptive Line Detail')
+    hasLabel: document.body.textContent.includes('Adaptive Line Detail'),
+    paneTop: document.getElementById('tp-container').getBoundingClientRect().top,
+    controlsBottom: document.querySelector('[data-mobile-particle-controls]').getBoundingClientRect().bottom
   }));
-  assert.deepStrictEqual(mobilePaneAdaptive, { runtime: true, pane: true, hasLabel: true });
+  assert.strictEqual(mobilePaneAdaptive.runtime, true);
+  assert.strictEqual(mobilePaneAdaptive.pane, true);
+  assert.strictEqual(mobilePaneAdaptive.hasLabel, true);
+	assert.strictEqual(mobilePaneAdaptive.paneTop, 76,
+	  'the settings panel should use the 12px gap below the compact phone controls');
   if (screenshotDir) {
     await page.screenshot({ path: path.join(screenshotDir, 'mobile-adaptive-line-detail.png') });
   }

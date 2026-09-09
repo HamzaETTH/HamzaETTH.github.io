@@ -259,6 +259,7 @@ async function main() {
         toast: window.__selectionToastMessages.at(-1),
         marqueeHidden: getComputedStyle(document.querySelector('.particle-selection-marquee')).display === 'none',
         selectionOverlayVisible: getComputedStyle(document.querySelector('.particle-selection-overlay')).display === 'block',
+	        summary: pn._selectionSummaryLayout ? JSON.parse(JSON.stringify(pn._selectionSummaryLayout)) : null,
         cursorReset: getComputedStyle(pn.canvas).cursor !== 'crosshair'
       };
     });
@@ -311,7 +312,8 @@ async function main() {
           };
         }),
         selectedParticles: Array.from(pn.selectedParticleIndices),
-        selectedWells: Array.from(pn.selectedGravityWellIds)
+	      selectedWells: Array.from(pn.selectedGravityWellIds),
+	      summary: pn._selectionSummaryLayout ? JSON.parse(JSON.stringify(pn._selectionSummaryLayout)) : null
       };
     }, { start: groupDragStart, delta: dragDelta });
     await page.mouse.up({ button: 'left' });
@@ -691,7 +693,8 @@ async function main() {
         pointerIndex: pn.p.index,
         pointerExcludedFromObjects: !pn.o.includes(pn.p),
         selectionClear: !pn.selectedParticleIndices.size && !pn.selectedGravityWellIds.size && !pn.selectedGravityWellId,
-        overlayHidden: getComputedStyle(document.querySelector('.particle-selection-overlay')).display === 'none'
+	      overlayHidden: getComputedStyle(document.querySelector('.particle-selection-overlay')).display === 'none',
+	      summaryCleared: pn._selectionSummaryLayout === null
       };
     });
     await page.keyboard.press('Control+z');
@@ -863,6 +866,8 @@ async function main() {
         selected.wells.length === 1 && selected.wells[0] === setup.selectedWellId &&
         selected.primaryWell === setup.selectedWellId,
       marqueeShowsSelectionToast: selected.toast === 'Selected 2 particles + 1 well',
+	    marqueeShowsAnchoredSelectionSummary: selected.summary?.text === '2 particles \u00b7 1 well' &&
+	      selected.summary.rect.width > 0 && selected.summary.rect.height > 0 && selected.summary.rect.y >= 0,
       marqueeCleansUpOnRelease: selected.marqueeHidden && selected.selectionOverlayVisible && selected.cursorReset,
       dragsMixedSelectionAsOneGroup: groupDragging.dragActive && groupDragging.cursor === 'grabbing' &&
         groupDragging.forcesClear &&
@@ -870,6 +875,8 @@ async function main() {
         groupDragging.wells.every(well => close(well.x, well.expectedX) && close(well.y, well.expectedY)) &&
         groupDragging.selectedParticles.join(',') === selected.particles.join(',') &&
         groupDragging.selectedWells.join(',') === selected.wells.join(',') &&
+	      groupDragging.summary?.text === selected.summary?.text &&
+	      groupDragging.summary?.rect.width === selected.summary?.rect.width &&
         groupDragReleased.dragStopped && groupDragReleased.classCleared,
       ctrlCCopiesWithoutOpeningControls: paneBeforeCopy && copied.paneStillHidden &&
         copied.particles === 2 && copied.wells === 1 && copied.particleSources === 2 &&
