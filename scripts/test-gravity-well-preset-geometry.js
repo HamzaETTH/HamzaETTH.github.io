@@ -79,7 +79,7 @@ catalogue.presets.forEach((preset, index) => {
   assert.ok(preset.wells.length <= 18, preset.id);
   assert.ok(preset.description.length > 15, preset.id);
   assert.deepEqual(preset.motion, {
-    velocity: 0.66, gravityWellSpin: preset.trap ? 0 : familySpins[preset.family], gravityWellForceMultiplier: 1,
+    velocity: 0.66, gravityWellSpin: preset.trap ? 0 : familySpins[preset.family], gravityWellForceMultiplier: 0.6,
     gravityWellAccelerationCapped: true, gravityWellAccelerationLimit: 1.5, curvedDrift: false
   });
   const wide = index >= 48;

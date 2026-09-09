@@ -112,13 +112,13 @@ async function desktop(browser, errors) {
     pn._rebuildOnResize = function(...args) { window.__presetRebuilds++; return rebuild.apply(this, args); };
   });
   await page.getByRole('button', { name: 'Apply Preset', exact: true }).click();
-  assert.deepStrictEqual((await wellState(page)).motion, [0.66, false, 0, 1, true, 1.5]);
+  assert.deepStrictEqual((await wellState(page)).motion, [0.66, false, 0, 0.6, true, 1.5]);
   assert.strictEqual(await page.evaluate(() => window.__presetRebuilds), 0, 'Pane refresh must not rebuild particles during Apply');
   const synced = await page.evaluate(() => {
     const params = window.particleSettingsUi.params;
     return [params.speed, params.curvedDrift, params.gravityWellSpin, params.gravityWellForceMultiplier];
   });
-  assert.deepStrictEqual([synced[0], synced[1], synced[3]], [0.66, false, 1]);
+  assert.deepStrictEqual([synced[0], synced[1], synced[3]], [0.66, false, 0.6]);
   assert.ok(Math.abs(synced[2]) < 1e-12, 'Trap spin must synchronize to zero');
 
   const gestureBefore = await wellState(page);

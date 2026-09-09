@@ -4,6 +4,28 @@
 
 import { toCssColor } from './utils.js';
 
+const PHYSICS_SCALAR_KEYS = [
+  'particleRepulsion', 'particleCollision', 'particleAttraction', 'particleAttractionForce',
+  'interactive', 'attractionIntensity', 'repulsionIntensity', 'particleInteractionDistance',
+  'particleRepulsionForce', 'boundaryMode', 'curvedDrift', 'curvedDriftNoiseSpeed', 'gatherRadius'
+];
+
+function applyPhysicsScalarParams(o, p) {
+  PHYSICS_SCALAR_KEYS.forEach(key => {
+    if (typeof p[key] !== 'undefined') o[key] = p[key];
+  });
+
+  if (typeof p.attractionRange === 'number') {
+    o.attractionRange = Math.max(0, Math.min(300, p.attractionRange)) / 10;
+  }
+  if (typeof p.repulsionRange === 'number') {
+    o.repulsionRange = Math.max(0, Math.min(300, p.repulsionRange)) / 10;
+  }
+  if (typeof p.curvedDriftCurvature === 'number') {
+    o.curvedDriftCurvature = Math.max(1, Math.min(100, Math.round(p.curvedDriftCurvature))) / 500;
+  }
+}
+
 function applyScalarParams(o, p) {
   const keys = [
     'particleColor','particleColorCycling','particleCyclingSpeed','particleRepulsion','particleCollision','particleAttraction','particleAttractionForce',
@@ -86,25 +108,37 @@ function applyBackground(pn, o, p) {
   }
 }
 
-function applyVelocityAndDensity(pn, o, p) {
+function applyVelocity(pn, o, p, useFallback, deferRestart) {
   if (!pn) return;
-  
+
   // Speed/Velocity: support both PARAMS.speed and direct PARAMS.velocity
   if (typeof p.velocity === 'number') {
     o.velocity = p.velocity;
+  } else if (typeof p.speed === 'number') {
+    o.velocity = p.speed;
+  } else if (useFallback) {
+    o.velocity = typeof pn.setVelocity === 'function' ? pn.setVelocity(p.speed) : 0.66;
   } else {
-    o.velocity = typeof p.speed === 'number' ? p.speed : (typeof pn.setVelocity === 'function' ? pn.setVelocity(p.speed) : 0.66);
+    return;
   }
-  
+
   // If the loop was stopped (velocity 0) and we now have non-zero velocity, restart it
   const shouldAnimate = typeof pn._shouldAnimate === 'function' ? pn._shouldAnimate() : o.velocity !== 0;
   if ((!pn._rafActive || pn._rafId == null) && shouldAnimate && typeof pn.update === 'function') {
     if (document.hidden) {
       pn._resumeOnVisible = true;
+    } else if (deferRestart && typeof pn._ensureAnimationLoop === 'function') {
+      pn._ensureAnimationLoop();
     } else {
       pn.update();
     }
   }
+}
+
+function applyVelocityAndDensity(pn, o, p) {
+  if (!pn) return;
+
+  applyVelocity(pn, o, p, true, false);
 
   // Density: rebuild particle arrays based on new density
   if (typeof p.density === 'number' && p.density > 0) {
@@ -120,12 +154,15 @@ function applyVelocityAndDensity(pn, o, p) {
   }
 }
 
-function applyGravityWells(pn, o, p) {
+function applyGravityWellMotion(o, p) {
   if (typeof p.gravityWellMotion === 'string' && window.ParticleNetworkConfig) {
     const motion = window.ParticleNetworkConfig.normalizeGravityWellMotion(p.gravityWellMotion);
     o.gravityWellMotion = motion;
     window.ParticleNetworkConfig.saveGravityWellMotion(motion);
   }
+}
+
+function applyGravityWellPhysics(pn, o, p) {
   if (typeof p.gravityWellAccelerationCapped === 'boolean') {
     o.gravityWellAccelerationCapped = p.gravityWellAccelerationCapped;
     pn.gravityWellAccelerationCapped = p.gravityWellAccelerationCapped;
@@ -146,6 +183,11 @@ function applyGravityWells(pn, o, p) {
     if (typeof pn.setGravityWellsEnabled === 'function') pn.setGravityWellsEnabled(p.gravityWellsEnabled);
     else o.gravityWellsEnabled = p.gravityWellsEnabled;
   }
+}
+
+function applyGravityWells(pn, o, p) {
+  applyGravityWellMotion(o, p);
+  applyGravityWellPhysics(pn, o, p);
 }
 
 function applyParticleAppearance(pn, o, p) {
@@ -187,6 +229,20 @@ function applyPerformanceOverlay(pn, p) {
   
   if (pn.performanceMonitor && typeof pn.performanceMonitor.toggleOverlay === 'function') {
     pn.performanceMonitor.toggleOverlay(!!p.performanceOverlay);
+  }
+}
+
+export function applyPhysicsParamsToNetwork(pn, p) {
+  if (!pn || !pn.options || !p) return;
+
+  const o = pn.options;
+  try {
+    applyPhysicsScalarParams(o, p);
+    applyGravityWellPhysics(pn, o, p);
+    applyVelocity(pn, o, p, false, true);
+    if (typeof pn.initGrid === 'function') pn.initGrid();
+  } catch (error) {
+    console.error('Error applying physics parameters:', error);
   }
 }
 

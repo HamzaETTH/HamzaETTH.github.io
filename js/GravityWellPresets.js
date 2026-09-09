@@ -99,7 +99,7 @@
       motion: Object.freeze({
         velocity: 0.66,
         gravityWellSpin: trap ? 0 : familySpin[family],
-        gravityWellForceMultiplier: 1,
+        gravityWellForceMultiplier: 0.6,
         gravityWellAccelerationCapped: true,
         gravityWellAccelerationLimit: 1.5,
         curvedDrift: false

@@ -1,5 +1,5 @@
 import { rgbArrayToHex, randInt, rand01, randBool, randHex } from './utils.js';
-import { applyParamsToNetwork } from './applyParams.js';
+import { applyParamsToNetwork, applyPhysicsParamsToNetwork } from './applyParams.js';
 import { mountMobileControls } from './mobileControls.js';
 import { createGravityWellPresetBrowser } from './gravityWellPresetBrowser.js';
 
@@ -13,6 +13,15 @@ const AUTO_LINE_DETAIL_LOW_FPS = 30;
 const AUTO_LINE_DETAIL_HIGH_FPS = 40;
 const AUTO_LINE_DETAIL_LOW_WINDOWS = 2;
 const AUTO_LINE_DETAIL_HIGH_WINDOWS = 5;
+const RESETTABLE_PHYSICS_KEYS = [
+  'particleRepulsion', 'particleCollision', 'particleAttraction', 'particleAttractionForce',
+  'particleInteractionDistance', 'particleRepulsionForce', 'interactive', 'attractionRange',
+  'attractionIntensity', 'repulsionRange', 'repulsionIntensity', 'speed', 'boundaryMode',
+  'curvedDrift', 'curvedDriftCurvature', 'curvedDriftNoiseSpeed', 'gatherRadius',
+  'gravityWellsEnabled', 'gravityWellAccelerationCapped', 'gravityWellAccelerationLimit',
+  'gravityWellForceMultiplier', 'gravityWellSpin', 'cursorCaptureForceMultiplier',
+  'cursorCaptureMaxSpeed'
+];
 let paneBuildPromise = null;
 let activeUi = null;
 let mobileControls = null;
@@ -420,6 +429,10 @@ async function buildPane() {
   if (adaptiveLineDetailController) {
     DEFAULTS.adaptiveLineDetail = adaptiveLineDetailController.initialAdaptiveLineDetail;
   }
+  const STARTUP_PHYSICS = RESETTABLE_PHYSICS_KEYS.reduce((physics, key) => {
+    physics[key] = DEFAULTS[key];
+    return physics;
+  }, {});
   const forceProfileDefaults = {
     attraction: {
       distance: DEFAULTS.particleInteractionDistance,
@@ -462,6 +475,38 @@ async function buildPane() {
     if (PARAMS.particleAttraction && !PARAMS.particleRepulsion) return 'attraction';
     if (PARAMS.particleRepulsion && !PARAMS.particleAttraction) return 'repulsion';
     return null;
+  }
+
+  function doResetPhysics() {
+    const nextPhysics = { ...STARTUP_PHYSICS };
+    const activePreset = pn.activeGravityWellPreset && window.GravityWellPresets
+      ? window.GravityWellPresets.get(pn.activeGravityWellPreset.id)
+      : null;
+    if (activePreset) {
+      nextPhysics.speed = activePreset.motion.velocity;
+      nextPhysics.gravityWellSpin = activePreset.motion.gravityWellSpin;
+      nextPhysics.gravityWellForceMultiplier = activePreset.motion.gravityWellForceMultiplier;
+      nextPhysics.gravityWellAccelerationCapped = activePreset.motion.gravityWellAccelerationCapped;
+      nextPhysics.gravityWellAccelerationLimit = activePreset.motion.gravityWellAccelerationLimit;
+      nextPhysics.curvedDrift = activePreset.motion.curvedDrift;
+    }
+    resetParticleForceProfiles();
+    applyPhysicsParamsToNetwork(pn, nextPhysics);
+    Object.assign(PARAMS, nextPhysics);
+    pn._gatherActive = false;
+    if (typeof pn._clearInteractivePointerForces === 'function') pn._clearInteractivePointerForces();
+    else {
+      pn.attractionForce = null;
+      pn.repulsionForce = null;
+      if (typeof pn._stopCursorCapture === 'function') pn._stopCursorCapture();
+    }
+    updateParticleForceRanges(true);
+    updateGravityLimitState();
+    updateVisibility();
+    refreshPhysicsControls();
+    if (window.hotkeyManager && typeof window.hotkeyManager.showToast === 'function') {
+      window.hotkeyManager.showToast('Physics reset', { duration: 1500 });
+    }
   }
   const initialRecommendedParticleForceMaximum = recommendedParticleForceMaximum(pn);
   const WELL_PARAMS = {
@@ -609,9 +654,13 @@ async function buildPane() {
   const bindParticleCyclingSpeed = mainParticles.addBinding(PARAMS, 'particleCyclingSpeed', { min: 0, max: 10, step: 0.1, label: 'Particle Color Cycling Speed' }).on('change', () => applyParamsToNetwork(pn, PARAMS));
 
   // Particle collisions and forces
-  const bindParticleCollision = mainParticles.addBinding(PARAMS, 'particleCollision', { label: 'Particle Collision' }).on('change', () => { applyParamsToNetwork(pn, PARAMS); updateVisibility(); });
+  const bindParticleCollision = mainParticles.addBinding(PARAMS, 'particleCollision', { label: 'Particle Collision' }).on('change', () => {
+    if (refreshingGravityWellControls) return;
+    applyParamsToNetwork(pn, PARAMS);
+    updateVisibility();
+  });
   const bindParticleAttraction = mainParticles.addBinding(PARAMS, 'particleAttraction', { label: 'Particle Attraction' }).on('change', () => {
-    if (refreshingParticleForceControls) return;
+    if (refreshingParticleForceControls || refreshingGravityWellControls) return;
     refreshingParticleForceControls = true;
     try {
       if (PARAMS.particleAttraction) {
@@ -640,7 +689,7 @@ async function buildPane() {
     }
   });
   const bindParticleRepulsion = mainParticles.addBinding(PARAMS, 'particleRepulsion', { label: 'Particle Repulsion' }).on('change', () => {
-    if (refreshingParticleForceControls) return;
+    if (refreshingParticleForceControls || refreshingGravityWellControls) return;
     refreshingParticleForceControls = true;
     try {
       if (PARAMS.particleRepulsion) {
@@ -669,6 +718,7 @@ async function buildPane() {
     }
   });
   const bindParticleInteractionDistance = mainParticles.addBinding(PARAMS, 'particleInteractionDistance', { min: 0, max: 200, step: 1, label: 'Interaction Distance' }).on('change', () => {
+    if (refreshingGravityWellControls) return;
     applyParamsToNetwork(pn, PARAMS);
     captureParticleForceProfile(currentParticleForceMode());
     updateParticleForceRanges();
@@ -679,6 +729,7 @@ async function buildPane() {
     step: PARTICLE_FORCE_SLIDER_STEP,
     label: 'Attraction Force'
   }).on('change', () => {
+    if (refreshingGravityWellControls) return;
     applyParamsToNetwork(pn, PARAMS);
     captureParticleForceProfile(currentParticleForceMode());
     updateParticleForceRanges();
@@ -689,6 +740,7 @@ async function buildPane() {
     step: PARTICLE_FORCE_SLIDER_STEP,
     label: 'Repulsion Force'
   }).on('change', () => {
+    if (refreshingGravityWellControls) return;
     applyParamsToNetwork(pn, PARAMS);
     captureParticleForceProfile(currentParticleForceMode());
     updateParticleForceRanges();
@@ -705,6 +757,7 @@ async function buildPane() {
   let refreshingPresetControls = false;
   let refreshingGravityWellControls = false;
   let refreshPresetMotionControls = () => {};
+  let refreshPhysicsControls = () => {};
   function applyGravityMotionParams() {
     if (!refreshingGravityWellControls) applyParamsToNetwork(pn, PARAMS);
   }
@@ -772,8 +825,9 @@ async function buildPane() {
     min: 0, max: 10, step: 0.1, label: 'Maximum Acceleration'
   }).on('change', applyGravityMotionParams);
   const bindGravityForceMultiplier = globalWellsFolder.addBinding(PARAMS, 'gravityWellForceMultiplier', {
-    min: 0, max: 5, step: 0.1, label: 'Global Force'
+    min: 0, max: 5, step: 0.1, label: 'All Wells Force', format: value => `${Math.round(value * 100)}%`
   }).on('change', applyGravityMotionParams);
+  bindGravityForceMultiplier.element.title = 'Scales every black and white hole equally without changing their balance.';
   const bindGravitySpin = globalWellsFolder.addBinding(PARAMS, 'gravityWellSpin', {
     min: -1, max: 1, step: 0.01, label: 'Particle Spin'
   }).on('change', applyGravityMotionParams);
@@ -799,16 +853,24 @@ async function buildPane() {
   const selectedWellFolder = wellsPage.addFolder({ title: 'Selected Hole', expanded: true });
   const bindWellRadius = selectedWellFolder.addBinding(WELL_PARAMS, 'radius', {
     min: 24, max: 500, step: 1, label: 'Radius'
-  }).on('change', () => pn.updateSelectedGravityWell({ radius: WELL_PARAMS.radius }));
+  }).on('change', () => {
+    if (!refreshingGravityWellControls) pn.updateSelectedGravityWell({ radius: WELL_PARAMS.radius });
+  });
   const bindWellStrength = selectedWellFolder.addBinding(WELL_PARAMS, 'strength', {
     min: -100, max: 100, step: 0.5, label: 'Strength'
-  }).on('change', () => pn.updateSelectedGravityWell({ strength: WELL_PARAMS.strength }));
+  }).on('change', () => {
+    if (!refreshingGravityWellControls) pn.updateSelectedGravityWell({ strength: WELL_PARAMS.strength });
+  });
   const bindWellInnerColor = selectedWellFolder.addBinding(WELL_PARAMS, 'innerColor', {
     view: 'color', label: 'Inner Color'
-  }).on('change', () => pn.updateSelectedGravityWell({ innerColor: WELL_PARAMS.innerColor }));
+  }).on('change', () => {
+    if (!refreshingGravityWellControls) pn.updateSelectedGravityWell({ innerColor: WELL_PARAMS.innerColor });
+  });
   const bindWellOuterColor = selectedWellFolder.addBinding(WELL_PARAMS, 'outerColor', {
     view: 'color', label: 'Outer Color'
-  }).on('change', () => pn.updateSelectedGravityWell({ outerColor: WELL_PARAMS.outerColor }));
+  }).on('change', () => {
+    if (!refreshingGravityWellControls) pn.updateSelectedGravityWell({ outerColor: WELL_PARAMS.outerColor });
+  });
   const reverseWellButton = selectedWellFolder.addButton({ title: 'Reverse Selected' });
   reverseWellButton.on('click', () => {
     const selected = pn.getSelectedGravityWell();
@@ -822,13 +884,13 @@ async function buildPane() {
   const captureFolder = wellsPage.addFolder({ title: 'Cursor Capture', expanded: true });
   const bindGatherRadius = captureFolder.addBinding(PARAMS, 'gatherRadius', {
     min: 0, max: 500, step: 1, label: 'Capture / Gather Radius'
-  }).on('change', () => applyParamsToNetwork(pn, PARAMS));
+  }).on('change', applyGravityMotionParams);
   const bindCaptureForceMultiplier = captureFolder.addBinding(PARAMS, 'cursorCaptureForceMultiplier', {
     min: 0, max: 5, step: 0.1, label: 'Capture Pull'
-  }).on('change', () => applyParamsToNetwork(pn, PARAMS));
+  }).on('change', applyGravityMotionParams);
   const bindCaptureMaxSpeed = captureFolder.addBinding(PARAMS, 'cursorCaptureMaxSpeed', {
     min: 0, max: 10, step: 0.01, label: 'Captured Max Speed'
-  }).on('change', () => applyParamsToNetwork(pn, PARAMS));
+  }).on('change', applyGravityMotionParams);
 
   function syncGravityWellControls() {
     refreshingGravityWellControls = true;
@@ -886,15 +948,15 @@ async function buildPane() {
   // Motion
   const motionMain = adv.addFolder({ title: 'Motion', expanded: true });
   const bindSpeed = motionMain.addBinding(PARAMS, 'speed', { min: 0, max: 2, step: 0.01, label: 'Speed' }).on('change', applyGravityMotionParams);
-  motionMain.addBinding(PARAMS, 'boundaryMode', { label: 'Boundary Mode', options: { bounce: 'bounce', wrap: 'wrap', none: 'none' }}).on('change', () => applyParamsToNetwork(pn, PARAMS));
+  const bindBoundaryMode = motionMain.addBinding(PARAMS, 'boundaryMode', { label: 'Boundary Mode', options: { bounce: 'bounce', wrap: 'wrap', none: 'none' }}).on('change', applyGravityMotionParams);
   const bindCurvedDrift = motionMain.addBinding(PARAMS, 'curvedDrift', { label: 'Curved Drift' }).on('change', () => { applyGravityMotionParams(); updateVisibility(); });
-  const bindCurvedCurv = motionMain.addBinding(PARAMS, 'curvedDriftCurvature', { min: 1, max: 100, step: 1, label: 'Curve Intensity' }).on('change', () => applyParamsToNetwork(pn, PARAMS));
-  const bindCurvedNoise = motionMain.addBinding(PARAMS, 'curvedDriftNoiseSpeed', { min: 0.1, max: 4.0, step: 0.1, label: 'Noise Speed' }).on('change', () => applyParamsToNetwork(pn, PARAMS));
+  const bindCurvedCurv = motionMain.addBinding(PARAMS, 'curvedDriftCurvature', { min: 1, max: 100, step: 1, label: 'Curve Intensity' }).on('change', applyGravityMotionParams);
+  const bindCurvedNoise = motionMain.addBinding(PARAMS, 'curvedDriftNoiseSpeed', { min: 0.1, max: 4.0, step: 0.1, label: 'Noise Speed' }).on('change', applyGravityMotionParams);
 
   // Interaction
   const inter = adv.addFolder({ title: 'Interaction', expanded: true });
   const bindInteractive = inter.addBinding(PARAMS, 'interactive', { label: 'Interactive' })
-    .on('change', () => { applyParamsToNetwork(pn, PARAMS); updateVisibility(); });
+    .on('change', () => { applyGravityMotionParams(); updateVisibility(); });
 
   const proximityFolder = inter.addFolder({ title: 'Pointer Highlight', expanded: true });
   const bindProxColor = proximityFolder.addBinding(PARAMS, 'proximityEffectColor', { view: 'color', label: 'Highlight Color' })
@@ -904,13 +966,30 @@ async function buildPane() {
 
   const mouseForces = inter.addFolder({ title: 'Mouse Forces', expanded: true });
   const bindAttractionRange = mouseForces.addBinding(PARAMS, 'attractionRange', { min: 0, max: 300, step: 5, label: 'Repulsion Radius (px)' })
-    .on('change', () => applyParamsToNetwork(pn, PARAMS));
+    .on('change', applyGravityMotionParams);
   const bindAttractionIntensity = mouseForces.addBinding(PARAMS, 'attractionIntensity', { min: 0, max: 30, step: 0.5, label: 'Repulsion Intensity' })
-    .on('change', () => applyParamsToNetwork(pn, PARAMS));
+    .on('change', applyGravityMotionParams);
   const bindRepulsionRange = mouseForces.addBinding(PARAMS, 'repulsionRange', { min: 0, max: 300, step: 5, label: 'Attraction Radius (px)' })
-    .on('change', () => applyParamsToNetwork(pn, PARAMS));
+    .on('change', applyGravityMotionParams);
   const bindRepulsionIntensity = mouseForces.addBinding(PARAMS, 'repulsionIntensity', { min: 0, max: 30, step: 0.5, label: 'Attraction Intensity' })
-    .on('change', () => applyParamsToNetwork(pn, PARAMS));
+    .on('change', applyGravityMotionParams);
+
+  refreshPhysicsControls = () => {
+    refreshingGravityWellControls = true;
+    refreshingParticleForceControls = true;
+    try {
+      [bindParticleCollision, bindParticleAttraction, bindParticleRepulsion,
+        bindParticleInteractionDistance, bindParticleAttractionForce, bindParticleRepulsionForce,
+        bindGravityWellsEnabled, bindGravityAccelerationCapped, bindGravityAccelerationLimit,
+        bindGravityForceMultiplier, bindGravitySpin, bindGatherRadius, bindCaptureForceMultiplier,
+        bindCaptureMaxSpeed, bindSpeed, bindBoundaryMode, bindCurvedDrift, bindCurvedCurv,
+        bindCurvedNoise, bindInteractive, bindAttractionRange, bindAttractionIntensity,
+        bindRepulsionRange, bindRepulsionIntensity].forEach(binding => binding.refresh());
+    } finally {
+      refreshingParticleForceControls = false;
+      refreshingGravityWellControls = false;
+    }
+  };
 
   // Dependent visibility logic
   function updateVisibility() {
@@ -965,6 +1044,9 @@ async function buildPane() {
   const mainActions = main.addFolder({ title: 'Actions', expanded: true });
   const actionsRandBtn = mainActions.addButton({ title: 'Randomize Visuals' });
   actionsRandBtn.on('click', randomizeVisualParams);
+  const actionsResetPhysicsBtn = mainActions.addButton({ title: 'Reset Physics' });
+  actionsResetPhysicsBtn.element.querySelector('button')?.classList.add('physics-reset-button');
+  actionsResetPhysicsBtn.on('click', doResetPhysics);
   const actionsResetBtn = mainActions.addButton({ title: 'Reset to Default' });
   actionsResetBtn.on('click', doReset);
   const actionsResetEffectsBtn = mainActions.addButton({ title: 'Reset Effects Only' });
@@ -1323,6 +1405,7 @@ async function buildPane() {
     gravityWellParams: WELL_PARAMS,
     gravityWellPresetParams: PRESET_PARAMS,
     syncGravityWellControls,
+    doResetPhysics,
     doReset,
     randomizeVisualParams,
     togglePane,

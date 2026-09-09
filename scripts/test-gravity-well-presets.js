@@ -99,7 +99,8 @@ async function main() {
       const allowed = new Set(['velocity', 'curvedDrift', 'gravityWellSpin', 'gravityWellForceMultiplier',
         'gravityWellAccelerationCapped', 'gravityWellAccelerationLimit', 'gravityWellsEnabled']);
       check('recommendedOnlyChangesAllowedSettings', Object.keys(oldOptions).every(key => allowed.has(key) || json(oldOptions[key]) === json(pn.options[key])));
-      check('recommendedProfile', pn.options.velocity === 0.66 && pn.options.gravityWellSpin === 0 && pn.gravityWellAccelerationCapped && pn.gravityWellAccelerationLimit === 1.5);
+      check('recommendedProfile', pn.options.velocity === 0.66 && pn.options.gravityWellSpin === 0 &&
+        pn.options.gravityWellForceMultiplier === 0.6 && pn.gravityWellAccelerationCapped && pn.gravityWellAccelerationLimit === 1.5);
       for (let i = 0; i < 4; i++) pn._updateSoA();
       const beforeUndoParticles = particles();
       pn.undoObjectSelection();

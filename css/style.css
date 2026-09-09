@@ -1044,6 +1044,10 @@ h1 {
   #tp-container {
     top: calc(12px + env(safe-area-inset-top));
   }
+
+  #tp-container .physics-reset-button {
+    min-height: 44px;
+  }
 }
 
 @media (min-width: 481px) {

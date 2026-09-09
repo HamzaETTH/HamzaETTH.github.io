@@ -2,11 +2,13 @@
 
 Open **Controls → Wells → Browse Presets** to search 60 arrangements in 11 families. Select an entry to inspect its diagram, then choose **Apply Preset**. Selection alone leaves the canvas unchanged. Black holes use dark fills and outlines; white holes use light fills. Names describe well arrangements rather than guaranteed particle silhouettes.
 
-Applying replaces the well collection in one Undo action. **Use recommended motion** starts checked and changes only speed, spin, global well force, acceleration limiting, and curved drift. Turning it off preserves current physics. The original 48 arrangements gather existing particles once at the center when applied. The new scattered/wide/distributed presets spread existing particles deterministically across the usable canvas on initial apply, while preserving count, velocities, colors, sizes, lines, and particle-to-particle settings. Later preset slider edits and viewport reflows do not redistribute particles.
+Applying replaces the well collection in one Undo action. **Use recommended motion** starts checked and changes only speed, spin, all-wells force, acceleration limiting, and curved drift. Every preset recommends 60% all-wells force; turning recommended motion off preserves the current value. The original 48 arrangements gather existing particles once at the center when applied. The new scattered/wide/distributed presets spread existing particles deterministically across the usable canvas on initial apply, while preserving count, velocities, colors, sizes, lines, and particle-to-particle settings. Later preset slider edits and viewport reflows do not redistribute particles.
 
 The Wells pane exposes **Spacing** (60–140%), **Rotation** (0–360°), and **Strength** (25–200%). Each completed slider gesture adds one Undo entry and retains well IDs. Moving, adding, deleting, resizing, changing individual strength, or reversing a well makes the arrangement **Custom**. Recoloring retains ownership. **Reapply Preset** regenerates the last recipe at its default layout settings while preserving current motion.
 
 Untouched arrangements reflow on resize and phone rotation. Axial layouts follow the longer canvas dimension; other geometry uses a common scale. Reset clears the last/active preset, and reload starts normally. No preset state is persisted.
+
+**Reset Physics** in **Controls → Main → Actions** restores interaction, collision, speed, boundary, curved-drift, pointer-force, capture, and global well-physics settings without rebuilding the particle scene. An intact active preset restores its recommended motion profile; custom arrangements use the physics captured when the pane opened. Particle count, positions, velocities, appearance, wells, individual strengths, selection, and preset ownership are preserved. Decorative well motion, Adaptive Line Detail, and performance controls are unchanged.
 
 Trap presets use a zero-spin, no-curved-drift recommended profile so the preset itself does not inject rotational energy. The static balance check is:
 
@@ -34,7 +36,7 @@ Adaptive Line Detail now has an automatic controller. On desktop, it starts off,
 - `js/GravityWellPresets.js`: immutable deterministic recipes, motion profiles, and a pure `resolve(id, options)` shared by SVG previews and placement. Classic browser global plus CommonJS export for geometry tests.
 - `js/ParticleNetwork.js`: `applyGravityWellPreset(id, {useRecommendedMotion})` and `updateGravityWellPreset({spacing, rotation, strength}, {last})`. Percent values use 100 as their default. `last:false` continues a slider gesture; `last:true` completes it.
 - `js/ui/gravityWellPresetBrowser.js` and `js/ui/pane.js`: native modal, search/filter, roving keyboard focus, focus restoration, preview, and live pane integration.
-- `js/ui/pane.js`: automatic Adaptive Line Detail lifecycle, pane synchronization, manual override tracking, visibility pause/resume, Reset integration, and teardown.
+- `js/ui/applyParams.js` and `js/ui/pane.js`: physics-only reset application, pane synchronization, automatic Adaptive Line Detail lifecycle, manual override tracking, visibility pause/resume, full Reset integration, and teardown.
 
 The fit includes safe-area insets, the compact button bank, and a conservative `1.65 × radius + 3px` visual extent. Radius limits are incorporated into one common fit calculation. Maximum spacing is reserved so changing separation does not shrink well radii. Uniform layouts keep one x/y scale. Wide layouts keep circular wells but let x and y center spacing expand independently, which fills wide, square, and phone canvases without clipping visual halos. No generated center is snapped or individually clamped. Catalogue radius coefficients were reviewed on desktop and emulated touch; no additional device-specific strength or radius coefficients were needed.
 
@@ -54,6 +56,7 @@ In another shell:
 rtk proxy node scripts/test-gravity-well-preset-geometry.js
 rtk proxy node scripts/test-gravity-well-presets.js http://127.0.0.1:8137 C:\Temp\preset-review
 rtk proxy node scripts/test-gravity-well-preset-browser.js http://127.0.0.1:8137 C:\Temp\preset-browser
+rtk proxy node scripts/test-physics-reset.js http://127.0.0.1:8137 C:\Temp\physics-reset
 rtk proxy node scripts/test-gravity-well-preset-physics.js http://127.0.0.1:8137
 rtk proxy node scripts/test-auto-adaptive-line-detail.js --url http://127.0.0.1:8137
 rtk proxy node scripts/benchmark-auto-adaptive-lines.js http://127.0.0.1:8137

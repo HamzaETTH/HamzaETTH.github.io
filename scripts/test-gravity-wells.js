@@ -943,7 +943,7 @@ async function runDesktop(browser, options, browserErrors) {
       'Max Color Change Distance', 'Distance Cycling Speed', 'Line Color Cycling Speed',
       'Line Connection Distance', 'Trail Fade', 'Jitter Segments', 'Jitter Amplitude',
       'Size', 'Particle Color Cycling Speed', 'Interaction Distance', 'Attraction Force',
-      'Repulsion Force', 'Maximum Acceleration', 'Global Force', 'Particle Spin', 'Radius',
+      'Repulsion Force', 'Maximum Acceleration', 'All Wells Force', 'Particle Spin', 'Radius',
       'Strength', 'Capture / Gather Radius', 'Capture Pull', 'Captured Max Speed', 'Speed',
       'Curve Intensity', 'Noise Speed', 'Highlight Distance', 'Repulsion Radius (px)',
       'Repulsion Intensity', 'Attraction Radius (px)', 'Attraction Intensity'
@@ -1650,7 +1650,7 @@ async function runDesktop(browser, options, browserErrors) {
       bootstrapColorState.selectedId === bootstrapColorBefore.selectedId && !bootstrapColorState.controlsVisible &&
       bootstrapColorState.randomCalls >= 2 && bootstrapColorState.repeatPreservedColors,
     panelComplete: ['Main', 'Wells', 'Advanced', 'Global Physics', 'Global Enabled', 'Motion', 'Limit Acceleration',
-      'Maximum Acceleration', 'Global Force', 'Particle Spin', 'Add / Manage', 'Add Black Hole', 'Add White Hole',
+      'Maximum Acceleration', 'All Wells Force', 'Particle Spin', 'Add / Manage', 'Add Black Hole', 'Add White Hole',
       'Selected Hole', 'Radius', 'Strength', 'Inner Color', 'Outer Color', 'Reverse Selected', 'Reposition/Resize',
       'Remove Selected', 'Clear All', 'Cursor Capture', 'Capture / Gather Radius', 'Capture Pull',
       'Captured Max Speed'].every(label => panelText.includes(label)),

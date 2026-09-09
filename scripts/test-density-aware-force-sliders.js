@@ -118,6 +118,7 @@ async function main() {
     await page.evaluate(async () => {
       const ui = window.particleSettingsUi;
       const pn = window.particleInstance;
+      pn.clearGravityWells();
       ui.params.speed = 0;
       ui.params.particleAttractionForce = 1;
       ui.params.particleRepulsionForce = 1;
