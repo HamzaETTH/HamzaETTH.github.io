@@ -196,12 +196,37 @@ async function dragExistingWellToToken(page, well, type, pointerId) {
     };
   }, type);
   await sendCanvasPointer(page, 'pointerdown', pointerId, well);
+  const neutral = { x: Math.min(300, well.x + 50), y: Math.min(760, well.y + 30) };
+  await sendCanvasPointer(page, 'pointermove', pointerId, neutral);
+  await sendCanvasPointer(page, 'pointermove', pointerId, neutral);
+  const armedAwayFromButton = await page.evaluate(type => {
+    const target = document.querySelector(`[data-hole-type="${type}"]`);
+    return target.classList.contains('is-delete-option') &&
+      !target.classList.contains('is-delete-target') &&
+      getComputedStyle(target.querySelector('.mobile-hole-trash')).display === 'block';
+  }, type);
   await sendCanvasPointer(page, 'pointermove', pointerId, destination);
   await sendCanvasPointer(page, 'pointermove', pointerId, destination);
-  const ready = await page.evaluate(type =>
-    document.querySelector(`[data-hole-type="${type}"]`).classList.contains('is-delete-target'), type);
+  const feedback = await page.evaluate(type => {
+    const target = document.querySelector(`[data-hole-type="${type}"]`);
+    const other = document.querySelector(`[data-hole-type="${type === 'black' ? 'white' : 'black'}"]`);
+    return {
+      option: target.classList.contains('is-delete-option'),
+      target: target.classList.contains('is-delete-target'),
+      trashVisible: getComputedStyle(target.querySelector('.mobile-hole-trash')).display === 'block',
+      label: target.getAttribute('aria-label'),
+      otherUnchanged: !other.classList.contains('is-delete-option') &&
+        getComputedStyle(other.querySelector('.mobile-hole-trash')).display === 'none'
+    };
+  }, type);
+  feedback.armedAwayFromButton = armedAwayFromButton;
   await sendCanvasPointer(page, 'pointerup', pointerId, destination, 0);
-  return ready;
+  feedback.cleared = await page.evaluate(type => {
+    const target = document.querySelector(`[data-hole-type="${type}"]`);
+    return !target.classList.contains('is-delete-option') &&
+      target.getAttribute('aria-label') === `Drag ${type} hole onto canvas`;
+  }, type);
+  return feedback;
 }
 
 async function resetSingleParticle(page) {
@@ -535,11 +560,13 @@ async function runGestures(page, screenshotDir) {
   'radius-only touch adjustment changed the snapped center or cleared annotations');
   assert(mobileSnapEntered.layout && mobileSnapEntered.layout.guideLabels.length === 2 &&
     mobileSnapEntered.layout.metadataLabels.length === 2, 'DPR2 touch drag did not paint shared overlay annotations');
-  assert(mobileSnapEntered.layout.gridLines.length === 14 &&
+  assert(mobileSnapEntered.layout.gridLines.length === 30 &&
+    mobileSnapEntered.layout.gridLines.some(line =>
+      line.axis === 'x' && line.fraction === 1 / 16 && line.tier === 'minor') &&
     mobileSnapEntered.layout.gridLines.some(line =>
       line.axis === 'x' && line.fraction === 1 / 8 && line.tier === 'minor') &&
     mobileSnapEntered.layout.gridLines.some(line =>
-      line.axis === 'y' && line.fraction === 7 / 8 && line.tier === 'minor') &&
+      line.axis === 'y' && line.fraction === 15 / 16 && line.tier === 'minor') &&
     mobileSnapEntered.layout.centerMarker?.x === 195 && mobileSnapEntered.layout.centerMarker?.y === 422,
   'DPR2 touch drag did not expose the denser logical-coordinate grid and center marker');
   assert.deepStrictEqual(mobileSnapEntered.overlay, {
@@ -905,12 +932,28 @@ async function runPalette(page, screenshotDir) {
   assert.strictEqual(paletteState.guide, null, 'palette commit left guide state behind');
 
   const blackDeleteReady = await dragExistingWellToToken(page, wells[0], 'black', 33);
-  assert.strictEqual(blackDeleteReady, true, 'black-hole icon did not show delete feedback');
+  assert.deepStrictEqual(blackDeleteReady, {
+    option: true,
+    target: true,
+    trashVisible: true,
+    label: 'Delete held black hole',
+    otherUnchanged: true,
+    armedAwayFromButton: true,
+    cleared: true
+  }, 'black-hole button did not become an accessible trash target');
   const afterBlackDelete = await page.evaluate(() => window.particleInstance.gravityWells.map(well => well.type));
   assert.deepStrictEqual(afterBlackDelete, ['white'], 'dropping a black hole on its icon should delete it');
 
   const whiteDeleteReady = await dragExistingWellToToken(page, wells[1], 'white', 34);
-  assert.strictEqual(whiteDeleteReady, true, 'white-hole icon did not show delete feedback');
+  assert.deepStrictEqual(whiteDeleteReady, {
+    option: true,
+    target: true,
+    trashVisible: true,
+    label: 'Delete held white hole',
+    otherUnchanged: true,
+    armedAwayFromButton: true,
+    cleared: true
+  }, 'white-hole button did not become an accessible trash target');
   const afterWhiteDelete = await page.evaluate(() => window.particleInstance.gravityWells.map(well => well.type));
   assert.deepStrictEqual(afterWhiteDelete, [], 'dropping a white hole on its icon should delete it');
 

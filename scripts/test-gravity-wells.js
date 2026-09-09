@@ -2581,14 +2581,16 @@ async function runDragInfo(browser, options, browserErrors) {
         line.axis === 'x' && line.fraction === 1 / 4 && line.state === 'snapped') &&
       snapGuideVisuals.preview.alpha > 0 && snapGuideVisuals.snapped.alpha > snapGuideVisuals.preview.alpha,
     fullFractionGridAndCenterMarkerAreExposed:
-      snapGuideVisuals.snapped.layout?.gridLines?.length === 14 &&
+      snapGuideVisuals.snapped.layout?.gridLines?.length === 30 &&
       snapGuideVisuals.snapped.layout.gridLines.filter(line => line.axis === 'x')
         .every((line, index) => line.value === canvasAndGapSnapping.width *
-          [1 / 8, 1 / 4, 3 / 8, 1 / 2, 5 / 8, 3 / 4, 7 / 8][index]) &&
+          [1 / 16, 1 / 8, 3 / 16, 1 / 4, 5 / 16, 3 / 8, 7 / 16, 1 / 2,
+            9 / 16, 5 / 8, 11 / 16, 3 / 4, 13 / 16, 7 / 8, 15 / 16][index]) &&
       snapGuideVisuals.snapped.layout.gridLines.filter(line => line.axis === 'y')
         .every((line, index) => line.value === canvasAndGapSnapping.height *
-          [1 / 8, 1 / 4, 3 / 8, 1 / 2, 5 / 8, 3 / 4, 7 / 8][index]) &&
-      snapGuideVisuals.snapped.layout.gridLines.filter(line => line.tier === 'minor').length === 8 &&
+          [1 / 16, 1 / 8, 3 / 16, 1 / 4, 5 / 16, 3 / 8, 7 / 16, 1 / 2,
+            9 / 16, 5 / 8, 11 / 16, 3 / 4, 13 / 16, 7 / 8, 15 / 16][index]) &&
+      snapGuideVisuals.snapped.layout.gridLines.filter(line => line.tier === 'minor').length === 24 &&
       snapGuideVisuals.snapped.layout.gridLines.filter(line => line.tier === 'major').length === 4 &&
       snapGuideVisuals.snapped.layout.gridLines.filter(line => line.tier === 'center').length === 2 &&
       snapGuideVisuals.snapped.layout.gridLines.some(line =>
@@ -2599,7 +2601,7 @@ async function runDragInfo(browser, options, browserErrors) {
       snapGuideVisuals.snapped.layout.centerMarker.colors.join(',') === 'cyan,amber',
     shiftBypassKeepsGridWithoutEmphasis:
       snapGuideVisuals.bypassed.guide?.bypassSnap === true &&
-      snapGuideVisuals.bypassed.layout?.gridLines?.length === 14 &&
+      snapGuideVisuals.bypassed.layout?.gridLines?.length === 30 &&
       snapGuideVisuals.bypassed.layout.gridLines.every((line, index) =>
         line.axis === snapGuideVisuals.snapped.layout.gridLines[index].axis &&
         line.value === snapGuideVisuals.snapped.layout.gridLines[index].value) &&

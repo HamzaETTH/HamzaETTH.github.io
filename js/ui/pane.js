@@ -966,6 +966,7 @@ async function buildPane() {
           featureHideTimerId = null;
           features.style.display = 'none';
           features.dataset.hidden = '1';
+          if (typeof pn.finishStartupGravitySequence === 'function') pn.finishStartupGravitySequence();
         }, 420);
       }
     } else {

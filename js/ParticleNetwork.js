@@ -71,6 +71,8 @@
   var mobileGravityWellContainmentTolerance = 0.01;
   var mobileWellAdjustDeadZone = 12;
   var mobileWellStrengthPixelsPerStep = 8;
+  var startupHeroDurationMs = 10000;
+  var startupGravityWellCycleMs = 10000;
   var gravityWellMouseSnapDistance = 8;
   var gravityWellTouchSnapDistance = 12;
   var gravityWellSnapReleasePadding = 4;
@@ -86,6 +88,23 @@
     { value: 5 / 8, label: '5/8', tier: 'minor' },
     { value: 3 / 4, label: '3/4', tier: 'major' },
     { value: 7 / 8, label: '7/8', tier: 'minor' }
+  ];
+  var gravityWellGuideFractions = [
+    { value: 1 / 16, label: '1/16', tier: 'minor' },
+    gravityWellCanvasFractions[0],
+    { value: 3 / 16, label: '3/16', tier: 'minor' },
+    gravityWellCanvasFractions[1],
+    { value: 5 / 16, label: '5/16', tier: 'minor' },
+    gravityWellCanvasFractions[2],
+    { value: 7 / 16, label: '7/16', tier: 'minor' },
+    gravityWellCanvasFractions[3],
+    { value: 9 / 16, label: '9/16', tier: 'minor' },
+    gravityWellCanvasFractions[4],
+    { value: 11 / 16, label: '11/16', tier: 'minor' },
+    gravityWellCanvasFractions[5],
+    { value: 13 / 16, label: '13/16', tier: 'minor' },
+    gravityWellCanvasFractions[6],
+    { value: 15 / 16, label: '15/16', tier: 'minor' }
   ];
 
   function effectiveGravityWellType(well) {
@@ -834,6 +853,11 @@
       this._gravityWellRadiusLabel = null;
       this._gravityWellStrengthLabel = null;
       this._gravityWellStrengthLabelTimer = null;
+      this._startupGravityState = 'idle';
+      this._startupGatherPoint = null;
+      this._startupGravityWellId = null;
+      this._startupGravityIntroTimer = null;
+      this._startupGravityWellTimer = null;
       this._middleSpawnActive = false;
       this._middleSpawnPointer = null;
       this._middleSpawnAccumulator = 0;
@@ -924,6 +948,117 @@
         innerColor: white ? this.options.whiteHoleInnerColor : this.options.blackHoleInnerColor,
         outerColor: white ? this.options.whiteHoleOuterColor : this.options.blackHoleOuterColor
       };
+    }),
+    (b.prototype._gatherParticlesAt = function(x, y) {
+      if (!this.i || !this.posX || !this.posY || !this.velX || !this.velY) return 0;
+      var targetX = Math.max(0, Math.min(this.i.size.width, Number.isFinite(x) ? x : this.i.size.width * 0.5));
+      var targetY = Math.max(0, Math.min(this.i.size.height, Number.isFinite(y) ? y : this.i.size.height * 0.5));
+      var count = this.numParticles | 0;
+      var radius = Math.max(0, this.options && Number.isFinite(this.options.gatherRadius)
+        ? this.options.gatherRadius
+        : 24);
+      var goldenAngle = 2.399963229728653;
+      for (var i = 0; i < count; i++) {
+        var angle = i * goldenAngle;
+        var distance = radius * Math.sqrt((i + 1) / (count + 1));
+        this.posX[i] = targetX + Math.cos(angle) * distance;
+        this.posY[i] = targetY + Math.sin(angle) * distance;
+        this.velX[i] = 0;
+        this.velY[i] = 0;
+      }
+      this._syncObjectsFromSoA();
+      return count;
+    }),
+    (b.prototype._stopStartupGravitySequence = function() {
+      if (this._startupGravityIntroTimer != null) clearTimeout(this._startupGravityIntroTimer);
+      if (this._startupGravityWellTimer != null) clearTimeout(this._startupGravityWellTimer);
+      this._startupGravityIntroTimer = null;
+      this._startupGravityWellTimer = null;
+      this._startupGatherPoint = null;
+      this._startupGravityWellId = null;
+      this._startupGravityState = 'stopped';
+    }),
+    (b.prototype._releaseStartupGather = function() {
+      if (this._startupGravityState !== 'gathering') return false;
+      this._startupGatherPoint = null;
+      this._startupGravityState = 'waiting';
+      return true;
+    }),
+    (b.prototype._scheduleStartupGravityWellCycle = function() {
+      if (this._destroyed || this._startupGravityState !== 'cycling' || !this._startupGravityWellId) return false;
+      if (this._startupGravityWellTimer != null) clearTimeout(this._startupGravityWellTimer);
+      this._startupGravityWellTimer = setTimeout(function() {
+        this._startupGravityWellTimer = null;
+        if (this._cycleStartupGravityWell()) this._scheduleStartupGravityWellCycle();
+      }.bind(this), startupGravityWellCycleMs);
+      return true;
+    }),
+    (b.prototype._cycleStartupGravityWell = function() {
+      if (this._destroyed || this._startupGravityState !== 'cycling') return false;
+      var well = this.getGravityWell(this._startupGravityWellId);
+      if (!well) {
+        this._stopStartupGravitySequence();
+        return false;
+      }
+      well.type = well.type === 'black' ? 'white' : 'black';
+      var defaults = this._gravityWellDefaults(well.type);
+      well.strength = Math.abs(Number.isFinite(well.strength) ? well.strength : defaults.strength);
+      well.innerColor = defaults.innerColor;
+      well.outerColor = defaults.outerColor;
+      this._gravityWellInfluenceSnapshots.delete(well.id);
+      if (this.gravityWellInfoExpanded) this._refreshGravityWellInfluenceSnapshots([well]);
+      this._emitGravityWellsChange();
+      this._ensureAnimationLoop();
+      return true;
+    }),
+    (b.prototype.finishStartupGravitySequence = function() {
+      if (this._destroyed || (this._startupGravityState !== 'gathering' &&
+          this._startupGravityState !== 'waiting')) return null;
+      if (this._startupGravityIntroTimer != null) clearTimeout(this._startupGravityIntroTimer);
+      this._startupGravityIntroTimer = null;
+      this._startupGatherPoint = null;
+      var defaults = this._gravityWellDefaults('black');
+      var useMobileRadius = !!(this._mobileLayoutMedia && this._mobileLayoutMedia.matches);
+      var well = {
+        id: 'gravity-well-' + this._nextGravityWellId++,
+        type: 'black',
+        x: this.i.size.width * 0.5,
+        y: this.i.size.height * 0.5,
+        radius: this._clampGravityWellRadius(useMobileRadius ? mobileGravityWellRadius : defaults.radius),
+        strength: defaults.strength,
+        innerColor: defaults.innerColor,
+        outerColor: defaults.outerColor
+      };
+      this.gravityWells.push(well);
+      this.options.gravityWellsEnabled = true;
+      this._startupGravityWellId = well.id;
+      this._startupGravityState = 'cycling';
+      this._invalidateGravityWellPresetInfluence(true);
+      this._emitGravityWellsChange();
+      this._ensureAnimationLoop();
+      this._scheduleStartupGravityWellCycle();
+      return well;
+    }),
+    (b.prototype._startStartupGravitySequence = function() {
+      if (this._destroyed || this._startupGravityState !== 'idle') return false;
+      this._startupGravityState = 'gathering';
+      this._startupGatherPoint = { x: this.i.size.width * 0.5, y: this.i.size.height * 0.5 };
+      this._gatherParticlesAt(this._startupGatherPoint.x, this._startupGatherPoint.y);
+      var hero = document.querySelector('.center-text');
+      if (!hero) {
+        this.finishStartupGravitySequence();
+        return true;
+      }
+      hero.addEventListener('animationend', function(event) {
+        if (event.target === hero && event.animationName === 'hero-overlay-fade') {
+          this.finishStartupGravitySequence();
+        }
+      }.bind(this));
+      this._startupGravityIntroTimer = setTimeout(function() {
+        this._startupGravityIntroTimer = null;
+        this.finishStartupGravitySequence();
+      }.bind(this), startupHeroDurationMs);
+      return true;
     }),
     (b.prototype._clampGravityWellRadius = function(radius) {
       var min = this.options.gravityWellMinRadius || 24;
@@ -1037,6 +1172,7 @@
 	    (b.prototype._startCursorCapture = function(x, y) {
 	      this._cancelCursorCaptureHold();
 	      if (!Number.isFinite(x) || !Number.isFinite(y)) return false;
+	      this._releaseStartupGather();
 	      this._cursorCaptureActive = true;
 	      this._cursorCapturePoint = { x: x, y: y };
 	      this._cursorCaptureAppliedPoint = { x: x, y: y };
@@ -1660,6 +1796,9 @@
 	        }));
 	      }
 	      if (wellCount) {
+	        if (this._startupGravityWellId && selectedWells.has(this._startupGravityWellId)) {
+	          this._stopStartupGravitySequence();
+	        }
 	        for (var wellIndex = 0; wellIndex < this.gravityWells.length; wellIndex++) {
 	          var selectedWell = this.gravityWells[wellIndex];
 	          if (selectedWells.has(selectedWell.id)) {
@@ -1696,6 +1835,11 @@
               }
               if (entry.viewport.width !== this.i.size.width || entry.viewport.height !== this.i.size.height) {
                 this._reflowGravityWellPreset(false);
+              }
+              if (entry.startupWellId && this.getGravityWell(entry.startupWellId)) {
+                this._startupGravityWellId = entry.startupWellId;
+                this._startupGravityState = 'cycling';
+                this._scheduleStartupGravityWellCycle();
               }
               this._restoreObjectSelectionReferences(entry.selection);
               this._invalidateGravityWellPresetInfluence(true);
@@ -2259,6 +2403,7 @@
       var entry = {
         type: 'gravity-preset',
         wells: this.gravityWells.map(function(well) { return Object.assign({}, well); }),
+        startupWellId: this._startupGravityWellId,
         selection: this._captureObjectSelectionReferences(),
         preset: this._captureGravityWellPresetOwnership(),
         enabled: this.options.gravityWellsEnabled,
@@ -2332,6 +2477,7 @@
       var useMotion = !settings || settings.useRecommendedMotion !== false;
       this._finishGravityWellPresetAdjustment();
       var entry = this._captureGravityWellPresetUndo(useMotion);
+      this._stopStartupGravitySequence();
       this._gravityWellPresetTransaction = true;
       try {
         this._cancelGravityWellPresetInteraction();
@@ -2510,6 +2656,7 @@
         if (this.gravityWells[i].id === id) { index = i; break; }
       }
       if (index < 0) return false;
+      if (id === this._startupGravityWellId) this._stopStartupGravitySequence();
       this._detachGravityWellPreset();
       if (this._mobileGesture && this._mobileGesture.wellId === id) this._resetMobileGesture(true);
       if (this._gravityWellDrag && this._gravityWellDrag.id === id) this._stopGravityWellDrag();
@@ -2565,6 +2712,7 @@
       return this.gravityWellAccelerationCapped;
     }),
     (b.prototype.clearGravityWells = function() {
+      this._stopStartupGravitySequence();
       this._detachGravityWellPreset();
       this._invalidateGravityWellPresetInfluence(false);
       if (this._mobileGesture && this._mobileGesture.mode !== 'idle') this._resetMobileGesture(true);
@@ -2586,6 +2734,7 @@
       else this._clearGravityWellOverlay();
     }),
 	    (b.prototype.beginGravityWellPlacement = function(type, keyboardPlacement, radiusOverride) {
+	      this._stopStartupGravitySequence();
 	      type = type === 'white' ? 'white' : 'black';
 	      var defaults = this._gravityWellDefaults(type);
 	      var pointer = this._gravityPointer || { x: this.i.size.width / 2, y: this.i.size.height / 2 };
@@ -3459,8 +3608,8 @@
       context.setLineDash([]);
       context.lineDashOffset = 0;
 
-      for (var fractionIndex = 0; fractionIndex < gravityWellCanvasFractions.length; fractionIndex++) {
-        var fraction = gravityWellCanvasFractions[fractionIndex];
+      for (var fractionIndex = 0; fractionIndex < gravityWellGuideFractions.length; fractionIndex++) {
+        var fraction = gravityWellGuideFractions[fractionIndex];
         var xValue = this.i.size.width * fraction.value;
         var xDrawValue = alignGuideCoordinate(xValue);
         var xSnapped = !guide.bypassSnap && guide.snapXTarget &&
@@ -4165,6 +4314,10 @@
           this.o.push(particle);
         }
         this._initSoAFromObjects(this.o.length);
+        if (this._startupGravityState === 'gathering') {
+          this._startupGatherPoint = { x: w * 0.5, y: h * 0.5 };
+          this._gatherParticlesAt(this._startupGatherPoint.x, this._startupGatherPoint.y);
+        }
         if (this.performanceMonitor && this.performanceMonitor.setParticleCount) {
           this.performanceMonitor.setParticleCount(this.numParticles);
         }
@@ -4604,39 +4757,14 @@
             console.warn('[PN] Force hue sweep:', this.forceHueSweep ? 'ON' : 'OFF');
           } else if ((event.key === 'a' || event.key === 'A') && !event.ctrlKey && !event.metaKey) {
             // Hold-to-gather: while A is held, attract particles to pointer (use repulsionForce, which is attractive in this codebase)
+            this._releaseStartupGather();
             this._gatherActive = true;
             if (this.p && Number.isFinite(this.p.x) && Number.isFinite(this.p.y)) {
               if (!this.repulsionForce) this.repulsionForce = { x: this.p.x, y: this.p.y };
               this.repulsionForce.x = this.p.x; this.repulsionForce.y = this.p.y;
 
-              // Teleport all particles to the cursor immediately, then let attraction keep them there
-              var tx = this.p.x, ty = this.p.y;
-              var nTP = this.numParticles|0;
-              if (nTP > 0) {
-                // Spread within a small disc to avoid overlap
-                var radius = Math.max(0, (this.options && this.options.gatherRadius) ? this.options.gatherRadius : 24);
-                // Golden angle for even-ish distribution
-                var golden = 2.399963229728653; // ~137.5 deg
-                for (var ii = 0; ii < nTP; ii++) {
-                  var ang = ii * golden;
-                  // Fibonacci-ish radial spread within [0, radius]
-                  var r = radius * Math.sqrt((ii + 1) / (nTP + 1));
-                  var gx = tx + Math.cos(ang) * r;
-                  var gy = ty + Math.sin(ang) * r;
-                  this.posX[ii] = gx; this.posY[ii] = gy;
-                  this.velX[ii] = 0; this.velY[ii] = 0;
-                }
-                // Sync objects immediately for visual effect this frame
-                for (var jj = 0; jj < this.o.length; jj++) {
-                  var op = this.o[jj];
-                  var ang2 = jj * golden;
-                  var r2 = radius * Math.sqrt((jj + 1) / (nTP + 1));
-                  op.x = tx + Math.cos(ang2) * r2;
-                  op.y = ty + Math.sin(ang2) * r2;
-                  if (op.velocity) { op.velocity.x = 0; op.velocity.y = 0; }
-                }
-                // No need to re-init SoA sizes; we only changed positions/velocities
-              }
+              // Teleport all particles to the cursor immediately, then let attraction keep them there.
+              this._gatherParticlesAt(this.p.x, this.p.y);
             }
             // small toast on engage
             try {
@@ -4669,6 +4797,8 @@
           }
         }
       }.bind(this));
+
+      this._startStartupGravitySequence();
 
       // Bind update function once and start loop if not already active
       this.update = this.update.bind(this);
@@ -5063,6 +5193,9 @@
       }
       // Re-init SoA and grid
       this._initSoAFromObjects(target);
+      if (this._startupGravityState === 'gathering' && this._startupGatherPoint) {
+        this._gatherParticlesAt(this._startupGatherPoint.x, this._startupGatherPoint.y);
+      }
       if (this.p) this.p.index = target;
       this.initGrid();
       if (this.performanceMonitor && this.performanceMonitor.setParticleCount) {
@@ -5139,6 +5272,7 @@
       return count;
     }),
     (b.prototype._startMiddleMouseSpawn = function(x, y) {
+      this._releaseStartupGather();
       this._middleSpawnActive = true;
       this._middleSpawnPointer = { x: x, y: y };
       this._middleSpawnAccumulator = 0;
@@ -5188,12 +5322,13 @@
     // Update SoA physics for all particles
     (b.prototype._updateSoA = function() {
       var n = this.numParticles|0;
+      var startupGatherPoint = this._startupGravityState === 'gathering' ? this._startupGatherPoint : null;
       var ax = this.attractionForce ? this.attractionForce.x : 0;
       var ay = this.attractionForce ? this.attractionForce.y : 0;
-      var rx = this.repulsionForce ? this.repulsionForce.x : 0;
-      var ry = this.repulsionForce ? this.repulsionForce.y : 0;
-      var hasA = !!this.attractionForce;
-      var hasR = !!this.repulsionForce;
+      var rx = startupGatherPoint ? startupGatherPoint.x : (this.repulsionForce ? this.repulsionForce.x : 0);
+      var ry = startupGatherPoint ? startupGatherPoint.y : (this.repulsionForce ? this.repulsionForce.y : 0);
+      var hasA = !startupGatherPoint && !!this.attractionForce;
+      var hasR = !!startupGatherPoint || !!this.repulsionForce;
       var repR = this.options.repulsionRange;
       var repI = this.options.repulsionIntensity;
       var attR = this.options.attractionRange;

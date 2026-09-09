@@ -78,6 +78,13 @@
       this._rafId = null;
       this._rafActive = false;
       this._resumeOnVisible = false;
+      if (this._startupGravityIntroTimer != null) clearTimeout(this._startupGravityIntroTimer);
+      if (this._startupGravityWellTimer != null) clearTimeout(this._startupGravityWellTimer);
+      this._startupGravityIntroTimer = null;
+      this._startupGravityWellTimer = null;
+      this._startupGatherPoint = null;
+      this._startupGravityWellId = null;
+      this._startupGravityState = 'stopped';
       if (this.m != null) clearTimeout(this.m);
       this.m = null;
       if (this._resizeObserver) this._resizeObserver.disconnect();

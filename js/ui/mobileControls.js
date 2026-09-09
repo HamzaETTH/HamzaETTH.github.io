@@ -14,6 +14,17 @@ function createButton(label, attributes = {}) {
   return button;
 }
 
+function createTrashIcon() {
+  const icon = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+  icon.classList.add('mobile-hole-trash');
+  icon.setAttribute('viewBox', '0 0 24 24');
+  icon.setAttribute('aria-hidden', 'true');
+  const path = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+  path.setAttribute('d', 'M4 7h16M9 4h6l1 3M7 9l1 11h8l1-11M10 11v6M14 11v6');
+  icon.appendChild(path);
+  return icon;
+}
+
 export function mountMobileControls(pn, actions = {}) {
   if (!pn || pn._destroyed) return null;
   if (activeMobileControls) activeMobileControls.destroy();
@@ -31,12 +42,14 @@ export function mountMobileControls(pn, actions = {}) {
     'data-hole-type': 'black'
   });
   blackHole.appendChild(document.createElement('span')).setAttribute('aria-hidden', 'true');
+  blackHole.appendChild(createTrashIcon());
 
   const whiteHole = createButton('Drag white hole onto canvas', {
     'class': 'mobile-hole-token mobile-hole-token-white',
     'data-hole-type': 'white'
   });
   whiteHole.appendChild(document.createElement('span')).setAttribute('aria-hidden', 'true');
+  whiteHole.appendChild(createTrashIcon());
 
   holeBank.append(blackHole, whiteHole);
 
@@ -182,8 +195,10 @@ export function mountMobileControls(pn, actions = {}) {
 
   function clearExistingWellDeleteTarget() {
     root.classList.remove('is-delete-ready');
-    blackHole.classList.remove('is-delete-target');
-    whiteHole.classList.remove('is-delete-target');
+    blackHole.classList.remove('is-delete-option', 'is-delete-target');
+    whiteHole.classList.remove('is-delete-option', 'is-delete-target');
+    blackHole.setAttribute('aria-label', 'Drag black hole onto canvas');
+    whiteHole.setAttribute('aria-label', 'Drag white hole onto canvas');
   }
 
   function existingWellDragForPointer(event) {
@@ -204,6 +219,9 @@ export function mountMobileControls(pn, actions = {}) {
     clearExistingWellDeleteTarget();
     if (!well) return;
     root.classList.add('is-delete-ready');
+    const matchingButton = well.type === 'white' ? whiteHole : blackHole;
+    matchingButton.classList.add('is-delete-option');
+    matchingButton.setAttribute('aria-label', `Delete held ${well.type} hole`);
     const target = matchingDeleteTarget(event, well);
     if (target) target.classList.add('is-delete-target');
   }
