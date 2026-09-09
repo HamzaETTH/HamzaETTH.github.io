@@ -5457,8 +5457,24 @@
             var gravitySign = effectiveWellType === 'white' ? -1 : 1;
             var gravityUnitX = gravityDx / gravityDistance;
             var gravityUnitY = gravityDy / gravityDistance;
-            gravityX += (gravityUnitX * gravitySign - gravityUnitY * gravitySign * gravitySpin) * gravityMagnitude;
-            gravityY += (gravityUnitY * gravitySign + gravityUnitX * gravitySign * gravitySpin) * gravityMagnitude;
+            var orbitRadiusScale = gravityWell.orbitRadiusScale;
+            if (effectiveWellType === 'black' && Number.isFinite(orbitRadiusScale) && orbitRadiusScale > 0) {
+              // Shape only radial attraction around the visible aura; preserve tangential spin.
+              var orbitTransition = wellRadius * 0.4;
+              var orbitProgress = Math.max(0, Math.min(1,
+                (gravityDistance - wellRadius * orbitRadiusScale + orbitTransition) / (orbitTransition * 2)));
+              var orbitRadialScale = orbitProgress * orbitProgress * (3 - 2 * orbitProgress) * 2 - 1;
+              if (orbitRadialScale < 0) {
+                // Taper the inner resistance toward the center so it cannot become a slingshot.
+                var orbitInnerRatio = Math.min(1, gravityDistance / (wellRadius * orbitRadiusScale));
+                orbitRadialScale *= 0.5 * orbitInnerRatio * orbitInnerRatio;
+              }
+              gravityX += (gravityUnitX * orbitRadialScale - gravityUnitY * gravitySign * gravitySpin) * gravityMagnitude;
+              gravityY += (gravityUnitY * orbitRadialScale + gravityUnitX * gravitySign * gravitySpin) * gravityMagnitude;
+            } else {
+              gravityX += (gravityUnitX * gravitySign - gravityUnitY * gravitySign * gravitySpin) * gravityMagnitude;
+              gravityY += (gravityUnitY * gravitySign + gravityUnitX * gravitySign * gravitySpin) * gravityMagnitude;
+            }
           }
           if (this.gravityWellAccelerationCapped) {
             var gravityAcceleration = Math.sqrt(gravityX * gravityX + gravityY * gravityY);
