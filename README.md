@@ -32,6 +32,7 @@ This is a modern, minimalist personal portfolio website that showcases **Hamza E
 - **M key**: Cycle through color differentiation methods
 - **P key**: Toggle performance overlay
 - **UI Panel**: Access detailed configuration options
+- **Controls → Wells → Browse Presets**: Search 48 well arrangements, apply with Undo, and adjust spacing, rotation, and strength. See the [preset library guide](docs/gravity-well-presets.md).
 
 ## 🏗️ Architecture
 

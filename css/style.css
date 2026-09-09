@@ -2,6 +2,399 @@ html, body, main.site-content {
   height: 100%; 
 }
 
+.well-preset-browser {
+  width: min(1040px, calc(100vw - 40px));
+  height: min(780px, calc(100dvh - 40px));
+  max-width: none;
+  max-height: none;
+  margin: auto;
+  padding: 24px;
+  border: 1px solid #555;
+  border-radius: 12px;
+  background: #151515;
+  color: #ededed;
+  font: 13px/1.5 "Fira Code", monospace;
+  letter-spacing: 0;
+  overflow: hidden;
+}
+
+.well-preset-browser[open] {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.well-preset-browser::backdrop {
+  background: rgb(0 0 0 / 76%);
+}
+
+.well-preset-browser h2,
+.well-preset-browser h3,
+.well-preset-browser p {
+  margin: 0;
+}
+
+.well-preset-browser h2 {
+  font-size: 22px;
+  line-height: 1.3;
+  font-weight: 600;
+}
+
+.well-preset-browser h3 {
+  font-size: 18px;
+  line-height: 1.35;
+  font-weight: 600;
+  text-wrap: balance;
+}
+
+.well-preset-browser button,
+.well-preset-browser input,
+.well-preset-browser select {
+  color: inherit;
+  font: inherit;
+  border-radius: 6px;
+}
+
+.well-preset-browser button {
+  cursor: pointer;
+  touch-action: manipulation;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.well-preset-browser :is(button, input, select):focus-visible {
+  outline: 2px solid #fff;
+  outline-offset: 3px;
+}
+
+.well-preset-header,
+.well-preset-summary {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.well-preset-close {
+  min-height: 44px;
+  padding: 8px 16px;
+  border: 1px solid #666;
+  background: #222;
+}
+
+.well-preset-close:hover {
+  background: #343434;
+}
+
+.well-preset-filters {
+  display: flex;
+  gap: 16px;
+}
+
+.well-preset-filters label {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 0;
+}
+
+.well-preset-search {
+  flex: 1;
+}
+
+.well-preset-family {
+  width: 230px;
+}
+
+.well-preset-filters input,
+.well-preset-filters select {
+  width: 100%;
+  min-height: 44px;
+  padding: 10px 12px;
+  border: 1px solid #666;
+  background: #222;
+  color-scheme: dark;
+}
+
+.well-preset-filters input::placeholder {
+  color: #aaa;
+}
+
+.well-preset-summary {
+  color: #bdbdbd;
+  font-size: 12px;
+}
+
+.well-preset-legend,
+.well-preset-legend span {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.well-preset-legend {
+  gap: 16px;
+}
+
+.well-preset-key {
+  width: 11px;
+  height: 11px;
+  border: 1px solid #eee;
+  border-radius: 50%;
+}
+
+.well-preset-key-black {
+  background: #151515;
+}
+
+.well-preset-key-white {
+  background: #eee;
+}
+
+.well-preset-content {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 280px;
+  gap: 24px;
+  min-height: 0;
+  flex: 1;
+}
+
+.well-preset-gallery {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  grid-auto-rows: min-content;
+  align-content: start;
+  gap: 8px;
+  padding: 4px;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scrollbar-gutter: stable;
+}
+
+.well-preset-entry {
+  min-width: 0;
+  min-height: 120px;
+  padding: 12px 8px;
+  border: 1px solid transparent;
+  background: #202020;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+}
+
+.well-preset-entry:hover {
+  background: #303030;
+}
+
+.well-preset-entry[aria-pressed="true"] {
+  border-color: #ddd;
+  background: #303030;
+}
+
+.well-preset-entry svg {
+  display: block;
+  width: 100%;
+  height: 72px;
+}
+
+.well-preset-dot {
+  stroke: #eee;
+  stroke-width: 1.15;
+}
+
+.well-preset-dot-black {
+  fill: #111;
+}
+
+.well-preset-dot-white {
+  fill: #eee;
+  stroke: #aaa;
+}
+
+.well-preset-detail {
+  min-width: 0;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  padding: 4px;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+
+.well-preset-detail-preview svg {
+  width: 100%;
+  height: 180px;
+  display: block;
+}
+
+.well-preset-description {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.well-preset-meta {
+  color: #bdbdbd;
+  font-size: 12px;
+}
+
+.well-preset-actions {
+  margin-top: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.well-preset-motion {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 44px;
+  cursor: pointer;
+}
+
+.well-preset-motion input {
+  flex: none;
+  width: 18px;
+  height: 18px;
+  margin: 0;
+  accent-color: #ededed;
+}
+
+.well-preset-browser .well-preset-apply {
+  min-height: 44px;
+  padding: 10px 16px;
+  border: 0;
+  background: #ededed;
+  color: #171717;
+  font-weight: 600;
+}
+
+.well-preset-apply:hover {
+  background: #fff;
+}
+
+.well-preset-browser button:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+
+.well-preset-replace-note {
+  color: #bdbdbd;
+  font-size: 11px;
+}
+
+.well-preset-empty {
+  grid-column: 1 / -1;
+  padding: 24px 8px;
+  color: #bdbdbd;
+}
+
+@media (max-width: 850px) {
+  .well-preset-browser {
+    padding: 16px;
+  }
+
+  .well-preset-content {
+    grid-template-columns: minmax(0, 1fr) 230px;
+    gap: 16px;
+  }
+
+  .well-preset-gallery {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 600px) and (min-height: 501px) {
+  .well-preset-browser {
+    width: 100%;
+    height: 100dvh;
+    border: 0;
+    border-radius: 0;
+    padding: max(12px, env(safe-area-inset-top)) max(12px, env(safe-area-inset-right)) max(12px, env(safe-area-inset-bottom)) max(12px, env(safe-area-inset-left));
+  }
+
+  .well-preset-browser[open] {
+    gap: 12px;
+  }
+
+  .well-preset-filters {
+    gap: 10px;
+  }
+
+  .well-preset-family {
+    width: 135px;
+  }
+
+  .well-preset-summary {
+    flex-wrap: wrap;
+    gap: 6px;
+  }
+
+  .well-preset-content {
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-rows: minmax(120px, 1fr) auto;
+    gap: 12px;
+  }
+
+  .well-preset-detail {
+    display: grid;
+    grid-template-columns: 108px minmax(0, 1fr);
+    gap: 12px;
+    max-height: 42dvh;
+    padding-top: 12px;
+    border-top: 1px solid #444;
+  }
+
+  .well-preset-detail-preview svg {
+    height: 108px;
+  }
+
+  .well-preset-description h3 {
+    font-size: 16px;
+  }
+
+  .well-preset-description {
+    font-size: 12px;
+    gap: 4px;
+  }
+
+  .well-preset-actions {
+    grid-column: 1 / -1;
+    gap: 6px;
+  }
+
+}
+
+@media (max-height: 500px) {
+  .well-preset-browser {
+    width: calc(100vw - 16px);
+    height: calc(100dvh - 16px);
+    padding: 12px;
+  }
+
+  .well-preset-browser[open] {
+    gap: 8px;
+  }
+
+  .well-preset-header h2 {
+    font-size: 18px;
+  }
+
+  .well-preset-detail-preview svg {
+    height: 112px;
+  }
+
+  .well-preset-filters label > span {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip-path: inset(50%);
+  }
+}
+
 body {
   display: flex;
   justify-content: center;

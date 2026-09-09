@@ -423,7 +423,6 @@ async function runDesktop(browser, options, browserErrors) {
   const captureSetup = await page.evaluate(point => {
     const pn = window.particleInstance;
     const insideCount = Math.min(12, pn.numParticles);
-    const initialPositions = [];
     for (let i = 0; i < pn.numParticles; i++) {
       const angle = i * 2.399963229728653;
       const distance = i < insideCount ? 55 : 145;
@@ -433,17 +432,35 @@ async function runDesktop(browser, options, browserErrors) {
       pn.posY[i] = y;
       pn.velX[i] = 0;
       pn.velY[i] = 0;
-      initialPositions.push({ x, y });
     }
     pn._syncObjectsFromSoA();
     pn.options.velocity = 0;
     pn.options.cursorCaptureForceMultiplier = 1.5;
     pn.options.cursorCaptureMaxSpeed = 0.75;
+    // Sample activation synchronously: the hold delay still allows ordinary physics.
+    const startCapture = pn._startCursorCapture;
+    pn._startCursorCapture = function(x, y) {
+      this._startCursorCapture = startCapture;
+      const before = Array.from({ length: this.numParticles }, (_, index) => ({
+        x: this.posX[index], y: this.posY[index]
+      }));
+      const result = startCapture.call(this, x, y);
+      const uncapturedIndices = before.map((_, index) => index)
+        .filter(index => !this._cursorCapturedParticles[index]);
+      window.__captureActivationSnapshot = {
+        capturedCount: this.numParticles - uncapturedIndices.length,
+        uncapturedIndices,
+        maxActivationDisplacement: Math.max(...before.map((position, index) =>
+          Math.hypot(this.posX[index] - position.x, this.posY[index] - position.y))),
+        meanUncapturedDistance: uncapturedIndices.reduce((sum, index) =>
+          sum + Math.hypot(this.posX[index] - x, this.posY[index] - y), 0) / uncapturedIndices.length
+      };
+      return result;
+    };
     return {
       count: pn.numParticles,
       radius: pn.options.gatherRadius,
       insideCount,
-      initialPositions,
       initialOutsideMeanDistance: 145
     };
   }, capturePoint);
@@ -454,39 +471,34 @@ async function runDesktop(browser, options, browserErrors) {
   await page.waitForTimeout(40);
   await page.mouse.down({ button: 'left' });
   await page.waitForFunction(() => window.particleInstance._cursorCaptureActive);
-  const captureActivated = await page.evaluate(({ point, setup }) => {
+  const captureActivated = await page.evaluate(() => {
     const pn = window.particleInstance;
-    const capturedCount = pn._cursorCapturedParticles.reduce((total, captured) => total + captured, 0);
-    const displacements = setup.initialPositions.map((position, index) =>
-      Math.hypot(pn.posX[index] - position.x, pn.posY[index] - position.y)
-    );
-    const uncapturedDistances = setup.initialPositions
-      .map((_, index) => index)
-      .filter(index => !pn._cursorCapturedParticles[index])
-      .map(index => Math.hypot(pn.posX[index] - point.x, pn.posY[index] - point.y));
+    const activation = window.__captureActivationSnapshot;
     return {
       active: pn._cursorCaptureActive,
       pending: pn._cursorCapturePending,
       point: pn._cursorCapturePoint && { ...pn._cursorCapturePoint },
-      capturedCount,
-      uncapturedCount: pn.numParticles - capturedCount,
-      maxActivationDisplacement: Math.max(...displacements),
-      meanUncapturedDistance: uncapturedDistances.reduce((sum, distance) => sum + distance, 0) / uncapturedDistances.length,
+      capturedCount: activation.capturedCount,
+      uncapturedCount: activation.uncapturedIndices.length,
+      maxActivationDisplacement: activation.maxActivationDisplacement,
+      meanUncapturedDistance: activation.meanUncapturedDistance,
       radius: pn.options.gatherRadius,
       forceMultiplier: pn.options.cursorCaptureForceMultiplier,
       count: pn.numParticles,
       cursorActive: pn.canvas.classList.contains('cursor-capture-active')
     };
-  }, { point: capturePoint, setup: captureSetup });
+  });
   await waitForFrames(page, 12);
   const capturePulled = await page.evaluate(point => {
     const pn = window.particleInstance;
-    const distances = Array.from({ length: pn.numParticles }, (_, index) => index)
-      .filter(index => !pn._cursorCapturedParticles[index])
+    // Track the same cohort, including particles that have since entered capture.
+    const indices = window.__captureActivationSnapshot.uncapturedIndices;
+    const distances = indices
       .map(index => Math.hypot(pn.posX[index] - point.x, pn.posY[index] - point.y));
+    delete window.__captureActivationSnapshot;
     return {
-      meanUncapturedDistance: distances.reduce((sum, distance) => sum + distance, 0) / distances.length,
-      uncapturedCount: distances.length
+      meanTrackedDistance: distances.reduce((sum, distance) => sum + distance, 0) / distances.length,
+      trackedCount: distances.length
     };
   }, capturePoint);
   const captureOpposition = await page.evaluate(point => {
@@ -1332,6 +1344,8 @@ async function runDesktop(browser, options, browserErrors) {
     measurementCount: window.particleInstance._gravityWellMeasurements.length,
     guideLabelCount: window.particleInstance._gravityWellOverlayLayout?.guideLabels.length || 0,
     metadataLabelCount: window.particleInstance._gravityWellOverlayLayout?.metadataLabels.length || 0,
+    draftMetadataCount: window.particleInstance._gravityWellOverlayLayout?.metadataLabels
+      .filter(label => label.targetId === 'gravity-well-draft').length || 0,
     wellCount: window.particleInstance.gravityWells.length,
     velocityFinite: Number.isFinite(window.particleInstance.velX[0]) && Number.isFinite(window.particleInstance.velY[0])
   }));
@@ -1360,6 +1374,8 @@ async function runDesktop(browser, options, browserErrors) {
     measurementCount: window.particleInstance._gravityWellMeasurements.length,
     guideLabelCount: window.particleInstance._gravityWellOverlayLayout?.guideLabels.length || 0,
     metadataLabelCount: window.particleInstance._gravityWellOverlayLayout?.metadataLabels.length || 0,
+    draftMetadataCount: window.particleInstance._gravityWellOverlayLayout?.metadataLabels
+      .filter(label => label.targetId === 'gravity-well-draft').length || 0,
     physicsFinite: Number.isFinite(window.particleInstance.velX[0]) && Number.isFinite(window.particleInstance.velY[0])
   }));
   if (options.screenshotDir) {
@@ -1458,7 +1474,7 @@ async function runDesktop(browser, options, browserErrors) {
       middleSpawnSettledCount === middleSpawnReleased.count,
     middleSpawnStateFinite: middleSpawnFirst.forcesClear && middleSpawnSecond.finite,
     blackPlacementPreview: blackDraft && blackDraft.type === 'black' &&
-      Math.abs(blackDraft.x - 1280 / 3) < 0.001 && blackDraft.y === 250 && blackDraft.radius === 155,
+      blackDraft.x === 420 && blackDraft.y === 250 && blackDraft.radius === 155,
     whitePlacementPreview: whiteDraft && whiteDraft.type === 'white' && whiteDraft.x === 960 && whiteDraft.y === 350 && whiteDraft.radius === 145,
     placementWheelOnlyResizesDraft: blackPreview.particleCount === particleCountBeforePlacementWheel &&
       whitePreview.particleCount === particleCountBeforePlacementWheel,
@@ -1489,11 +1505,12 @@ async function runDesktop(browser, options, browserErrors) {
     doublePressHoldStartsWithoutTeleport: captureActivated.active && !captureActivated.pending && captureActivated.cursorActive &&
       captureActivated.point.x === capturePoint.x && captureActivated.point.y === capturePoint.y &&
       captureActivated.capturedCount >= captureSetup.insideCount && captureActivated.uncapturedCount > 0 &&
-      captureActivated.maxActivationDisplacement < captureSetup.initialOutsideMeanDistance &&
+      captureActivated.maxActivationDisplacement === 0 &&
       captureActivated.meanUncapturedDistance > captureSetup.radius && captureActivated.count === captureSetup.count,
-    doublePressHoldPullsLikeLeftClick: captureActivated.forceMultiplier === 1.5 && capturePulled.uncapturedCount > 0 &&
-      capturePulled.meanUncapturedDistance < captureActivated.meanUncapturedDistance &&
-      capturePulled.meanUncapturedDistance < captureSetup.initialOutsideMeanDistance,
+    doublePressHoldPullsLikeLeftClick: captureActivated.forceMultiplier === 1.5 &&
+      capturePulled.trackedCount === captureActivated.uncapturedCount && capturePulled.trackedCount > 0 &&
+      capturePulled.meanTrackedDistance < captureActivated.meanUncapturedDistance &&
+      capturePulled.meanTrackedDistance < captureSetup.initialOutsideMeanDistance,
     cursorCaptureContainsAgainstUnlimitedGravity: captureMoved.opposingWellStrength === 1000000000 &&
       captureMoved.gravityCapDisabled && captureMoved.maxCapturedDistance <= captureSetup.radius + 0.1,
     cursorCaptureFollowsPointer: captureMoved.point.x === movedCapturePoint.x && captureMoved.point.y === movedCapturePoint.y &&
@@ -1620,9 +1637,10 @@ async function runDesktop(browser, options, browserErrors) {
       resizedTargets.fieldWidth === Math.ceil(resizedTargets.backingWidth / 2) && resizedTargets.fieldHeight === Math.ceil(resizedTargets.backingHeight / 2),
     trailsStayBelowWells: trails.overlayVisible && Number(trails.overlayZ) > Number(trails.trailZ) && trails.velocityFinite &&
       trails.measurementCount === trails.wellCount && trails.guideLabelCount === 2 &&
-      trails.metadataLabelCount === trails.wellCount,
+      trails.metadataLabelCount === trails.wellCount + 1 && trails.draftMetadataCount === 1,
     fallbackIsFunctional: fallback.overlayVisible && fallback.overlayCanvas && fallback.measurementCount === 2 &&
-      fallback.guideLabelCount === 2 && fallback.metadataLabelCount === 2 && fallback.physicsFinite,
+      fallback.guideLabelCount === 2 && fallback.metadataLabelCount === 3 &&
+      fallback.draftMetadataCount === 1 && fallback.physicsFinite,
     selectedWellMarkerSurvivesFallbackTrailsAndReducedMotion:
       selectionMarkerVisible(fallbackSelectionMarker) && selectionMarkerVisible(trailsSelectionMarker) &&
       selectionMarkerVisible(reducedMotionSelectionMarker) &&
@@ -2185,8 +2203,10 @@ async function runDragInfo(browser, options, browserErrors) {
     pn.clearGravityWells();
     const active = pn.addGravityWell('black', 90, 90, 60);
     pn._startGravityWellDrag(active, active.x, active.y, 'mouse');
-    pn._handleGravityWellPointerMove(pn.i.size.width / 3 + 7, pn.i.size.height / 4 - 7, 'mouse', false);
-    const result = { x: active.x, y: active.y, width: pn.i.size.width, height: pn.i.size.height };
+    pn._handleGravityWellPointerMove(pn.i.size.width * 3 / 8 + 7, pn.i.size.height / 4 - 7, 'mouse', false);
+    const result = { x: active.x, y: active.y, width: pn.i.size.width, height: pn.i.size.height,
+      fractionX: pn._gravityWellSnapState?.snapXTarget?.fraction,
+      fractionY: pn._gravityWellSnapState?.snapYTarget?.fraction };
     pn._stopGravityWellDrag('mouse');
     return result;
   });
@@ -2579,7 +2599,10 @@ async function runDragInfo(browser, options, browserErrors) {
       snapGuideVisuals.snapped.layout.centerMarker.colors.join(',') === 'cyan,amber',
     shiftBypassKeepsGridWithoutEmphasis:
       snapGuideVisuals.bypassed.guide?.bypassSnap === true &&
-      snapGuideVisuals.bypassed.layout?.gridLines?.length === 18 &&
+      snapGuideVisuals.bypassed.layout?.gridLines?.length === 14 &&
+      snapGuideVisuals.bypassed.layout.gridLines.every((line, index) =>
+        line.axis === snapGuideVisuals.snapped.layout.gridLines[index].axis &&
+        line.value === snapGuideVisuals.snapped.layout.gridLines[index].value) &&
       snapGuideVisuals.bypassed.layout.gridLines.every(line => line.state !== 'snapped'),
     centeredCrosshairAndLabelAreExposed:
       snapGuideVisuals.centered.guide?.centered === true &&
@@ -2615,7 +2638,8 @@ async function runDragInfo(browser, options, browserErrors) {
       alignmentSheen.fallback.targetIds.every(id => alignmentSheen.staticA.targetIds.includes(id)),
     fractionTargetsRecomputeAfterResize:
       resizedFractionSnap.width === 1200 && resizedFractionSnap.height === 800 &&
-      resizedFractionSnap.x === 400 && resizedFractionSnap.y === 200,
+      resizedFractionSnap.x === 450 && resizedFractionSnap.y === 200 &&
+      resizedFractionSnap.fractionX === 3 / 8 && resizedFractionSnap.fractionY === 1 / 4,
     activeCenteredSnapRecomputesWithoutPointerMove:
       activeCenteredResize.size.width === 1200 && activeCenteredResize.size.height === 800 &&
       activeCenteredResize.active?.x === 600 && activeCenteredResize.active?.y === 400 &&
@@ -2855,8 +2879,8 @@ async function runReloadCursor(browser, options, browserErrors) {
       Math.abs(restored.stored.y - target.y / 720) < 0.000001,
     keyboardWellsUseRestoredCursor: Math.abs(restored.pointer.x - target.x) < 1 &&
       Math.abs(restored.pointer.y - target.y) < 1 &&
-      blackDraft.type === 'black' && blackDraft.x === restored.pointer.x && blackDraft.y === 240 &&
-      whiteDraft.type === 'white' && whiteDraft.x === restored.pointer.x && whiteDraft.y === 240
+      blackDraft.type === 'black' && blackDraft.x === restored.pointer.x && blackDraft.y === restored.pointer.y &&
+      whiteDraft.type === 'white' && whiteDraft.x === restored.pointer.x && whiteDraft.y === restored.pointer.y
   };
   await context.close();
   return { assertions, target, restored, blackDraft, whiteDraft };

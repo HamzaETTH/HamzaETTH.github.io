@@ -901,3 +901,20 @@ The adaptive capture leaves visible black background around the particle shell w
 Tint influence is calculated once per particle per frame and stored in lazily allocated reusable typed arrays. Line emission then performs only a small endpoint blend, avoiding a gravity-well search for every emitted connection. Disabling the option restores the original color path and skips tint-buffer allocation on startup.
 
 **Verification:** `scripts/test-black-hole-line-color.js` passed the default/control, WebGL endpoint colors, unchanged line count, distance boundary, white-hole exclusion, canvas fallback, lazy allocation, disable, and renderer-health assertions without browser errors. The configuration contract, adaptive-line suite, gravity-well suite, SoA state contract, startup smoke, and destroy/recreate lifecycle were rerun after integration.
+
+### Gravity-well preset library cost validation (2026-09-09)
+
+Feature validation, not an optimization claim. The catalogue contains 48 choices; only the applied recipe participates in physics, with at most 18 wells. Geometry resolution runs on application, input, or resize. The modal creates SVG diagrams only; opening, filtering, and selecting entries leave the simulation unchanged. No per-frame preset work or influence scans were added.
+
+Measured the shipped `_updateSoA()` path in headless Edge at 1280×800 on this Windows machine. Each sample warms up for 30 steps, then reports the median of five trials of 120 physics steps. Particle-to-particle attraction/repulsion and curved drift are disabled. Existing well force laws are unchanged.
+
+| Particles | Wells | Median physics ms/step |
+|---:|---:|---:|
+| 1,000 | 0 | 0.020 |
+| 1,000 | 2 (Binary) | 0.036 |
+| 1,000 | 18 (Triple Halo) | 0.143 |
+| 5,000 | 0 | 0.092 |
+| 5,000 | 2 (Binary) | 0.178 |
+| 5,000 | 18 (Triple Halo) | 0.765 |
+
+These are CPU physics timings, not end-to-end FPS or a baseline-versus-optimized comparison. Rendering and device performance vary. Reproduce with `rtk proxy node scripts/test-gravity-well-presets.js http://127.0.0.1:8137`; optional artifact directory records JSON and evolved screenshots. Geometry, transactions, UI, and representative WebGL/Trails/touch/reduced-motion/Canvas checks are documented in `docs/gravity-well-presets.md`.

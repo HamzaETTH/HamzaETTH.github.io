@@ -149,6 +149,10 @@
       this._activePointers = null;
       this._mobileGesture = null;
       this.gravityWells = null;
+      this.activeGravityWellPreset = null;
+      this.lastGravityWellPresetId = null;
+      this._gravityWellPresetAdjustment = null;
+      this._gravityWellPresetViewport = null;
       this.gravityWellDraft = null;
       this._gravityWellDrag = null;
       this._gravityWellSnapState = null;

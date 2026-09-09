@@ -136,10 +136,16 @@ async function main() {
     }
 
     const expectedHotkeys = ['a', 'b', 'c', 'd', 'delete', 'escape', 'h', 'i', 'l', 'm', 'p', 'r', 'v', 'w', 'z'];
+    const expectedClassicScripts = ['Config.js', 'ColorUtils.js', 'PerformanceMonitor.js', 'ParticleRenderer.js',
+      'GravityWellRendererGL.js', 'ParticleRendererGL.js', 'ParticleLifecycle.js', 'GravityWellPresets.js',
+      'ParticleNetwork.js', 'Benchmark.js', 'HotkeyManager.js'].map(file => new URL(`./js/${file}`, options.url).href);
+    const localClassicScripts = initial.classicScripts
+      .filter(script => new URL(script.src).origin === new URL(options.url).origin)
+      .map(script => script.src);
     const assertions = {
       particleRuntimeHealthy: initial.particleCount > 0 && initial.rafActive &&
         initial.hasWebGl && !initial.webGlContextLost,
-      expectedClassicScriptCount: initial.classicScripts.length === 10
+      expectedClassicScriptOrder: JSON.stringify(localClassicScripts) === JSON.stringify(expectedClassicScripts)
     };
     if (!options.blockTweakpane) {
       assertions.hotkeysAvailable = JSON.stringify(initial.hotkeys) === JSON.stringify(expectedHotkeys);

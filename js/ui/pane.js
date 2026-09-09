@@ -1,6 +1,7 @@
 import { rgbArrayToHex, randInt, rand01, randBool, randHex } from './utils.js';
 import { applyParamsToNetwork } from './applyParams.js';
 import { mountMobileControls } from './mobileControls.js';
+import { createGravityWellPresetBrowser } from './gravityWellPresetBrowser.js';
 
 const TWEAKPANE_URL = 'https://cdn.jsdelivr.net/npm/tweakpane@4.0.5/dist/tweakpane.min.js';
 const PARTICLE_FORCE_SLIDER_STEP = 0.05;
@@ -301,6 +302,7 @@ async function buildPane() {
         pn._gatherActive = false;
         if (typeof pn._stopCursorCapture === 'function') pn._stopCursorCapture();
         pn.forceHueSweep = false;
+        if (typeof pn.resetGravityWellPreset === 'function') pn.resetGravityWellPreset();
         if (typeof pn.clearGravityWells === 'function') pn.clearGravityWells();
         // Wipe 2D canvas (clear trails immediately)
         if (pn.g && pn.i && pn.i.size) {
@@ -499,9 +501,69 @@ async function buildPane() {
   });
 
   const wellsPage = tabs.pages[1];
+  const presetBrowser = createGravityWellPresetBrowser(pn);
+  const browsePresetsButton = wellsPage.addButton({ title: 'Browse Presets' });
+  browsePresetsButton.on('click', () => presetBrowser.open(browsePresetsButton.element.querySelector('button')));
+  const presetTrigger = browsePresetsButton.element.querySelector('button');
+  presetTrigger.setAttribute('aria-haspopup', 'dialog');
+  presetTrigger.setAttribute('aria-controls', 'well-preset-browser');
+  const PRESET_PARAMS = { name: 'Custom', spacing: 100, rotation: 0, strength: 100 };
+  let refreshingPresetControls = false;
+  let refreshingGravityWellControls = false;
+  let refreshPresetMotionControls = () => {};
+  function applyGravityMotionParams() {
+    if (!refreshingGravityWellControls) applyParamsToNetwork(pn, PARAMS);
+  }
+  const presetFolder = wellsPage.addFolder({ title: 'Arrangement', expanded: true });
+  const bindPresetName = presetFolder.addBinding(PRESET_PARAMS, 'name', { label: 'Preset', readonly: true });
+  function adjustPreset(event) {
+    if (refreshingPresetControls || !pn.activeGravityWellPreset) return;
+    pn.updateGravityWellPreset({
+      spacing: PRESET_PARAMS.spacing,
+      rotation: PRESET_PARAMS.rotation,
+      strength: PRESET_PARAMS.strength
+    }, { last: event.last });
+  }
+  const bindPresetSpacing = presetFolder.addBinding(PRESET_PARAMS, 'spacing', {
+    min: 60, max: 140, step: 1, label: 'Spacing', format: value => `${value.toFixed(0)}%`
+  }).on('change', adjustPreset);
+  const bindPresetRotation = presetFolder.addBinding(PRESET_PARAMS, 'rotation', {
+    min: 0, max: 360, step: 1, label: 'Rotation', format: value => `${value.toFixed(0)}°`
+  }).on('change', adjustPreset);
+  const bindPresetStrength = presetFolder.addBinding(PRESET_PARAMS, 'strength', {
+    min: 25, max: 200, step: 1, label: 'Strength', format: value => `${value.toFixed(0)}%`
+  }).on('change', adjustPreset);
+  const reapplyPresetButton = presetFolder.addButton({ title: 'Reapply Preset' });
+  reapplyPresetButton.on('click', () => {
+    if (pn.lastGravityWellPresetId) pn.applyGravityWellPreset(pn.lastGravityWellPresetId, { useRecommendedMotion: false });
+  });
+
+  function syncPresetControls() {
+    const active = pn.activeGravityWellPreset;
+    const preset = active && window.GravityWellPresets.get(active.id);
+    PRESET_PARAMS.name = preset ? preset.name : 'Custom';
+    bindPresetName.element.title = PRESET_PARAMS.name;
+    if (active) {
+      PRESET_PARAMS.spacing = active.spacing;
+      PRESET_PARAMS.rotation = active.rotation;
+      PRESET_PARAMS.strength = active.strength;
+    }
+    refreshingPresetControls = true;
+    try {
+      bindPresetName.refresh();
+      [bindPresetSpacing, bindPresetRotation, bindPresetStrength].forEach(control => {
+        control.disabled = !active;
+        control.refresh();
+      });
+    } finally {
+      refreshingPresetControls = false;
+    }
+    reapplyPresetButton.disabled = !pn.lastGravityWellPresetId;
+  }
+
   const globalWellsFolder = wellsPage.addFolder({ title: 'Global Physics', expanded: true });
   const bindGravityWellsEnabled = globalWellsFolder.addBinding(PARAMS, 'gravityWellsEnabled', { label: 'Global Enabled' })
-    .on('change', () => applyParamsToNetwork(pn, PARAMS));
+    .on('change', applyGravityMotionParams);
   globalWellsFolder.addBinding(PARAMS, 'gravityWellMotion', {
     label: 'Motion',
     options: { System: 'system', Animate: 'animate', Static: 'static' }
@@ -509,18 +571,18 @@ async function buildPane() {
   const bindGravityAccelerationCapped = globalWellsFolder.addBinding(PARAMS, 'gravityWellAccelerationCapped', {
     label: 'Limit Acceleration'
   }).on('change', () => {
-    applyParamsToNetwork(pn, PARAMS);
+    applyGravityMotionParams();
     updateGravityLimitState();
   });
   const bindGravityAccelerationLimit = globalWellsFolder.addBinding(PARAMS, 'gravityWellAccelerationLimit', {
     min: 0, max: 10, step: 0.1, label: 'Maximum Acceleration'
-  }).on('change', () => applyParamsToNetwork(pn, PARAMS));
+  }).on('change', applyGravityMotionParams);
   const bindGravityForceMultiplier = globalWellsFolder.addBinding(PARAMS, 'gravityWellForceMultiplier', {
     min: 0, max: 5, step: 0.1, label: 'Global Force'
-  }).on('change', () => applyParamsToNetwork(pn, PARAMS));
+  }).on('change', applyGravityMotionParams);
   const bindGravitySpin = globalWellsFolder.addBinding(PARAMS, 'gravityWellSpin', {
-    min: -1, max: 1, step: 0.05, label: 'Particle Spin'
-  }).on('change', () => applyParamsToNetwork(pn, PARAMS));
+    min: -1, max: 1, step: 0.01, label: 'Particle Spin'
+  }).on('change', applyGravityMotionParams);
 
   function updateGravityLimitState() {
     bindGravityAccelerationLimit.disabled = !PARAMS.gravityWellAccelerationCapped;
@@ -575,6 +637,18 @@ async function buildPane() {
   }).on('change', () => applyParamsToNetwork(pn, PARAMS));
 
   function syncGravityWellControls() {
+    refreshingGravityWellControls = true;
+    try {
+      refreshGravityWellControls();
+    } finally {
+      refreshingGravityWellControls = false;
+    }
+  }
+
+  function refreshGravityWellControls() {
+    syncPresetControls();
+    PARAMS.speed = pn.options.velocity;
+    PARAMS.curvedDrift = !!pn.options.curvedDrift;
     PARAMS.gravityWellsEnabled = pn.options.gravityWellsEnabled !== false;
     PARAMS.gravityWellAccelerationCapped = pn.gravityWellAccelerationCapped !== false;
     PARAMS.gravityWellAccelerationLimit = Number.isFinite(pn.gravityWellAccelerationLimit) ? pn.gravityWellAccelerationLimit : 1.5;
@@ -591,6 +665,7 @@ async function buildPane() {
     bindGatherRadius.refresh();
     bindCaptureForceMultiplier.refresh();
     bindCaptureMaxSpeed.refresh();
+    refreshPresetMotionControls();
     updateGravityLimitState();
     const selected = pn.getSelectedGravityWell();
     const disabled = !selected;
@@ -616,9 +691,9 @@ async function buildPane() {
 
   // Motion
   const motionMain = adv.addFolder({ title: 'Motion', expanded: true });
-  motionMain.addBinding(PARAMS, 'speed', { min: 0, max: 2, step: 0.01, label: 'Speed' }).on('change', () => applyParamsToNetwork(pn, PARAMS));
+  const bindSpeed = motionMain.addBinding(PARAMS, 'speed', { min: 0, max: 2, step: 0.01, label: 'Speed' }).on('change', applyGravityMotionParams);
   motionMain.addBinding(PARAMS, 'boundaryMode', { label: 'Boundary Mode', options: { bounce: 'bounce', wrap: 'wrap', none: 'none' }}).on('change', () => applyParamsToNetwork(pn, PARAMS));
-  const bindCurvedDrift = motionMain.addBinding(PARAMS, 'curvedDrift', { label: 'Curved Drift' }).on('change', () => { applyParamsToNetwork(pn, PARAMS); updateVisibility(); });
+  const bindCurvedDrift = motionMain.addBinding(PARAMS, 'curvedDrift', { label: 'Curved Drift' }).on('change', () => { applyGravityMotionParams(); updateVisibility(); });
   const bindCurvedCurv = motionMain.addBinding(PARAMS, 'curvedDriftCurvature', { min: 1, max: 100, step: 1, label: 'Curve Intensity' }).on('change', () => applyParamsToNetwork(pn, PARAMS));
   const bindCurvedNoise = motionMain.addBinding(PARAMS, 'curvedDriftNoiseSpeed', { min: 0.1, max: 4.0, step: 0.1, label: 'Noise Speed' }).on('change', () => applyParamsToNetwork(pn, PARAMS));
 
@@ -686,6 +761,11 @@ async function buildPane() {
     bindRepulsionIntensity.hidden = !interactiveOn;
   }
   updateVisibility();
+  refreshPresetMotionControls = () => {
+    bindSpeed.refresh();
+    bindCurvedDrift.refresh();
+    updateVisibility();
+  };
 
   // Actions at bottom of Main tab
   const mainActions = main.addFolder({ title: 'Actions', expanded: true });
@@ -1046,6 +1126,7 @@ async function buildPane() {
     container,
     params: PARAMS,
     gravityWellParams: WELL_PARAMS,
+    gravityWellPresetParams: PRESET_PARAMS,
     syncGravityWellControls,
     doReset,
     randomizeVisualParams,
@@ -1053,6 +1134,7 @@ async function buildPane() {
     hotkeyHandlers,
     destroy() {
       stopRuntimeSync();
+      presetBrowser.destroy();
       window.removeEventListener('particle-gravity-wells-change', onGravityWellsChange);
       if (window.particleSettingsUi === ui) window.particleSettingsUi = null;
       if (featureHideTimerId !== null) clearTimeout(featureHideTimerId);
