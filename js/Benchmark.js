@@ -59,6 +59,7 @@
         speed: 1.0,
         boundaryMode: 'wrap',
         performanceOverlay: false, // hide internal overlay
+        autoAdaptiveLineDetail: false, // keep benchmark behavior fixed during each step
         gradientColor1: this.pn.options.gradientColor1 || "#00bfff", // ensure defaults
         gradientColor2: this.pn.options.gradientColor2 || "#ff4500"  // ensure defaults
       };

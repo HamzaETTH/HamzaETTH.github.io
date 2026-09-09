@@ -106,6 +106,7 @@ async function loadScenario(page, url, scenario) {
     const benchmark = new window.BenchmarkSystem(pn);
     window.applyParamsToNetwork(pn, {
       ...pn.options,
+      autoAdaptiveLineDetail: false,
       adaptiveLineDetail: true,
       cellularLineClusters: false,
       particleSize: 2,

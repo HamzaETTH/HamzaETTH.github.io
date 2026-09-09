@@ -20,6 +20,9 @@ function applyScalarParams(o, p) {
   if (typeof p.adaptiveLineDetail === 'boolean') {
     o.adaptiveLineDetail = p.adaptiveLineDetail;
   }
+  if (typeof p.autoAdaptiveLineDetail === 'boolean') {
+    o.autoAdaptiveLineDetail = p.autoAdaptiveLineDetail;
+  }
   if (typeof p.cellularLineClusters === 'boolean') {
     o.cellularLineClusters = p.cellularLineClusters;
   }
@@ -201,6 +204,9 @@ export function applyParamsToNetwork(pn, p) {
     applyParticleAppearance(pn, o, p);
     applyColorMethod(pn, o, p);
     applyPerformanceOverlay(pn, p);
+    if (pn._adaptiveLineDetailController && typeof pn._adaptiveLineDetailController.syncConfig === 'function') {
+      pn._adaptiveLineDetailController.syncConfig();
+    }
   } catch (error) {
     console.error('Error applying parameters:', error);
   }

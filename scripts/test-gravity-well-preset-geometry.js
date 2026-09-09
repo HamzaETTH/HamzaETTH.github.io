@@ -6,10 +6,29 @@ const catalogue = require('../js/GravityWellPresets.js');
 const tolerance = 1e-8;
 const expectedCounts = [5, 5, 4, 7, 9, 8, 2, 2, 3, 4, 4, 10, 3, 4, 5, 6, 8, 12,
   13, 13, 18, 18, 12, 9, 9, 16, 9, 9, 11, 9, 12, 9, 10, 6, 9, 7, 10, 12, 10, 11, 12, 7,
-  9, 16, 10, 12, 8, 13];
+  9, 16, 10, 12, 8, 13, 7, 9, 12, 8, 10, 10, 12, 12, 10, 9, 13, 9];
 const expectedBlackCounts = [1, 1, 1, 1, 1, 2, 2, 1, 3, 2, 2, 2, 3, 4, 5, 3, 4, 6,
   7, 6, 6, 12, 6, 3, 5, 8, 9, 1, 8, 4, 2, 1, 2, 2, 5, 2, 10, 12, 6, 1, 8, 6,
-  3, 4, 4, 6, 6, 5];
+  3, 4, 4, 6, 6, 5, 5, 3, 10, 4, 7, 7, 8, 8, 2, 4, 6, 4];
+const newPresets = [
+  ['constellation', 'Constellation', 'Scattered anchors'],
+  ['archipelago', 'Archipelago', 'Scattered anchors'],
+  ['open-field', 'Open Field', 'Scattered anchors'],
+  ['drifting-islands', 'Drifting Islands', 'Scattered anchors'],
+  ['staggered-anchors', 'Staggered Anchors', 'Wide patterns'],
+  ['diagonal-weave', 'Diagonal Weave', 'Wide patterns'],
+  ['braided-lanes', 'Braided Lanes', 'Wide patterns'],
+  ['perimeter-harbors', 'Perimeter Harbors', 'Wide patterns'],
+  ['twin-havens', 'Twin Havens', 'Distributed traps'],
+  ['four-havens', 'Four Havens', 'Distributed traps'],
+  ['six-pockets', 'Six Pockets', 'Distributed traps'],
+  ['corner-refuges', 'Corner Refuges', 'Distributed traps']
+];
+const trapIds = new Set([
+  'cross-cage', 'diamond-cage', 'triangular-cage', 'hexagonal-cage', 'octagonal-cage',
+  'split-cage', 'twin-cages', 'double-halo', 'triangle-in-hexagon', 'white-fence',
+  'spiral-cage', 'compass', 'twin-havens', 'four-havens', 'six-pockets', 'corner-refuges'
+]);
 let checks = 0;
 
 function near(actual, expected, message) {
@@ -39,27 +58,39 @@ function reflected(id, axis) {
   });
 }
 
-assert.equal(catalogue.presets.length, 48);
-assert.equal(new Set(catalogue.presets.map(preset => preset.id)).size, 48);
-assert.equal(new Set(catalogue.presets.map(preset => preset.name)).size, 48);
+assert.equal(catalogue.presets.length, 60);
+assert.equal(new Set(catalogue.presets.map(preset => preset.id)).size, 60);
+assert.equal(new Set(catalogue.presets.map(preset => preset.name)).size, 60);
 const families = [...new Set(catalogue.presets.map(preset => preset.family))];
-assert.equal(families.length, 8);
-families.forEach(family => assert.equal(catalogue.presets.filter(preset => preset.family === family).length, 6));
+assert.deepEqual(families, ['Cages', 'Pairs & axes', 'Rings', 'Nested', 'Grids', 'Channels',
+  'Spirals & curves', 'Clusters', 'Scattered anchors', 'Wide patterns', 'Distributed traps']);
+families.forEach(family => assert.equal(catalogue.presets.filter(preset => preset.family === family).length,
+  family === 'Scattered anchors' || family === 'Wide patterns' || family === 'Distributed traps' ? 4 : 6));
+assert.deepEqual(catalogue.presets.slice(48).map(preset => [preset.id, preset.name, preset.family]), newPresets);
 const signatures = new Set();
-const spins = [0.12, 0.18, 0.2, 0.15, 0.04, 0, 0.3, 0.18];
+const familySpins = {
+  'Cages': 0.12, 'Pairs & axes': 0.18, 'Rings': 0.2, 'Nested': 0.15,
+  'Grids': 0.04, 'Channels': 0, 'Spirals & curves': 0.3, 'Clusters': 0.18,
+  'Scattered anchors': 0.1, 'Wide patterns': 0.08, 'Distributed traps': 0
+};
 catalogue.presets.forEach((preset, index) => {
   assert.equal(preset.wells.length, expectedCounts[index], preset.id);
   assert.equal(preset.wells.filter(well => well.type === 'black').length, expectedBlackCounts[index], `${preset.id} black count`);
   assert.ok(preset.wells.length <= 18, preset.id);
   assert.ok(preset.description.length > 15, preset.id);
   assert.deepEqual(preset.motion, {
-    velocity: 0.66, gravityWellSpin: spins[Math.floor(index / 6)], gravityWellForceMultiplier: 1,
+    velocity: 0.66, gravityWellSpin: preset.trap ? 0 : familySpins[preset.family], gravityWellForceMultiplier: 1,
     gravityWellAccelerationCapped: true, gravityWellAccelerationLimit: 1.5, curvedDrift: false
   });
+  const wide = index >= 48;
+  assert.equal(preset.layout, wide ? 'wide' : 'uniform', `${preset.id} layout`);
+  assert.equal(preset.initialParticlePlacement, wide ? 'spread' : 'center', `${preset.id} particle placement`);
+  assert.equal(preset.trap, trapIds.has(preset.id), `${preset.id} trap classification`);
+  assert.ok(Object.isFrozen(preset) && Object.isFrozen(preset.wells) && Object.isFrozen(preset.motion), `${preset.id} metadata immutable`);
   const positions = new Set();
   preset.wells.forEach(well => {
     ['x', 'y', 'radius', 'strength'].forEach(key => assert.ok(Number.isFinite(well[key]), `${preset.id}.${key}`));
-    assert.ok(well.radius > 0 && well.strength > 0, preset.id);
+    assert.ok(well.radius > 0 && well.strength > 0 && well.strength <= 50, preset.id);
     assert.ok(well.type === 'black' || well.type === 'white', preset.id);
     const position = `${well.x.toFixed(7)},${well.y.toFixed(7)}`;
     assert.ok(!positions.has(position), `${preset.id}: duplicate position`);
@@ -68,13 +99,19 @@ catalogue.presets.forEach((preset, index) => {
   const signature = preset.wells.map(well => `${well.type}:${well.x.toFixed(7)},${well.y.toFixed(7)}`).sort().join(';');
   assert.ok(!signatures.has(signature), `${preset.id}: duplicate arrangement`);
   signatures.add(signature);
+  if (preset.trap) {
+    const balance = preset.wells.reduce((sum, well) =>
+      sum + (well.type === 'black' ? 1 : -1.5) * well.strength * well.radius * well.radius, 0);
+    assert.ok(balance > 0, `${preset.id}: attraction must exceed 1.5x repulsion (${balance})`);
+  }
 });
 
 // Exact independent recipe expectations protect counts, radii, phases and explicit coordinates.
 ['cross-cage', 'diamond-cage', 'triangular-cage', 'hexagonal-cage', 'octagonal-cage'].forEach((id, index) => {
   const count = [4, 4, 3, 6, 8][index];
+  const centerStrength = [36, 45, 36, 50, 50][index];
   assert.ok(pointAt(points(id), 0, 0, 'black'));
-  assert.equal(points(id)[0].strength, 18);
+  assert.equal(points(id)[0].strength, centerStrength);
   for (let i = 0; i < count; i++) {
     const angle = (id === 'diamond-cage' ? -Math.PI / 4 : -Math.PI / 2) + Math.PI * 2 * i / count;
     assert.ok(pointAt(points(id), Math.cos(angle), Math.sin(angle), 'white'), `${id} vertex ${i}`);
@@ -83,6 +120,7 @@ catalogue.presets.forEach((preset, index) => {
 });
 assert.ok(pointAt(points('split-cage'), -0.25, 0, 'black'));
 assert.ok(pointAt(points('split-cage'), 0.25, 0, 'black'));
+assert.ok(points('split-cage').filter(well => well.type === 'black').every(well => well.strength === 42));
 ['binary', 'dipole'].forEach(id => {
   assert.ok(pointAt(points(id), -0.65, 0, id === 'dipole' ? 'white' : 'black'));
   assert.ok(pointAt(points(id), 0.65, 0, 'black'));
@@ -176,6 +214,9 @@ catalogue.presets.forEach(preset => {
           const options = { width, height, insets, spacing, rotation, minRadius, maxRadius };
           const layout = catalogue.resolve(preset.id, options);
           assert.ok(layout.fits && layout.scale > 0, `${preset.id}: fit ${JSON.stringify(options)}`);
+          assert.equal(layout.layout, preset.layout);
+          assert.equal(layout.initialParticlePlacement, preset.initialParticlePlacement);
+          assert.equal(layout.trap, preset.trap);
           assert.equal(layout.wells.length, preset.wells.length);
           assert.ok(layout.bounds.left + tolerance >= layout.usableBounds.left, `${preset.id} left fit`);
           assert.ok(layout.bounds.top + tolerance >= layout.usableBounds.top, `${preset.id} top fit`);
@@ -185,12 +226,27 @@ catalogue.presets.forEach(preset => {
             assert.ok(well.radius >= minRadius && well.radius <= maxRadius, `${preset.id} radius limits`);
             assert.equal(well.type, preset.wells[index].type);
             assert.ok([well.x, well.y, well.radius, well.strength].every(Number.isFinite), `${preset.id} resolved finite`);
-            // One scale preserves every pairwise separation, including clamped-radius cases.
+            const angle = (rotation + layout.orientation) * Math.PI / 180;
+            const templateX = preset.wells[index].x * Math.cos(angle) - preset.wells[index].y * Math.sin(angle);
+            const templateY = preset.wells[index].x * Math.sin(angle) + preset.wells[index].y * Math.cos(angle);
+            near(well.x - layout.center.x, templateX * layout.scaleX * spacing / 100, `${preset.id} resolved x`);
+            near(well.y - layout.center.y, templateY * layout.scaleY * spacing / 100, `${preset.id} resolved y`);
+            near(well.radius, Math.max(minRadius, Math.min(maxRadius, preset.wells[index].radius * layout.scale)), `${preset.id} circular radius`);
+            // Existing recipes retain one scale and every pairwise separation.
             if (index > 0) {
               const templateDistance = Math.hypot(preset.wells[index].x - preset.wells[0].x, preset.wells[index].y - preset.wells[0].y);
-              near(Math.hypot(well.x - layout.wells[0].x, well.y - layout.wells[0].y), templateDistance * layout.scale * spacing / 100, `${preset.id} uniform separation`);
+              if (preset.layout === 'uniform') {
+                near(Math.hypot(well.x - layout.wells[0].x, well.y - layout.wells[0].y), templateDistance * layout.scale * spacing / 100, `${preset.id} uniform separation`);
+              }
             }
           });
+          if (preset.layout === 'uniform') {
+            near(layout.scaleX, layout.scale, `${preset.id} legacy x scale`);
+            near(layout.scaleY, layout.scale, `${preset.id} legacy y scale`);
+          } else {
+            assert.ok(layout.scaleX + tolerance >= layout.scale && layout.scaleY + tolerance >= layout.scale,
+              `${preset.id}: wide center scales must not contract the legacy fit`);
+          }
           fitCases++;
         }
       }
@@ -198,6 +254,8 @@ catalogue.presets.forEach(preset => {
     const compact = catalogue.resolve(preset.id, { width, height, insets, spacing: 60 });
     const wide = catalogue.resolve(preset.id, { width, height, insets, spacing: 140 });
     near(compact.scale, wide.scale, `${preset.id} stable spacing scale`);
+    near(compact.scaleX, wide.scaleX, `${preset.id} stable spacing x scale`);
+    near(compact.scaleY, wide.scaleY, `${preset.id} stable spacing y scale`);
     compact.wells.forEach((well, index) => {
       near(well.radius, wide.wells[index].radius, `${preset.id} spacing keeps radius`);
       near((well.x - compact.center.x) * 140 / 60, wide.wells[index].x - wide.center.x, `${preset.id} spacing x`);
@@ -207,9 +265,27 @@ catalogue.presets.forEach(preset => {
     const strong = catalogue.resolve(preset.id, { width, height, strength: 200 });
     weak.wells.forEach((well, index) => {
       near(well.strength * 8, strong.wells[index].strength, `${preset.id} strength scale`);
+      assert.ok(strong.wells[index].strength <= 100, `${preset.id} 200% strength within controls`);
       near(well.x, strong.wells[index].x, `${preset.id} strength keeps position`);
       near(well.radius, strong.wells[index].radius, `${preset.id} strength keeps radius`);
     });
+  });
+});
+newPresets.forEach(([id]) => {
+  viewports.forEach(([width, height]) => {
+    const insets = width < 900 ? { top: 76, right: 12, bottom: 20, left: 12 } :
+      { top: 24, right: 24, bottom: 24, left: 24 };
+    const layout = catalogue.resolve(id, { width, height, insets });
+    const centerWidth = Math.max(...layout.wells.map(well => well.x)) - Math.min(...layout.wells.map(well => well.x));
+    const centerHeight = Math.max(...layout.wells.map(well => well.y)) - Math.min(...layout.wells.map(well => well.y));
+    const usableWidth = layout.usableBounds.right - layout.usableBounds.left;
+    const usableHeight = layout.usableBounds.bottom - layout.usableBounds.top;
+    const visualWidth = layout.bounds.right - layout.bounds.left;
+    const visualHeight = layout.bounds.bottom - layout.bounds.top;
+    assert.ok(centerWidth / usableWidth >= 0.35, `${id}: wide centers must span width at ${width}x${height}`);
+    assert.ok(centerHeight / usableHeight >= 0.35, `${id}: wide centers must span height at ${width}x${height}`);
+    assert.ok(visualWidth / usableWidth >= 0.65, `${id}: wide visuals must fill width at ${width}x${height}`);
+    assert.ok(visualHeight / usableHeight >= 0.65, `${id}: wide visuals must fill height at ${width}x${height}`);
   });
 });
 const axialDesktop = catalogue.resolve('binary', { width: 1440, height: 900 });
@@ -227,4 +303,4 @@ catalogue.resolve('binary').wells[0].x = 99999;
 assert.equal(JSON.stringify(catalogue.presets), snapshot, 'resolving returns fresh wells');
 assert.ok(Object.isFrozen(catalogue.presets) && Object.isFrozen(catalogue.get('binary').wells[0]), 'templates are immutable');
 
-console.log(`PASS: 48 recipes, 8 families, ${fitCases} viewport/slider/radius fits and ${checks} geometry assertions.`);
+console.log(`PASS: 60 recipes, 11 families, ${fitCases} viewport/slider/radius fits and ${checks} geometry assertions.`);

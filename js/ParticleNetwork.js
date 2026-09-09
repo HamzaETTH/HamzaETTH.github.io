@@ -970,6 +970,30 @@
       this._syncObjectsFromSoA();
       return count;
     }),
+    (b.prototype._spreadParticlesAcrossPresetViewport = function(viewport) {
+      if (!this.i || !this.posX || !this.posY) return 0;
+      viewport = viewport || this._getGravityWellPresetViewport();
+      var insets = viewport.insets || {};
+      var padding = Math.max(4, (this.options.particleSize || 2) * 2);
+      var left = Math.min(this.i.size.width, Math.max(0, Number(insets.left) || 0) + padding);
+      var right = Math.max(left, Math.min(this.i.size.width,
+        this.i.size.width - (Number(insets.right) || 0) - padding));
+      var top = Math.min(this.i.size.height, Math.max(0, Number(insets.top) || 0) + padding);
+      var bottom = Math.max(top, Math.min(this.i.size.height,
+        this.i.size.height - (Number(insets.bottom) || 0) - padding));
+      var width = Math.max(0, right - left);
+      var height = Math.max(0, bottom - top);
+      var count = this.numParticles | 0;
+      // A deterministic low-discrepancy sequence fills the usable rectangle without visible rows.
+      for (var i = 0; i < count; i++) {
+        var xFraction = (0.5 + (i + 1) * 0.7548776662466927) % 1;
+        var yFraction = (0.5 + (i + 1) * 0.5698402909980532) % 1;
+        this.posX[i] = left + xFraction * width;
+        this.posY[i] = top + yFraction * height;
+      }
+      this._syncObjectsFromSoA();
+      return count;
+    }),
     (b.prototype._stopStartupGravitySequence = function() {
       if (this._startupGravityIntroTimer != null) clearTimeout(this._startupGravityIntroTimer);
       if (this._startupGravityWellTimer != null) clearTimeout(this._startupGravityWellTimer);
@@ -2487,7 +2511,11 @@
           this.gravityWellAccelerationCapped = preset.motion.gravityWellAccelerationCapped;
           this.gravityWellAccelerationLimit = preset.motion.gravityWellAccelerationLimit;
         }
-        this._gatherParticlesAt(this.i.size.width * 0.5, this.i.size.height * 0.5, true);
+        if (preset.initialParticlePlacement === 'spread') {
+          this._spreadParticlesAcrossPresetViewport(this._getGravityWellPresetViewport());
+        } else {
+          this._gatherParticlesAt(this.i.size.width * 0.5, this.i.size.height * 0.5, true);
+        }
         this._invalidateGravityWellPresetInfluence(true);
         this._pushObjectSelectionUndo(entry);
       } finally { this._gravityWellPresetTransaction = false; }

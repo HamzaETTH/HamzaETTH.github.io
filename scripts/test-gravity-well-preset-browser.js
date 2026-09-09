@@ -60,9 +60,9 @@ async function desktop(browser, errors) {
   });
   const beforeBrowse = await wellState(page);
   await openBrowser(page);
-  assert.strictEqual(await page.locator('.well-preset-entry').count(), 48);
+  assert.strictEqual(await page.locator('.well-preset-entry').count(), 60);
   assert.strictEqual(await page.getByLabel('Use recommended motion').isChecked(), true);
-  assert.strictEqual(await page.locator('.well-preset-family option').count(), 9);
+  assert.strictEqual(await page.locator('.well-preset-family option').count(), 12);
   assert.strictEqual(await page.getByLabel('Search presets').evaluate(node => node === document.activeElement), true);
   await page.getByLabel('Search presets').fill('bullseye');
   assert.strictEqual(await page.locator('.well-preset-entry').count(), 2);
@@ -112,13 +112,14 @@ async function desktop(browser, errors) {
     pn._rebuildOnResize = function(...args) { window.__presetRebuilds++; return rebuild.apply(this, args); };
   });
   await page.getByRole('button', { name: 'Apply Preset', exact: true }).click();
-  assert.deepStrictEqual((await wellState(page)).motion, [0.66, false, 0.12, 1, true, 1.5]);
+  assert.deepStrictEqual((await wellState(page)).motion, [0.66, false, 0, 1, true, 1.5]);
   assert.strictEqual(await page.evaluate(() => window.__presetRebuilds), 0, 'Pane refresh must not rebuild particles during Apply');
   const synced = await page.evaluate(() => {
     const params = window.particleSettingsUi.params;
     return [params.speed, params.curvedDrift, params.gravityWellSpin, params.gravityWellForceMultiplier];
   });
-  assert.deepStrictEqual(synced, [0.66, false, 0.12, 1]);
+  assert.deepStrictEqual([synced[0], synced[1], synced[3]], [0.66, false, 1]);
+  assert.ok(Math.abs(synced[2]) < 1e-12, 'Trap spin must synchronize to zero');
 
   const gestureBefore = await wellState(page);
   const slider = await page.evaluate(() => {
@@ -172,7 +173,7 @@ async function desktop(browser, errors) {
   await openControls(page);
   await openBrowser(page);
   assert.strictEqual(await page.locator('#well-preset-browser').count(), 1);
-  assert.strictEqual(await page.locator('.well-preset-entry').count(), 48);
+  assert.strictEqual(await page.locator('.well-preset-entry').count(), 60);
   await context.close();
 }
 

@@ -904,17 +904,30 @@ Tint influence is calculated once per particle per frame and stored in lazily al
 
 ### Gravity-well preset library cost validation (2026-09-09)
 
-Feature validation, not an optimization claim. The catalogue contains 48 choices; only the applied recipe participates in physics, with at most 18 wells. Geometry resolution runs on application, input, or resize. The modal creates SVG diagrams only; opening, filtering, and selecting entries leave the simulation unchanged. No per-frame preset work or influence scans were added.
+Feature validation, not an optimization claim. The catalogue contains 60 choices; only the applied recipe participates in physics, with at most 18 wells. Geometry resolution runs on application, input, or resize. The modal creates SVG diagrams only; opening, filtering, and selecting entries leave the simulation unchanged. No per-frame preset work or influence scans were added.
 
 Measured the shipped `_updateSoA()` path in headless Edge at 1280×800 on this Windows machine. Each sample warms up for 30 steps, then reports the median of five trials of 120 physics steps. Particle-to-particle attraction/repulsion and curved drift are disabled. Existing well force laws are unchanged.
 
 | Particles | Wells | Median physics ms/step |
 |---:|---:|---:|
-| 1,000 | 0 | 0.020 |
-| 1,000 | 2 (Binary) | 0.036 |
-| 1,000 | 18 (Triple Halo) | 0.143 |
-| 5,000 | 0 | 0.092 |
-| 5,000 | 2 (Binary) | 0.178 |
-| 5,000 | 18 (Triple Halo) | 0.765 |
+| 1,000 | 0 | 0.021 |
+| 1,000 | 2 (Binary) | 0.041 |
+| 1,000 | 18 (Triple Halo) | 0.160 |
+| 5,000 | 0 | 0.102 |
+| 5,000 | 2 (Binary) | 0.194 |
+| 5,000 | 18 (Triple Halo) | 0.860 |
 
-These are CPU physics timings, not end-to-end FPS or a baseline-versus-optimized comparison. Rendering and device performance vary. Reproduce with `rtk proxy node scripts/test-gravity-well-presets.js http://127.0.0.1:8137`; optional artifact directory records JSON and evolved screenshots. Geometry, transactions, UI, and representative WebGL/Trails/touch/reduced-motion/Canvas checks are documented in `docs/gravity-well-presets.md`.
+The 12 added presets include four scattered anchors, four wide patterns, and four distributed traps. Wide presets spread existing particles once across the usable canvas on initial apply; later spacing/rotation/strength edits and viewport reflows preserve particle positions. Trap presets now carry zero-spin recommended motion and were audited with the actual `_updateSoA()` integrator. The audit samples 257 points on every canvas edge and rejects trap recipes with outward boundary acceleration; it is a containment indicator, not a universal no-edge-contact proof for arbitrary inherited velocity or external particle forces.
+
+Automatic Adaptive Line Detail is default-on as a controller but preserves the existing desktop runtime default of `adaptiveLineDetail=false`. It watches live frames after a two-second startup grace, enables the existing adaptive mode after two consecutive one-second windows below 30 FPS, shows a 1.5-second toast, and silently restores the desktop default after five one-second windows above 40 FPS if the controller owns the change. Manual checkbox changes override it until Reset or reload; mobile keeps the existing `adaptiveLineDetail=true` startup behavior. This control path was validated by `scripts/test-auto-adaptive-line-detail.js`.
+
+A focused end-to-end transition benchmark used 1,200 stationary particles packed into a 70px-radius cluster, forcing a dense line workload while leaving particle physics neutral. On this machine, the automatic transition occurred without browser errors or a lost WebGL context:
+
+| State | Median frame | Median FPS | Median emitted segments |
+|---|---:|---:|---:|
+| Before, uncapped Full | 34.7 ms | 28.82 | 700,558 |
+| After automatic Adaptive | 20.8 ms | 48.08 | 4,345 |
+
+That is a 40.06% lower median frame time in this stress case. It validates that the threshold reaches the existing adaptive line system and produces a material recovery; it is not a general-device FPS guarantee. Rendering and device performance vary.
+
+Reproduce with `rtk node scripts/test-gravity-well-presets.js http://127.0.0.1:8137/`, `rtk node scripts/test-gravity-well-preset-physics.js http://127.0.0.1:8137/`, `rtk node scripts/test-auto-adaptive-line-detail.js --url http://127.0.0.1:8137/`, and `rtk node scripts/benchmark-auto-adaptive-lines.js http://127.0.0.1:8137/`; optional artifact directories record JSON and evolved screenshots. Geometry, transactions, UI, and representative WebGL/Trails/touch/reduced-motion/Canvas checks are documented in `docs/gravity-well-presets.md`.

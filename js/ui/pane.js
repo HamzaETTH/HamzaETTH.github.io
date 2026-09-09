@@ -7,6 +7,12 @@ const TWEAKPANE_URL = 'https://cdn.jsdelivr.net/npm/tweakpane@4.0.5/dist/tweakpa
 const PARTICLE_FORCE_SLIDER_STEP = 0.05;
 const PARTICLE_FORCE_RECOMMENDED_MIN = 1.5;
 const PARTICLE_FORCE_RECOMMENDED_MAX = 5;
+const AUTO_LINE_DETAIL_STARTUP_DELAY_MS = 2000;
+const AUTO_LINE_DETAIL_SAMPLE_MS = 1000;
+const AUTO_LINE_DETAIL_LOW_FPS = 30;
+const AUTO_LINE_DETAIL_HIGH_FPS = 40;
+const AUTO_LINE_DETAIL_LOW_WINDOWS = 2;
+const AUTO_LINE_DETAIL_HIGH_WINDOWS = 5;
 let paneBuildPromise = null;
 let activeUi = null;
 let mobileControls = null;
@@ -28,6 +34,178 @@ function showObjectSelectionToast(message) {
   if (window.hotkeyManager && typeof window.hotkeyManager.showToast === 'function') {
     window.hotkeyManager.showToast(message, { duration: 1500 });
   }
+}
+
+function installAutoAdaptiveLineDetail(pn, params) {
+  if (!pn || !pn.performanceMonitor || typeof pn.performanceMonitor.update !== 'function') return null;
+  if (pn._adaptiveLineDetailController) {
+    pn._adaptiveLineDetailController.attachParams(params);
+    return pn._adaptiveLineDetailController;
+  }
+
+  const monitor = pn.performanceMonitor;
+  const originalMonitorUpdate = monitor.update;
+  const paramTargets = new Set();
+  const bindingTargets = new Set();
+  const initialAdaptiveLineDetail = pn.options && pn.options.adaptiveLineDetail === true;
+  let startupUntil = performance.now() + AUTO_LINE_DETAIL_STARTUP_DELAY_MS;
+  let windowStart = null;
+  let windowFrames = 0;
+  let lowWindows = 0;
+  let highWindows = 0;
+  let autoOwned = false;
+  let manualOverride = false;
+  let paused = document.hidden;
+  let syncingBindings = false;
+  let destroyed = false;
+
+  function resetSampling() {
+    windowStart = null;
+    windowFrames = 0;
+    lowWindows = 0;
+    highWindows = 0;
+  }
+
+  function writeAdaptiveLineDetail(enabled) {
+    const value = enabled === true;
+    if (pn.options) pn.options.adaptiveLineDetail = value;
+    paramTargets.forEach(target => { target.adaptiveLineDetail = value; });
+    syncingBindings = true;
+    try {
+      bindingTargets.forEach(binding => {
+        if (binding && typeof binding.refresh === 'function') binding.refresh();
+      });
+    } finally {
+      syncingBindings = false;
+    }
+  }
+
+  const controller = {
+    initialAdaptiveLineDetail,
+    attachParams(target, binding) {
+      if (target) {
+        paramTargets.add(target);
+        target.adaptiveLineDetail = pn.options && pn.options.adaptiveLineDetail === true;
+      }
+      if (binding) {
+        bindingTargets.add(binding);
+        if (typeof binding.refresh === 'function') binding.refresh();
+      }
+    },
+    noteManualChange(enabled) {
+      if (destroyed) return;
+      manualOverride = true;
+      autoOwned = false;
+      resetSampling();
+      writeAdaptiveLineDetail(enabled);
+    },
+    isSyncingBindings() {
+      return syncingBindings;
+    },
+    syncConfig() {
+      if (destroyed || !pn.options) return;
+      if (pn.options.autoAdaptiveLineDetail === false) {
+        resetSampling();
+        if (autoOwned) {
+          autoOwned = false;
+          writeAdaptiveLineDetail(false);
+        }
+      }
+    },
+    pause() {
+      paused = true;
+      resetSampling();
+    },
+    resume() {
+      paused = false;
+      resetSampling();
+    },
+    reset(now = performance.now()) {
+      manualOverride = false;
+      autoOwned = false;
+      paused = document.hidden;
+      startupUntil = now + AUTO_LINE_DETAIL_STARTUP_DELAY_MS;
+      resetSampling();
+      writeAdaptiveLineDetail(initialAdaptiveLineDetail);
+    },
+    recordFrame(now = performance.now()) {
+      if (destroyed || !pn.options) return;
+      if (pn.options.autoAdaptiveLineDetail === false) {
+        controller.syncConfig();
+        return;
+      }
+      if (paused || document.hidden || pn._destroyed || !pn._rafActive || pn._rafId == null) {
+        resetSampling();
+        return;
+      }
+      if (!Number.isFinite(now) || now < startupUntil) {
+        resetSampling();
+        return;
+      }
+      if (windowStart == null || now < windowStart) {
+        windowStart = now;
+        windowFrames = 0;
+        return;
+      }
+
+      windowFrames++;
+      const elapsed = now - windowStart;
+      if (elapsed < AUTO_LINE_DETAIL_SAMPLE_MS) return;
+      const fps = windowFrames * 1000 / elapsed;
+      windowStart = now;
+      windowFrames = 0;
+
+      if (autoOwned) {
+        lowWindows = 0;
+        highWindows = fps > AUTO_LINE_DETAIL_HIGH_FPS ? highWindows + 1 : 0;
+        if (highWindows >= AUTO_LINE_DETAIL_HIGH_WINDOWS) {
+          autoOwned = false;
+          resetSampling();
+          writeAdaptiveLineDetail(false);
+        }
+        return;
+      }
+
+      highWindows = 0;
+      if (manualOverride || pn.options.adaptiveLineDetail === true) {
+        lowWindows = 0;
+        return;
+      }
+      lowWindows = fps < AUTO_LINE_DETAIL_LOW_FPS ? lowWindows + 1 : 0;
+      if (lowWindows >= AUTO_LINE_DETAIL_LOW_WINDOWS) {
+        autoOwned = true;
+        resetSampling();
+        writeAdaptiveLineDetail(true);
+        if (window.hotkeyManager && typeof window.hotkeyManager.showToast === 'function') {
+          window.hotkeyManager.showToast('Adaptive Line Detail enabled — low FPS.', { duration: 1500 });
+        }
+      }
+    },
+    getState() {
+      return { startupUntil, lowWindows, highWindows, autoOwned, manualOverride, paused, destroyed };
+    },
+    destroy() {
+      if (destroyed) return;
+      destroyed = true;
+      resetSampling();
+      if (monitor.update === wrappedMonitorUpdate) monitor.update = originalMonitorUpdate;
+      paramTargets.clear();
+      bindingTargets.clear();
+      if (pn._adaptiveLineDetailController === controller) pn._adaptiveLineDetailController = null;
+    }
+  };
+
+  function wrappedMonitorUpdate() {
+    const result = originalMonitorUpdate.apply(this, arguments);
+    const frameTime = Number.isFinite(pn._lastUpdateTime) ? pn._lastUpdateTime : performance.now();
+    controller.recordFrame(frameTime);
+    return result;
+  }
+
+  monitor.update = wrappedMonitorUpdate;
+  pn._adaptiveLineDetailController = controller;
+  controller.attachParams(params);
+  return controller;
 }
 
 window.addEventListener('particle-object-selection', event => {
@@ -186,6 +364,7 @@ function buildParamsFromNetwork(pn) {
 
     // Perf
     performanceOverlay: !!o.performanceOverlay,
+    autoAdaptiveLineDetail: o.autoAdaptiveLineDetail !== false,
 
     // Trails
     trails: !!o.trails,
@@ -235,8 +414,12 @@ async function buildPane() {
   const pane = new Pane({ title: 'Controls', container });
 
   const PARAMS = buildParamsFromNetwork(pn);
+  const adaptiveLineDetailController = pn._adaptiveLineDetailController;
   // Snapshot current as reset baseline rather than global defaults
   const DEFAULTS = { ...PARAMS };
+  if (adaptiveLineDetailController) {
+    DEFAULTS.adaptiveLineDetail = adaptiveLineDetailController.initialAdaptiveLineDetail;
+  }
   const forceProfileDefaults = {
     attraction: {
       distance: DEFAULTS.particleInteractionDistance,
@@ -290,6 +473,7 @@ async function buildPane() {
 
   // Shared reset that truly restores defaults and clears transient state
   function doReset() {
+    if (adaptiveLineDetailController) adaptiveLineDetailController.reset();
     Object.keys(DEFAULTS).forEach(k => { PARAMS[k] = DEFAULTS[k]; });
     resetParticleForceProfiles();
     pn.gravityWellInfoExpanded = false;
@@ -345,8 +529,18 @@ async function buildPane() {
   mainBg.addBinding(PARAMS, 'background', { view: 'color', label: 'Background' }).on('change', () => applyParamsToNetwork(pn, PARAMS));
   // Lines (core)
   const mainLines = main.addFolder({ title: 'Lines', expanded: true });
-  mainLines.addBinding(PARAMS, 'adaptiveLineDetail', { label: 'Adaptive Line Detail' })
-    .on('change', () => applyParamsToNetwork(pn, PARAMS));
+  const bindAdaptiveLineDetail = mainLines.addBinding(PARAMS, 'adaptiveLineDetail', { label: 'Adaptive Line Detail' })
+    .on('change', () => {
+      if (adaptiveLineDetailController) {
+        if (!adaptiveLineDetailController.isSyncingBindings()) {
+          adaptiveLineDetailController.noteManualChange(PARAMS.adaptiveLineDetail);
+        }
+      }
+      applyParamsToNetwork(pn, PARAMS);
+    });
+  if (adaptiveLineDetailController) {
+    adaptiveLineDetailController.attachParams(PARAMS, bindAdaptiveLineDetail);
+  }
   mainLines.addBinding(PARAMS, 'cellularLineClusters', { label: 'Grid Effect' })
     .on('change', () => applyParamsToNetwork(pn, PARAMS));
   mainLines.addBinding(PARAMS, 'blackHoleLineColor', { label: 'Black Hole Line Color' })
@@ -1186,6 +1380,7 @@ function installVisibilityLifecycle(pn) {
   pn._resumeOnVisible = false;
   pn._handleVisibilityChange = function () {
     if (document.hidden) {
+      if (pn._adaptiveLineDetailController) pn._adaptiveLineDetailController.pause();
       pn._resumeOnVisible = pn._shouldAnimate() &&
         (pn._resumeOnVisible || pn._rafActive || pn._rafId != null);
       if (pn._rafId != null) cancelAnimationFrame(pn._rafId);
@@ -1194,6 +1389,7 @@ function installVisibilityLifecycle(pn) {
       return;
     }
 
+    if (pn._adaptiveLineDetailController) pn._adaptiveLineDetailController.resume();
     const shouldResume = pn._resumeOnVisible && pn._shouldAnimate();
     pn._resumeOnVisible = false;
     if (shouldResume && !pn._rafActive && pn._rafId == null) {
@@ -1216,8 +1412,9 @@ function registerBootstrapHotkeys() {
     return;
   }
 
-  installVisibilityLifecycle(pn);
   const params = buildParamsFromNetwork(pn);
+  installAutoAdaptiveLineDetail(pn, params);
+  installVisibilityLifecycle(pn);
   manager.setContext({
     particleInstance: pn,
     params,
@@ -1282,10 +1479,12 @@ function registerBootstrapHotkeys() {
 
 function destroySettingsOwnership() {
   lifecycleGeneration++;
+  const pn = window.particleInstance;
   if (mobileControls) mobileControls.destroy();
   mobileControls = null;
   if (activeUi) activeUi.destroy();
   activeUi = null;
+  if (pn && pn._adaptiveLineDetailController) pn._adaptiveLineDetailController.destroy();
   window.particleSettingsUi = null;
   paneBuildPromise = null;
   const strayContainer = document.getElementById('tp-container');

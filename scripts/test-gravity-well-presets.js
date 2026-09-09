@@ -99,7 +99,7 @@ async function main() {
       const allowed = new Set(['velocity', 'curvedDrift', 'gravityWellSpin', 'gravityWellForceMultiplier',
         'gravityWellAccelerationCapped', 'gravityWellAccelerationLimit', 'gravityWellsEnabled']);
       check('recommendedOnlyChangesAllowedSettings', Object.keys(oldOptions).every(key => allowed.has(key) || json(oldOptions[key]) === json(pn.options[key])));
-      check('recommendedProfile', pn.options.velocity === 0.66 && pn.options.gravityWellSpin === 0.12 && pn.gravityWellAccelerationCapped && pn.gravityWellAccelerationLimit === 1.5);
+      check('recommendedProfile', pn.options.velocity === 0.66 && pn.options.gravityWellSpin === 0 && pn.gravityWellAccelerationCapped && pn.gravityWellAccelerationLimit === 1.5);
       for (let i = 0; i < 4; i++) pn._updateSoA();
       const beforeUndoParticles = particles();
       pn.undoObjectSelection();
@@ -108,6 +108,30 @@ async function main() {
       check('undoRestoresMotion', Object.keys(oldOptions).every(key => json(oldOptions[key]) === json(pn.options[key])));
       check('undoDoesNotRewindParticles', beforeUndoParticles === particles());
       check('undoRestoresOwnership', pn.activeGravityWellPreset === null && pn.lastGravityWellPresetId === null);
+      const beforeSpreadVelocities = json([Array.from(pn.velX), Array.from(pn.velY)]);
+      pn.applyGravityWellPreset('constellation', { useRecommendedMotion: false });
+      const spreadViewport = pn._getGravityWellPresetViewport();
+      const spreadInsets = spreadViewport.insets;
+      const spreadX = Array.from(pn.posX);
+      const spreadY = Array.from(pn.posY);
+      const spreadPositions = json([spreadX, spreadY]);
+      const usableWidth = pn.i.size.width - spreadInsets.left - spreadInsets.right;
+      const usableHeight = pn.i.size.height - spreadInsets.top - spreadInsets.bottom;
+      check('widePresetSpreadsParticles',
+        Math.max(...spreadX) - Math.min(...spreadX) > usableWidth * 0.9 &&
+        Math.max(...spreadY) - Math.min(...spreadY) > usableHeight * 0.9 &&
+        spreadX.every(x => x >= spreadInsets.left && x <= pn.i.size.width - spreadInsets.right) &&
+        spreadY.every(y => y >= spreadInsets.top && y <= pn.i.size.height - spreadInsets.bottom));
+      check('spreadPreservesParticleVelocity',
+        beforeSpreadVelocities === json([Array.from(pn.velX), Array.from(pn.velY)]));
+      pn.posX.fill(0);
+      pn.posY.fill(0);
+      pn.applyGravityWellPreset('constellation', { useRecommendedMotion: false });
+      check('spreadIsDeterministic', spreadPositions === json([Array.from(pn.posX), Array.from(pn.posY)]));
+      const beforeWideAdjustment = json([Array.from(pn.posX), Array.from(pn.posY)]);
+      pn.updateGravityWellPreset({ spacing: 110 });
+      check('wideAdjustmentDoesNotRedistributeParticles',
+        beforeWideAdjustment === json([Array.from(pn.posX), Array.from(pn.posY)]));
       pn.applyGravityWellPreset('binary', { useRecommendedMotion: false });
       check('motionTogglePreservesPhysics', Object.keys(oldOptions).every(key => json(oldOptions[key]) === json(pn.options[key])));
       const ids = pn.gravityWells.map(well => well.id);
@@ -242,7 +266,8 @@ async function main() {
       await sheet.close();
     }
 
-    const representatives = presets.filter((preset, i) => i % 6 === 0);
+    const representatives = presets.filter((preset, index) =>
+      presets.findIndex(candidate => candidate.family === preset.family) === index);
     for (const mode of ['touch', 'trails', 'reduced', 'fallback']) {
       const modeContext = await browser.newContext(mode === 'touch'
         ? { viewport: { width: 390, height: 844 }, isMobile: true, hasTouch: true, deviceScaleFactor: 2 }

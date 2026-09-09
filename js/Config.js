@@ -92,6 +92,7 @@
 
     // Performance options
     performanceOverlay: false,
+    autoAdaptiveLineDetail: true,
 
     // Physics/boundary
     boundaryMode: 'bounce',
@@ -232,6 +233,7 @@
       cellularLineClusters: cfg.cellularLineClusters === true,
       blackHoleLineColor: cfg.blackHoleLineColor === true,
       performanceOverlay: cfg.performanceOverlay != null ? cfg.performanceOverlay : false,
+      autoAdaptiveLineDetail: cfg.autoAdaptiveLineDetail !== false,
       randomizeDistanceColors: cfg.randomizeDistanceColors != null ? cfg.randomizeDistanceColors : false,
       distanceColorCyclingSpeed: cfg.distanceColorCyclingSpeed != null
         ? cfg.distanceColorCyclingSpeed
