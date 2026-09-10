@@ -7,20 +7,6 @@
   // Include the GL halo and orbiting decorative points, not only the core.
   var visualExtentScale = 1.65;
   var visualPadding = 3;
-  // These recipes collapsed inside black cores in the deterministic visibility audit.
-  var softOrbitPresetIds = Object.freeze({
-    'cross-cage': true, 'diamond-cage': true, 'triangular-cage': true,
-    'hexagonal-cage': true, 'octagonal-cage': true, 'split-cage': true,
-    'twin-cages': true, 'double-halo': true, 'triangle-in-hexagon': true,
-    'checkerboard-nine': true, 'checkerboard-sixteen': true, 'nine-anchors': true,
-    'white-fence': true, 'staggered-lattice': true, 'four-rooms': true,
-    'corridor': true, 'slalom': true, 'crossroads': true, 'twin-jets': true,
-    'spiral-cage': true, 'satellites': true, 'bow-tie': true, 'compass': true,
-    'constellation': true, 'open-field': true, 'staggered-anchors': true,
-    'diagonal-weave': true, 'braided-lanes': true, 'perimeter-harbors': true,
-    'twin-havens': true, 'four-havens': true, 'six-pockets': true,
-    'corner-refuges': true
-  });
   var familySpin = {
     'Cages': 0.12,
     'Pairs & axes': 0.18,
@@ -110,10 +96,6 @@
       layout: metadata.layout === 'wide' ? 'wide' : 'uniform',
       initialParticlePlacement: metadata.initialParticlePlacement === 'spread' ? 'spread' : 'center',
       trap: trap,
-      softOrbit: softOrbitPresetIds[id] === true,
-      orbitRadiusScale: softOrbitPresetIds[id] === true
-        ? (id === 'spiral-cage' ? 1.05 : visualExtentScale)
-        : undefined,
       motion: Object.freeze({
         velocity: 0.66,
         gravityWellSpin: trap ? 0 : familySpin[family],
@@ -428,11 +410,7 @@
       bounds.top = Math.min(bounds.top, y - extent);
       bounds.right = Math.max(bounds.right, x + extent);
       bounds.bottom = Math.max(bounds.bottom, y + extent);
-      var resolvedWell = {
-        x: x, y: y, type: item.type, radius: radius, strength: item.strength * strength / 100
-      };
-      if (preset.softOrbit && item.type === 'black') resolvedWell.orbitRadiusScale = preset.orbitRadiusScale;
-      return resolvedWell;
+      return { x: x, y: y, type: item.type, radius: radius, strength: item.strength * strength / 100 };
     });
     return {
       id: id, wells: wells, width: width, height: height,

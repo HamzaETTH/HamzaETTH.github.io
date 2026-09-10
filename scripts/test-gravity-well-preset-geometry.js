@@ -29,23 +29,11 @@ const trapIds = new Set([
   'split-cage', 'twin-cages', 'double-halo', 'triangle-in-hexagon', 'white-fence',
   'spiral-cage', 'compass', 'twin-havens', 'four-havens', 'six-pockets', 'corner-refuges'
 ]);
-const softOrbitIds = new Set([
-  'cross-cage', 'diamond-cage', 'triangular-cage', 'hexagonal-cage', 'octagonal-cage',
-  'split-cage', 'twin-cages', 'double-halo', 'triangle-in-hexagon', 'checkerboard-nine',
-  'checkerboard-sixteen', 'nine-anchors', 'white-fence', 'staggered-lattice', 'four-rooms',
-  'corridor', 'slalom', 'crossroads', 'twin-jets', 'spiral-cage', 'satellites', 'bow-tie',
-  'compass', 'constellation', 'open-field', 'staggered-anchors', 'diagonal-weave',
-  'braided-lanes', 'perimeter-harbors', 'twin-havens', 'four-havens', 'six-pockets',
-  'corner-refuges'
-]);
 let checks = 0;
 
 function near(actual, expected, message) {
   checks++;
   assert.ok(Math.abs(actual - expected) <= tolerance, `${message}: ${actual} != ${expected}`);
-}
-function expectedOrbitScale(id, type) {
-  return softOrbitIds.has(id) && type === 'black' ? (id === 'spiral-cage' ? 1.05 : 1.65) : undefined;
 }
 function points(id) { return catalogue.get(id).wells; }
 function pointAt(wells, x, y, type) {
@@ -98,7 +86,6 @@ catalogue.presets.forEach((preset, index) => {
   assert.equal(preset.layout, wide ? 'wide' : 'uniform', `${preset.id} layout`);
   assert.equal(preset.initialParticlePlacement, wide ? 'spread' : 'center', `${preset.id} particle placement`);
   assert.equal(preset.trap, trapIds.has(preset.id), `${preset.id} trap classification`);
-  assert.equal(preset.softOrbit, softOrbitIds.has(preset.id), `${preset.id} soft orbit classification`);
   assert.ok(Object.isFrozen(preset) && Object.isFrozen(preset.wells) && Object.isFrozen(preset.motion), `${preset.id} metadata immutable`);
   const positions = new Set();
   preset.wells.forEach(well => {
@@ -231,10 +218,6 @@ catalogue.presets.forEach(preset => {
           assert.equal(layout.initialParticlePlacement, preset.initialParticlePlacement);
           assert.equal(layout.trap, preset.trap);
           assert.equal(layout.wells.length, preset.wells.length);
-          layout.wells.forEach((well, index) => {
-            assert.equal(well.orbitRadiusScale, expectedOrbitScale(preset.id, preset.wells[index].type),
-              `${preset.id} well ${index} orbit radius scale`);
-          });
           assert.ok(layout.bounds.left + tolerance >= layout.usableBounds.left, `${preset.id} left fit`);
           assert.ok(layout.bounds.top + tolerance >= layout.usableBounds.top, `${preset.id} top fit`);
           assert.ok(layout.bounds.right - tolerance <= layout.usableBounds.right, `${preset.id} right fit`);
