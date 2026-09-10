@@ -60,7 +60,7 @@ async function desktop(browser, errors) {
   });
   const beforeBrowse = await wellState(page);
   await openBrowser(page);
-  assert.strictEqual(await page.locator('.well-preset-entry').count(), 60);
+  assert.strictEqual(await page.locator('.well-preset-entry').count(), 72);
   assert.strictEqual(await page.getByLabel('Use recommended motion').isChecked(), true);
   assert.strictEqual(await page.locator('.well-preset-family option').count(), 12);
   assert.strictEqual(await page.getByLabel('Search presets').evaluate(node => node === document.activeElement), true);
@@ -173,7 +173,7 @@ async function desktop(browser, errors) {
   await openControls(page);
   await openBrowser(page);
   assert.strictEqual(await page.locator('#well-preset-browser').count(), 1);
-  assert.strictEqual(await page.locator('.well-preset-entry').count(), 60);
+  assert.strictEqual(await page.locator('.well-preset-entry').count(), 72);
   await context.close();
 }
 

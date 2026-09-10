@@ -41,6 +41,17 @@
     return result;
   }
 
+  function arc(count, type, radiusX, radiusY, startAngle, endAngle, radius, strength) {
+    var result = [];
+    for (var i = 0; i < count; i++) {
+      var fraction = count === 1 ? 0.5 : i / (count - 1);
+      var angle = startAngle + (endAngle - startAngle) * fraction;
+      result.push(well(Math.cos(angle) * radiusX, Math.sin(angle) * radiusY,
+        typeof type === 'function' ? type(i) : type, radius, strength));
+    }
+    return result;
+  }
+
   function alternating(i) { return i % 2 ? 'white' : 'black'; }
   function inverseAlternating(i) { return i % 2 ? 'black' : 'white'; }
 
@@ -90,6 +101,7 @@
   function add(id, name, family, description, wells, axial, metadata) {
     metadata = metadata || {};
     var trap = metadata.trap === true;
+    var spin = Number.isFinite(metadata.spin) ? metadata.spin : (trap ? 0 : familySpin[family]);
     var preset = {
       id: id, name: name, family: family, description: description,
       wells: wells.map(function(item) { return Object.freeze(item); }), axial: !!axial,
@@ -98,7 +110,7 @@
       trap: trap,
       motion: Object.freeze({
         velocity: 0.66,
-        gravityWellSpin: trap ? 0 : familySpin[family],
+        gravityWellSpin: spin,
         gravityWellForceMultiplier: 0.6,
         gravityWellAccelerationCapped: true,
         gravityWellAccelerationLimit: 1.5,
@@ -113,6 +125,8 @@
 
   var trapMetadata = Object.freeze({ trap: true });
   var wideMetadata = Object.freeze({ layout: 'wide', initialParticlePlacement: 'spread' });
+  var wideFlowMetadata = Object.freeze({ layout: 'wide', initialParticlePlacement: 'spread', spin: 0.18 });
+  var wideScatterMetadata = Object.freeze({ layout: 'wide', initialParticlePlacement: 'spread', spin: 0.16 });
   var wideTrapMetadata = Object.freeze({ layout: 'wide', initialParticlePlacement: 'spread', trap: true });
 
   add('cross-cage', 'Cross Cage', 'Cages', 'A central black hole enclosed by four cardinal white holes.',
@@ -281,7 +295,7 @@
     well(0.9, 0.75, 'black', 0.16, 18), well(-0.9, 0.72, 'white', 0.12, 6),
     well(-0.45, 0.36, 'black', 0.15, 16), well(0, 0.12, 'white', 0.1, 5),
     well(0.45, -0.36, 'black', 0.15, 16), well(0.9, -0.72, 'white', 0.12, 6)
-  ], false, wideMetadata);
+  ], false, wideFlowMetadata);
   add('braided-lanes', 'Braided Lanes', 'Wide patterns', 'Three gently braided lanes carry black anchors around a white center path.', [
     well(-0.82, -0.86, 'black', 0.15, 17), well(-0.08, -0.86, 'white', 0.11, 6),
     well(0.7, -0.86, 'black', 0.15, 17), well(-0.66, -0.3, 'black', 0.15, 17),
@@ -329,6 +343,87 @@
     well(-0.6, 0.5, 'white', 0.11, 8), well(0.6, 0.5, 'white', 0.11, 8),
     well(0, 0, 'white', 0.11, 8)
   ], false, wideTrapMetadata);
+
+  add('shattered-halo', 'Shattered Halo', 'Rings', 'Opposing black and white arcs leave two open breaks in an elliptical orbit.',
+    arc(5, 'black', 1, 0.78, -Math.PI * 0.9, -Math.PI * 0.15, 0.16, 18)
+      .concat(arc(5, 'white', 1, 0.78, Math.PI * 0.1, Math.PI * 0.85, 0.13, 7)), false, wideMetadata);
+  add('eclipse-crown', 'Eclipse Crown', 'Rings', 'A broad black outer crown faces a smaller white counter-arc across an open center.',
+    arc(7, 'black', 1, 0.82, Math.PI, TAU, 0.15, 18)
+      .concat(arc(5, 'white', 0.68, 0.82, 0, Math.PI, 0.12, 7)), false, wideMetadata);
+
+  add('event-horizon', 'Event Horizon', 'Nested', 'A white core drives particles through a dense inner ring and a broken outer horizon.',
+    [center('white', 8)].concat(
+      ring(6, 'black', 0.58, -Math.PI / 2, 0.17, 20),
+      ring(6, function(i) { return i % 3 === 0 ? 'white' : 'black'; }, 1, -Math.PI / 2, 0.14, 12)
+    ), false, wideMetadata);
+  add('gravity-lens', 'Gravity Lens', 'Nested', 'Twin black focal points bend flow around a vertical chain of white lensing guides.', [
+    well(-0.62, 0, 'black', 0.22, 24), well(0.62, 0, 'black', 0.22, 24),
+    well(-0.86, -0.62, 'black', 0.15, 16), well(-0.86, 0.62, 'black', 0.15, 16),
+    well(0.86, -0.62, 'black', 0.15, 16), well(0.86, 0.62, 'black', 0.15, 16),
+    well(0, 0, 'white', 0.15, 8), well(0, -0.78, 'white', 0.12, 7),
+    well(0, 0.78, 'white', 0.12, 7), well(-0.28, -0.34, 'white', 0.1, 5),
+    well(0.28, -0.34, 'white', 0.1, 5), well(-0.28, 0.34, 'white', 0.1, 5),
+    well(0.28, 0.34, 'white', 0.1, 5)
+  ], false, wideMetadata);
+
+  add('whirlpool-gates', 'Whirlpool Gates', 'Spirals & curves', 'Three black spiral arms curl past white gates positioned between their inner turns.',
+    spiral(3, 4, 'black', Math.PI * 0.8, 16)
+      .concat(ring(3, 'white', 0.62, -Math.PI / 6, 0.12, 7)), false, wideMetadata);
+  add('comet-tail', 'Comet Tail', 'Spirals & curves', 'A heavy black head pulls a curved diagonal tail past four offset white deflectors.', [
+    well(0.82, 0.72, 'black', 0.25, 26), well(0.48, 0.36, 'black', 0.19, 21),
+    well(0.12, 0.08, 'black', 0.16, 18), well(-0.26, -0.18, 'black', 0.14, 16),
+    well(-0.62, -0.44, 'black', 0.13, 15), well(-0.92, -0.7, 'black', 0.12, 14),
+    well(0.68, 0.18, 'white', 0.11, 6), well(0.28, -0.12, 'white', 0.11, 6),
+    well(-0.18, -0.42, 'white', 0.11, 6), well(-0.58, -0.7, 'white', 0.11, 6)
+  ], false, wideMetadata);
+
+  add('supernova-remnant', 'Supernova Remnant', 'Clusters', 'Broken black shock fronts surround a white core and two distant white ejecta knots.',
+    [center('white', 9)].concat(
+      arc(6, 'black', 0.86, 0.58, -Math.PI * 0.9, Math.PI * 0.15, 0.15, 17),
+      arc(4, 'black', 0.72, 0.92, Math.PI * 0.35, Math.PI * 0.85, 0.14, 16),
+      [well(-0.92, 0.76, 'white', 0.11, 6), well(0.88, -0.72, 'white', 0.11, 6)]
+    ), false, wideMetadata);
+  add('binary-nebula', 'Binary Nebula', 'Clusters', 'Two offset three-anchor nebulae exchange particles across a chain of white bridge points.', [
+    well(-0.58, -0.22, 'black', 0.22, 24), well(-0.82, -0.55, 'black', 0.14, 16),
+    well(-0.35, -0.55, 'black', 0.14, 16), well(0.58, 0.22, 'black', 0.22, 24),
+    well(0.35, 0.55, 'black', 0.14, 16), well(0.82, 0.55, 'black', 0.14, 16),
+    well(0, 0, 'white', 0.14, 7), well(-0.85, 0.05, 'white', 0.1, 5),
+    well(-0.32, 0.05, 'white', 0.1, 5), well(0.32, -0.05, 'white', 0.1, 5),
+    well(0.85, -0.05, 'white', 0.1, 5)
+  ], false, wideMetadata);
+
+  add('rogue-constellation', 'Rogue Constellation', 'Scattered anchors', 'An asymmetric star map alternates isolated black anchors with three distant white disruptors.', [
+    well(-0.92, -0.75, 'black', 0.16, 18), well(-0.52, -0.3, 'white', 0.11, 6),
+    well(-0.12, -0.82, 'black', 0.15, 17), well(0.24, -0.25, 'black', 0.18, 20),
+    well(0.82, -0.68, 'white', 0.11, 6), well(-0.78, 0.52, 'black', 0.16, 18),
+    well(-0.28, 0.18, 'black', 0.14, 16), well(0.12, 0.72, 'white', 0.11, 6),
+    well(0.55, 0.34, 'black', 0.17, 19), well(0.92, 0.82, 'black', 0.15, 17)
+  ], false, wideScatterMetadata);
+  add('void-archipelago', 'Void Archipelago', 'Scattered anchors', 'Four separated black islands carry paired white currents with a large empty sea between them.', [
+    well(-0.72, -0.56, 'black', 0.2, 22), well(-0.92, -0.7, 'white', 0.1, 6),
+    well(-0.5, -0.36, 'white', 0.1, 6), well(0.62, -0.68, 'black', 0.2, 22),
+    well(0.42, -0.82, 'white', 0.1, 6), well(0.84, -0.5, 'white', 0.1, 6),
+    well(-0.48, 0.58, 'black', 0.2, 22), well(-0.7, 0.42, 'white', 0.1, 6),
+    well(-0.24, 0.78, 'white', 0.1, 6), well(0.78, 0.5, 'black', 0.2, 22),
+    well(0.56, 0.7, 'white', 0.1, 6), well(0.96, 0.32, 'white', 0.1, 6)
+  ], false, wideScatterMetadata);
+
+  add('quantum-rift', 'Quantum Rift', 'Wide patterns', 'Two staggered black walls frame an empty rift crossed by four small white sparks.', [
+    well(-0.72, -0.86, 'black', 0.15, 18), well(-0.86, -0.28, 'black', 0.15, 18),
+    well(-0.66, 0.28, 'black', 0.15, 18), well(-0.82, 0.86, 'black', 0.15, 18),
+    well(0.82, -0.86, 'black', 0.15, 18), well(0.66, -0.28, 'black', 0.15, 18),
+    well(0.86, 0.28, 'black', 0.15, 18), well(0.72, 0.86, 'black', 0.15, 18),
+    well(-0.14, -0.62, 'white', 0.1, 6), well(0.14, -0.18, 'white', 0.1, 6),
+    well(-0.14, 0.22, 'white', 0.1, 6), well(0.14, 0.68, 'white', 0.1, 6)
+  ], false, wideFlowMetadata);
+  add('tidal-storm', 'Tidal Storm', 'Wide patterns', 'Eight black anchors sweep around a rotated perimeter while four white eyes twist the center.', [
+    well(-0.86, -0.25, 'black', 0.15, 18), well(-0.5, -0.78, 'black', 0.15, 18),
+    well(0.25, -0.88, 'black', 0.15, 18), well(0.78, -0.5, 'black', 0.15, 18),
+    well(0.88, 0.25, 'black', 0.15, 18), well(0.5, 0.78, 'black', 0.15, 18),
+    well(-0.25, 0.88, 'black', 0.15, 18), well(-0.78, 0.5, 'black', 0.15, 18),
+    well(-0.32, -0.1, 'white', 0.11, 6), well(0.1, -0.32, 'white', 0.11, 6),
+    well(0.32, 0.1, 'white', 0.11, 6), well(-0.1, 0.32, 'white', 0.11, 6)
+  ], false, wideFlowMetadata);
 
   function finite(value, fallback) { return Number.isFinite(value) ? value : fallback; }
   function clamp(value, minimum, maximum) { return Math.max(minimum, Math.min(maximum, value)); }
