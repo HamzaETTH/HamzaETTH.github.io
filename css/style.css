@@ -2,6 +2,26 @@ html, body, main.site-content {
   height: 100%; 
 }
 
+#tp-container .preset-button-pair {
+  box-sizing: border-box;
+  display: inline-flex;
+  margin-top: 0;
+  width: 50%;
+  vertical-align: top;
+}
+
+#tp-container .preset-button-pair-first {
+  padding-right: 2px;
+}
+
+#tp-container .preset-button-pair-last {
+  padding-left: 2px;
+}
+
+#tp-container .preset-button-pair .tp-lblv_v {
+  width: 100%;
+}
+
 .well-preset-browser {
   width: min(1040px, calc(100vw - 40px));
   height: min(780px, calc(100dvh - 40px));
@@ -1045,7 +1065,8 @@ h1 {
     top: calc(12px + env(safe-area-inset-top));
   }
 
-  #tp-container .physics-reset-button {
+  #tp-container .physics-reset-button,
+  #tp-container .preset-button-pair .tp-btnv_b {
     min-height: 44px;
   }
 }

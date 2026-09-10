@@ -126,6 +126,7 @@
   var trapMetadata = Object.freeze({ trap: true });
   var wideMetadata = Object.freeze({ layout: 'wide', initialParticlePlacement: 'spread' });
   var wideFlowMetadata = Object.freeze({ layout: 'wide', initialParticlePlacement: 'spread', spin: 0.18 });
+  var wideSurgeMetadata = Object.freeze({ layout: 'wide', initialParticlePlacement: 'spread', spin: 0.24 });
   var wideScatterMetadata = Object.freeze({ layout: 'wide', initialParticlePlacement: 'spread', spin: 0.16 });
   var wideTrapMetadata = Object.freeze({ layout: 'wide', initialParticlePlacement: 'spread', trap: true });
 
@@ -424,6 +425,160 @@
     well(-0.32, -0.1, 'white', 0.11, 6), well(0.1, -0.32, 'white', 0.11, 6),
     well(0.32, 0.1, 'white', 0.11, 6), well(-0.1, 0.32, 'white', 0.11, 6)
   ], false, wideFlowMetadata);
+
+  add('slingshot', 'Slingshot', 'Pairs & axes', 'Three offset black anchors bend a fast diagonal current through white aiming points.', [
+    well(-0.92, 0.52, 'black', 0.22, 24), well(-0.15, 0.05, 'black', 0.18, 20),
+    well(0.88, -0.68, 'black', 0.2, 22), well(-0.62, -0.15, 'white', 0.11, 6),
+    well(0.15, 0.66, 'white', 0.11, 6), well(0.52, -0.18, 'white', 0.11, 6)
+  ], false, wideMetadata);
+  add('lagrange-run', 'Lagrange Run', 'Pairs & axes', 'Four black waypoints and three white pivots create a sweeping orbital transfer path.', [
+    well(-0.9, 0, 'black', 0.18, 20), well(-0.25, -0.55, 'black', 0.18, 20),
+    well(0.35, 0.48, 'black', 0.18, 20), well(0.92, -0.1, 'black', 0.18, 20),
+    well(-0.58, 0.58, 'white', 0.11, 6), well(0.05, 0, 'white', 0.12, 7),
+    well(0.68, -0.62, 'white', 0.11, 6)
+  ], false, wideMetadata);
+  add('orbital-relay', 'Orbital Relay', 'Pairs & axes', 'A zigzag relay of black stations trades particle streams across four white handoff gates.', [
+    well(-0.92, -0.72, 'black', 0.17, 19), well(-0.5, -0.1, 'black', 0.17, 19),
+    well(0, 0.55, 'black', 0.19, 21), well(0.48, -0.18, 'black', 0.17, 19),
+    well(0.92, 0.68, 'black', 0.17, 19), well(-0.72, -0.38, 'white', 0.1, 6),
+    well(-0.25, 0.25, 'white', 0.1, 6), well(0.25, 0.18, 'white', 0.1, 6),
+    well(0.72, 0.28, 'white', 0.1, 6)
+  ], false, wideMetadata);
+
+  add('broken-orbit', 'Broken Orbit', 'Rings', 'Two uneven arcs trade particles through broad gaps instead of closing into a rigid ring.',
+    arc(6, 'black', 1, 0.76, -Math.PI * 0.15, Math.PI * 0.9, 0.16, 18)
+      .concat(arc(5, 'white', 0.82, 0.92, Math.PI * 1.08, Math.PI * 1.82, 0.11, 6)), false, wideMetadata);
+  add('solar-flare', 'Solar Flare', 'Rings', 'A black shock arc throws a white flare plume across an open side of the canvas.',
+    arc(8, 'black', 1, 0.62, Math.PI * 0.15, Math.PI * 0.95, 0.15, 18)
+      .concat(arc(4, 'white', 0.8, 0.9, -Math.PI * 0.35, Math.PI * 0.05, 0.11, 6)), false, wideMetadata);
+  add('crescent-engine', 'Crescent Engine', 'Rings', 'A heavy black crescent drives against a smaller white counter-crescent across empty space.',
+    arc(7, 'black', 1, 0.88, Math.PI * 0.55, Math.PI * 1.45, 0.16, 19)
+      .concat(arc(5, 'white', 0.86, 0.7, -Math.PI * 0.45, Math.PI * 0.45, 0.11, 6)), false, wideMetadata);
+
+  add('pulsar-core', 'Pulsar Core', 'Nested', 'A hexagonal black pulse ring pushes around a white core and two distant polar beacons.',
+    ring(6, 'black', 0.58, Math.PI / 6, 0.18, 20).concat([
+      center('white', 8), well(-0.95, 0, 'white', 0.11, 6), well(0.95, 0, 'white', 0.11, 6)
+    ]), false, wideSurgeMetadata);
+  add('accretion-bloom', 'Accretion Bloom', 'Nested', 'Five black inner petals rotate against offset white outer petals and a repulsive seed.',
+    ring(5, 'black', 0.5, -Math.PI / 2, 0.18, 20)
+      .concat(ring(5, 'white', 1, -Math.PI / 2 + Math.PI / 5, 0.12, 7), [center('white', 7)]), false, wideMetadata);
+  add('fractured-core', 'Fractured Core', 'Nested', 'Three broken sub-cores pull in different directions while white cracks keep their flows apart.', [
+    well(-0.55, -0.45, 'black', 0.2, 22), well(-0.28, -0.2, 'black', 0.15, 17),
+    well(-0.42, 0.05, 'white', 0.1, 6), well(0.5, 0.4, 'black', 0.2, 22),
+    well(0.22, 0.18, 'black', 0.15, 17), well(0.38, -0.08, 'white', 0.1, 6),
+    well(-0.72, 0.62, 'black', 0.17, 19), well(-0.92, 0.42, 'white', 0.1, 6),
+    well(0.78, -0.62, 'black', 0.17, 19), well(0.95, -0.4, 'white', 0.1, 6)
+  ], false, wideSurgeMetadata);
+
+  add('serpentine-gate', 'Serpentine Gate', 'Channels', 'A loose S-shaped black current snakes between four offset white deflection gates.', [
+    well(-0.92, -0.62, 'black', 0.16, 18), well(-0.55, -0.18, 'black', 0.16, 18),
+    well(-0.1, 0.25, 'black', 0.16, 18), well(0.35, 0.55, 'black', 0.16, 18),
+    well(0.75, 0.2, 'black', 0.16, 18), well(0.92, -0.35, 'black', 0.16, 18),
+    well(-0.75, 0.1, 'white', 0.1, 6), well(-0.3, -0.55, 'white', 0.1, 6),
+    well(0.18, -0.2, 'white', 0.1, 6), well(0.62, 0.65, 'white', 0.1, 6)
+  ], false, wideFlowMetadata);
+  add('crosswind', 'Crosswind', 'Channels', 'Two black diagonal fronts cross around a four-point white calm zone without sealing it.', [
+    well(-0.9, -0.72, 'black', 0.15, 18), well(-0.45, -0.38, 'black', 0.15, 18),
+    well(0.45, 0.38, 'black', 0.15, 18), well(0.9, 0.72, 'black', 0.15, 18),
+    well(-0.88, 0.68, 'black', 0.15, 18), well(-0.42, 0.34, 'black', 0.15, 18),
+    well(0.42, -0.34, 'black', 0.15, 18), well(0.88, -0.68, 'black', 0.15, 18),
+    well(-0.25, 0, 'white', 0.1, 6), well(0, -0.22, 'white', 0.1, 6),
+    well(0.25, 0, 'white', 0.1, 6), well(0, 0.22, 'white', 0.1, 6)
+  ], false, wideFlowMetadata);
+  add('jetstream', 'Jetstream', 'Channels', 'Curved upper and lower black banks accelerate flow through four staggered white nozzles.', [
+    well(-0.92, -0.58, 'black', 0.15, 18), well(-0.35, -0.78, 'black', 0.15, 18),
+    well(0.32, -0.66, 'black', 0.15, 18), well(0.9, -0.28, 'black', 0.15, 18),
+    well(-0.9, 0.28, 'black', 0.15, 18), well(-0.32, 0.66, 'black', 0.15, 18),
+    well(0.35, 0.78, 'black', 0.15, 18), well(0.92, 0.58, 'black', 0.15, 18),
+    well(-0.58, -0.02, 'white', 0.1, 6), well(-0.18, 0.12, 'white', 0.1, 6),
+    well(0.22, -0.12, 'white', 0.1, 6), well(0.62, 0.02, 'white', 0.1, 6)
+  ], false, wideFlowMetadata);
+
+  add('helix-wake', 'Helix Wake', 'Spirals & curves', 'Twin black spiral wakes coil past four white guide stars on the open diagonals.',
+    spiral(2, 5, 'black', Math.PI * 1.3, 17)
+      .concat(ring(4, 'white', 0.48, Math.PI / 4, 0.11, 6)), false, wideMetadata);
+  add('pinwheel-surge', 'Pinwheel Surge', 'Spirals & curves', 'Four short black arms burst around an offset white guide ring for fast rotating flow.',
+    spiral(4, 3, 'black', Math.PI * 0.9, 18)
+      .concat(ring(4, 'white', 0.42, Math.PI / 4, 0.11, 6)), false, wideMetadata);
+  add('vortex-ladder', 'Vortex Ladder', 'Spirals & curves', 'A rising black curve climbs through five white rungs before curling back across the top.', [
+    well(-0.82, 0.78, 'black', 0.16, 18), well(-0.55, 0.35, 'black', 0.16, 18),
+    well(-0.35, -0.08, 'black', 0.16, 18), well(-0.08, -0.48, 'black', 0.16, 18),
+    well(0.32, -0.72, 'black', 0.16, 18), well(0.72, -0.48, 'black', 0.16, 18),
+    well(0.88, -0.02, 'black', 0.16, 18), well(-0.72, 0.52, 'white', 0.1, 6),
+    well(-0.45, 0.08, 'white', 0.1, 6), well(-0.2, -0.34, 'white', 0.1, 6),
+    well(0.15, -0.62, 'white', 0.1, 6), well(0.55, -0.62, 'white', 0.1, 6)
+  ], false, wideMetadata);
+
+  add('quasar-chain', 'Quasar Chain', 'Clusters', 'Three double-black quasars exchange particles through paired white bridge points.', [
+    well(-0.78, -0.52, 'black', 0.2, 22), well(-0.56, -0.35, 'black', 0.14, 16),
+    well(-0.9, -0.22, 'white', 0.1, 6), well(-0.38, -0.7, 'white', 0.1, 6),
+    well(0, 0, 'black', 0.22, 24), well(0.22, 0.18, 'black', 0.14, 16),
+    well(-0.22, 0.28, 'white', 0.1, 6), well(0.3, -0.18, 'white', 0.1, 6),
+    well(0.68, 0.58, 'black', 0.2, 22), well(0.9, 0.42, 'black', 0.14, 16),
+    well(0.48, 0.78, 'white', 0.1, 6), well(0.88, 0.82, 'white', 0.1, 6)
+  ], false, wideMetadata);
+  add('nova-choir', 'Nova Choir', 'Clusters', 'Five black voices sweep across a broad arc while white echoes answer from inside it.',
+    arc(5, 'black', 1, 0.82, Math.PI * 0.12, Math.PI * 0.88, 0.18, 20)
+      .concat(arc(5, 'white', 0.62, 0.82, Math.PI * 1.08, Math.PI * 1.92, 0.11, 6)), false, wideMetadata);
+  add('celestial-forge', 'Celestial Forge', 'Clusters', 'A heavy black anvil cluster throws particles toward four white exhaust vents.', [
+    well(-0.72, 0.18, 'black', 0.24, 26), well(-0.48, -0.18, 'black', 0.19, 21),
+    well(-0.22, 0.42, 'black', 0.17, 19), well(0.08, 0.08, 'black', 0.18, 20),
+    well(0.38, -0.38, 'black', 0.17, 19), well(0.68, -0.62, 'black', 0.16, 18),
+    well(0.92, -0.78, 'black', 0.15, 17), well(-0.9, -0.48, 'white', 0.11, 6),
+    well(-0.28, -0.72, 'white', 0.11, 6), well(0.38, 0.42, 'white', 0.11, 6),
+    well(0.82, 0.68, 'white', 0.11, 6)
+  ], false, wideSurgeMetadata);
+
+  add('dark-matter-map', 'Dark Matter Map', 'Scattered anchors', 'Eight uneven black masses reveal their shape through four distant white survey lights.', [
+    well(-0.94, -0.72, 'black', 0.16, 18), well(-0.52, -0.18, 'black', 0.18, 20),
+    well(-0.1, -0.82, 'black', 0.15, 17), well(0.32, -0.35, 'black', 0.17, 19),
+    well(0.88, -0.66, 'black', 0.16, 18), well(-0.78, 0.62, 'black', 0.17, 19),
+    well(0.08, 0.52, 'black', 0.19, 21), well(0.82, 0.78, 'black', 0.16, 18),
+    well(-0.78, -0.12, 'white', 0.1, 6), well(0.12, -0.12, 'white', 0.1, 6),
+    well(-0.35, 0.82, 'white', 0.1, 6), well(0.55, 0.25, 'white', 0.1, 6)
+  ], false, wideScatterMetadata);
+  add('meteor-garden', 'Meteor Garden', 'Scattered anchors', 'Black meteor heads and white wakes scatter along three unrelated trajectories.', [
+    well(-0.9, -0.72, 'black', 0.18, 20), well(-0.6, -0.48, 'black', 0.15, 17),
+    well(-0.72, -0.18, 'white', 0.1, 6), well(-0.12, -0.82, 'black', 0.18, 20),
+    well(0.15, -0.52, 'black', 0.15, 17), well(0.42, -0.22, 'white', 0.1, 6),
+    well(0.88, -0.05, 'black', 0.18, 20), well(0.62, 0.24, 'black', 0.15, 17),
+    well(0.35, 0.52, 'white', 0.1, 6), well(-0.68, 0.72, 'black', 0.18, 20),
+    well(-0.32, 0.58, 'black', 0.15, 17), well(-0.05, 0.85, 'white', 0.1, 6),
+    well(0.82, 0.78, 'white', 0.1, 6)
+  ], false, wideScatterMetadata);
+  add('deep-space-buoys', 'Deep Space Buoys', 'Scattered anchors', 'Five isolated black buoys drift between matching white markers with large quiet crossings.', [
+    well(-0.88, -0.7, 'black', 0.19, 21), well(-0.62, -0.42, 'white', 0.1, 6),
+    well(0.08, -0.78, 'black', 0.19, 21), well(0.36, -0.52, 'white', 0.1, 6),
+    well(0.82, -0.05, 'black', 0.19, 21), well(0.52, 0.18, 'white', 0.1, 6),
+    well(-0.58, 0.58, 'black', 0.19, 21), well(-0.85, 0.8, 'white', 0.1, 6),
+    well(0.45, 0.72, 'black', 0.19, 21), well(0.78, 0.52, 'white', 0.1, 6)
+  ], false, wideScatterMetadata);
+
+  add('gravity-highway', 'Gravity Highway', 'Wide patterns', 'Two offset black express lanes race past four white interchanges from edge to edge.', [
+    well(-0.95, -0.62, 'black', 0.14, 17), well(-0.55, -0.52, 'black', 0.14, 17),
+    well(-0.1, -0.68, 'black', 0.14, 17), well(0.38, -0.48, 'black', 0.14, 17),
+    well(0.9, -0.62, 'black', 0.14, 17), well(-0.9, 0.56, 'black', 0.14, 17),
+    well(-0.42, 0.72, 'black', 0.14, 17), well(0.08, 0.52, 'black', 0.14, 17),
+    well(0.55, 0.68, 'black', 0.14, 17), well(0.95, 0.48, 'black', 0.14, 17),
+    well(-0.68, 0.02, 'white', 0.1, 6), well(-0.18, -0.02, 'white', 0.1, 6),
+    well(0.32, 0.04, 'white', 0.1, 6), well(0.78, -0.06, 'white', 0.1, 6)
+  ], false, wideFlowMetadata);
+  add('cosmic-current', 'Cosmic Current', 'Wide patterns', 'Eight black anchors trace a rolling wave around four white counter-current eddies.', [
+    well(-0.95, 0.18, 'black', 0.15, 18), well(-0.68, -0.42, 'black', 0.15, 18),
+    well(-0.3, -0.72, 'black', 0.15, 18), well(0.08, -0.38, 'black', 0.15, 18),
+    well(0.38, 0.25, 'black', 0.15, 18), well(0.62, 0.72, 'black', 0.15, 18),
+    well(0.88, 0.42, 'black', 0.15, 18), well(0.95, -0.18, 'black', 0.15, 18),
+    well(-0.58, 0.38, 'white', 0.1, 6), well(-0.08, 0.22, 'white', 0.1, 6),
+    well(0.28, -0.52, 'white', 0.1, 6), well(0.72, -0.48, 'white', 0.1, 6)
+  ], false, wideFlowMetadata);
+  add('singularity-parade', 'Singularity Parade', 'Wide patterns', 'Seven unequal black singularities march diagonally past four off-beat white conductors.', [
+    well(-0.92, 0.78, 'black', 0.14, 16), well(-0.62, 0.42, 'black', 0.17, 19),
+    well(-0.28, 0.1, 'black', 0.2, 22), well(0.08, -0.12, 'black', 0.23, 25),
+    well(0.4, -0.38, 'black', 0.19, 21), well(0.68, -0.62, 'black', 0.16, 18),
+    well(0.94, -0.82, 'black', 0.14, 16), well(-0.78, -0.28, 'white', 0.1, 6),
+    well(-0.12, 0.62, 'white', 0.1, 6), well(0.42, 0.32, 'white', 0.1, 6),
+    well(0.82, 0.05, 'white', 0.1, 6)
+  ], false, wideSurgeMetadata);
 
   function finite(value, fallback) { return Number.isFinite(value) ? value : fallback; }
   function clamp(value, minimum, maximum) { return Math.max(minimum, Math.min(maximum, value)); }

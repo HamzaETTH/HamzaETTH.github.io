@@ -7,11 +7,13 @@ const tolerance = 1e-8;
 const expectedCounts = [5, 5, 4, 7, 9, 8, 2, 2, 3, 4, 4, 10, 3, 4, 5, 6, 8, 12,
   13, 13, 18, 18, 12, 9, 9, 16, 9, 9, 11, 9, 12, 9, 10, 6, 9, 7, 10, 12, 10, 11, 12, 7,
   9, 16, 10, 12, 8, 13, 7, 9, 12, 8, 10, 10, 12, 12, 10, 9, 13, 9,
-  10, 12, 13, 13, 15, 10, 13, 11, 10, 12, 12, 12];
+  10, 12, 13, 13, 15, 10, 13, 11, 10, 12, 12, 12,
+  6, 7, 9, 11, 12, 12, 9, 11, 10, 10, 12, 12, 14, 16, 12, 12, 10, 11, 12, 13, 10, 14, 12, 11];
 const expectedBlackCounts = [1, 1, 1, 1, 1, 2, 2, 1, 3, 2, 2, 2, 3, 4, 5, 3, 4, 6,
   7, 6, 6, 12, 6, 3, 5, 8, 9, 1, 8, 4, 2, 1, 2, 2, 5, 2, 10, 12, 6, 1, 8, 6,
   3, 4, 4, 6, 6, 5, 5, 3, 10, 4, 7, 7, 8, 8, 2, 4, 6, 4,
-  5, 7, 10, 6, 12, 6, 10, 6, 7, 4, 8, 8];
+  5, 7, 10, 6, 12, 6, 10, 6, 7, 4, 8, 8,
+  3, 4, 5, 6, 8, 7, 6, 5, 6, 6, 8, 8, 10, 12, 7, 6, 5, 7, 8, 8, 5, 10, 8, 7];
 const newPresets = [
   ['constellation', 'Constellation', 'Scattered anchors'],
   ['archipelago', 'Archipelago', 'Scattered anchors'],
@@ -36,7 +38,31 @@ const newPresets = [
   ['rogue-constellation', 'Rogue Constellation', 'Scattered anchors'],
   ['void-archipelago', 'Void Archipelago', 'Scattered anchors'],
   ['quantum-rift', 'Quantum Rift', 'Wide patterns'],
-  ['tidal-storm', 'Tidal Storm', 'Wide patterns']
+  ['tidal-storm', 'Tidal Storm', 'Wide patterns'],
+  ['slingshot', 'Slingshot', 'Pairs & axes'],
+  ['lagrange-run', 'Lagrange Run', 'Pairs & axes'],
+  ['orbital-relay', 'Orbital Relay', 'Pairs & axes'],
+  ['broken-orbit', 'Broken Orbit', 'Rings'],
+  ['solar-flare', 'Solar Flare', 'Rings'],
+  ['crescent-engine', 'Crescent Engine', 'Rings'],
+  ['pulsar-core', 'Pulsar Core', 'Nested'],
+  ['accretion-bloom', 'Accretion Bloom', 'Nested'],
+  ['fractured-core', 'Fractured Core', 'Nested'],
+  ['serpentine-gate', 'Serpentine Gate', 'Channels'],
+  ['crosswind', 'Crosswind', 'Channels'],
+  ['jetstream', 'Jetstream', 'Channels'],
+  ['helix-wake', 'Helix Wake', 'Spirals & curves'],
+  ['pinwheel-surge', 'Pinwheel Surge', 'Spirals & curves'],
+  ['vortex-ladder', 'Vortex Ladder', 'Spirals & curves'],
+  ['quasar-chain', 'Quasar Chain', 'Clusters'],
+  ['nova-choir', 'Nova Choir', 'Clusters'],
+  ['celestial-forge', 'Celestial Forge', 'Clusters'],
+  ['dark-matter-map', 'Dark Matter Map', 'Scattered anchors'],
+  ['meteor-garden', 'Meteor Garden', 'Scattered anchors'],
+  ['deep-space-buoys', 'Deep Space Buoys', 'Scattered anchors'],
+  ['gravity-highway', 'Gravity Highway', 'Wide patterns'],
+  ['cosmic-current', 'Cosmic Current', 'Wide patterns'],
+  ['singularity-parade', 'Singularity Parade', 'Wide patterns']
 ];
 const trapIds = new Set([
   'cross-cage', 'diamond-cage', 'triangular-cage', 'hexagonal-cage', 'octagonal-cage',
@@ -72,15 +98,15 @@ function reflected(id, axis) {
   });
 }
 
-assert.equal(catalogue.presets.length, 72);
-assert.equal(new Set(catalogue.presets.map(preset => preset.id)).size, 72);
-assert.equal(new Set(catalogue.presets.map(preset => preset.name)).size, 72);
+assert.equal(catalogue.presets.length, 96);
+assert.equal(new Set(catalogue.presets.map(preset => preset.id)).size, 96);
+assert.equal(new Set(catalogue.presets.map(preset => preset.name)).size, 96);
 const families = [...new Set(catalogue.presets.map(preset => preset.family))];
 assert.deepEqual(families, ['Cages', 'Pairs & axes', 'Rings', 'Nested', 'Grids', 'Channels',
   'Spirals & curves', 'Clusters', 'Scattered anchors', 'Wide patterns', 'Distributed traps']);
 const familyCounts = {
-  'Cages': 6, 'Pairs & axes': 6, 'Rings': 8, 'Nested': 8, 'Grids': 6, 'Channels': 6,
-  'Spirals & curves': 8, 'Clusters': 8, 'Scattered anchors': 6, 'Wide patterns': 6,
+  'Cages': 6, 'Pairs & axes': 9, 'Rings': 11, 'Nested': 11, 'Grids': 6, 'Channels': 9,
+  'Spirals & curves': 11, 'Clusters': 11, 'Scattered anchors': 9, 'Wide patterns': 9,
   'Distributed traps': 4
 };
 families.forEach(family => assert.equal(catalogue.presets.filter(preset => preset.family === family).length,
@@ -94,7 +120,11 @@ const familySpins = {
 };
 const spinOverrides = {
   'diagonal-weave': 0.18, 'rogue-constellation': 0.16, 'void-archipelago': 0.16,
-  'quantum-rift': 0.18, 'tidal-storm': 0.18
+  'quantum-rift': 0.18, 'tidal-storm': 0.18,
+  'serpentine-gate': 0.18, 'crosswind': 0.18, 'jetstream': 0.18,
+  'dark-matter-map': 0.16, 'meteor-garden': 0.16, 'deep-space-buoys': 0.16,
+  'gravity-highway': 0.18, 'cosmic-current': 0.18,
+  'pulsar-core': 0.24, 'fractured-core': 0.24, 'celestial-forge': 0.24, 'singularity-parade': 0.24
 };
 catalogue.presets.forEach((preset, index) => {
   assert.equal(preset.wells.length, expectedCounts[index], preset.id);
@@ -327,4 +357,4 @@ catalogue.resolve('binary').wells[0].x = 99999;
 assert.equal(JSON.stringify(catalogue.presets), snapshot, 'resolving returns fresh wells');
 assert.ok(Object.isFrozen(catalogue.presets) && Object.isFrozen(catalogue.get('binary').wells[0]), 'templates are immutable');
 
-console.log(`PASS: 72 recipes, 11 families, ${fitCases} viewport/slider/radius fits and ${checks} geometry assertions.`);
+console.log(`PASS: 96 recipes, 11 families, ${fitCases} viewport/slider/radius fits and ${checks} geometry assertions.`);

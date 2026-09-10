@@ -749,10 +749,23 @@ async function buildPane() {
   const wellsPage = tabs.pages[1];
   const presetBrowser = createGravityWellPresetBrowser(pn);
   const browsePresetsButton = wellsPage.addButton({ title: 'Browse Presets' });
+  browsePresetsButton.element.classList.add('preset-button-pair', 'preset-button-pair-first');
   browsePresetsButton.on('click', () => presetBrowser.open(browsePresetsButton.element.querySelector('button')));
   const presetTrigger = browsePresetsButton.element.querySelector('button');
   presetTrigger.setAttribute('aria-haspopup', 'dialog');
   presetTrigger.setAttribute('aria-controls', 'well-preset-browser');
+  const randomPresetButton = wellsPage.addButton({ title: 'Random Preset' });
+  randomPresetButton.element.classList.add('preset-button-pair', 'preset-button-pair-last');
+  const randomPresetTrigger = randomPresetButton.element.querySelector('button');
+  randomPresetTrigger.classList.add('random-preset-button');
+  randomPresetTrigger.title = 'Apply a different preset with its recommended motion.';
+  randomPresetButton.on('click', () => {
+    const catalogue = window.GravityWellPresets;
+    const previousId = pn.activeGravityWellPreset?.id || pn.lastGravityWellPresetId;
+    const candidates = catalogue.presets.filter(preset => preset.id !== previousId);
+    const preset = candidates[Math.floor(Math.random() * candidates.length)];
+    if (preset) pn.applyGravityWellPreset(preset.id);
+  });
   const PRESET_PARAMS = { name: 'Custom', spacing: 100, rotation: 0, strength: 100 };
   let refreshingPresetControls = false;
   let refreshingGravityWellControls = false;

@@ -81,14 +81,87 @@ async function main() {
         };
       }
 
+      function runActivity(id) {
+        const count = 160;
+        const warmup = 600;
+        const samples = 200;
+        pn.setParticleCount(count);
+        pn.applyGravityWellPreset(id);
+        cancelAnimationFrame(pn._rafId);
+        pn._rafActive = false;
+        pn._clearInteractivePointerForces();
+        pn.options.interactive = false;
+        pn.options.particleAttraction = false;
+        pn.options.particleRepulsion = false;
+        pn.options.boundaryMode = 'bounce';
+
+        const width = pn.i.size.width;
+        const height = pn.i.size.height;
+        for (let i = 0; i < count; i++) {
+          pn.posX[i] = 20 + ((i % 16) + 0.5) / 16 * (width - 40);
+          pn.posY[i] = 20 + (Math.floor(i / 16) + 0.5) / 10 * (height - 40);
+          const angle = i * 2.399963229728653;
+          pn.velX[i] = Math.cos(angle) * 0.66;
+          pn.velY[i] = Math.sin(angle) * 0.66;
+          pn.sizeA[i] = 1;
+        }
+
+        for (let step = 0; step < warmup; step++) pn._updateSoA();
+        let movingSamples = 0;
+        let speedSum = 0;
+        for (let step = 0; step < samples; step++) {
+          pn._updateSoA();
+          for (let i = 0; i < count; i++) {
+            const speed = Math.hypot(pn.velX[i], pn.velY[i]);
+            speedSum += speed;
+            if (speed > 0.1) movingSamples++;
+          }
+        }
+
+        const blackWells = pn.gravityWells.filter(well => well.type === 'black');
+        let outsideHalo = 0;
+        let minX = Infinity;
+        let minY = Infinity;
+        let maxX = -Infinity;
+        let maxY = -Infinity;
+        for (let i = 0; i < count; i++) {
+          let nearest = Infinity;
+          for (const well of blackWells) {
+            nearest = Math.min(nearest,
+              Math.hypot(pn.posX[i] - well.x, pn.posY[i] - well.y) / well.radius);
+          }
+          if (nearest > window.GravityWellPresets.visualExtentScale) outsideHalo++;
+          minX = Math.min(minX, pn.posX[i]);
+          minY = Math.min(minY, pn.posY[i]);
+          maxX = Math.max(maxX, pn.posX[i]);
+          maxY = Math.max(maxY, pn.posY[i]);
+        }
+        return {
+          id,
+          movingFraction: movingSamples / (count * samples),
+          meanSpeed: speedSum / (count * samples),
+          outsideHaloFraction: outsideHalo / count,
+          spanX: (maxX - minX) / width,
+          spanY: (maxY - minY) / height
+        };
+      }
+
       const baseline = run(0.08);
       const recommended = run(preset.motion.gravityWellSpin);
+      const activityIds = [
+        'slingshot', 'lagrange-run', 'orbital-relay', 'broken-orbit', 'solar-flare', 'crescent-engine',
+        'pulsar-core', 'accretion-bloom', 'fractured-core', 'serpentine-gate', 'crosswind', 'jetstream',
+        'helix-wake', 'pinwheel-surge', 'vortex-ladder', 'quasar-chain', 'nova-choir', 'celestial-forge',
+        'dark-matter-map', 'meteor-garden', 'deep-space-buoys', 'gravity-highway', 'cosmic-current',
+        'singularity-parade'
+      ];
       return {
         recommendedSpin: preset.motion.gravityWellSpin,
         hasOrbitRadiusLock: preset.wells.some(well => 'orbitRadiusScale' in well),
         runtimeHasOrbitRadiusLock: pn.gravityWells.some(well => 'orbitRadiusScale' in well),
         baseline,
-        recommended
+        recommended,
+        activity: activityIds.map(runActivity)
       };
     });
 
@@ -98,6 +171,14 @@ async function main() {
     assert.ok(result.recommended.medianNormalizedDistance >= result.baseline.medianNormalizedDistance * 2,
       `recommended orbit ${result.recommended.medianNormalizedDistance} must exceed old orbit ${result.baseline.medianNormalizedDistance}`);
     assert.ok(result.recommended.movingFraction > 0.95, 'particles must remain actively moving');
+    for (const activity of result.activity) {
+      assert.ok(activity.movingFraction > 0.95, `${activity.id} must keep particles moving: ${JSON.stringify(activity)}`);
+      assert.ok(activity.meanSpeed > 0.5, `${activity.id} must retain visible speed: ${JSON.stringify(activity)}`);
+      assert.ok(activity.outsideHaloFraction > 0.15,
+        `${activity.id} must keep particles visible outside well halos: ${JSON.stringify(activity)}`);
+      assert.ok(activity.spanX > 0.45 && activity.spanY > 0.45,
+        `${activity.id} must retain a broad two-dimensional spread: ${JSON.stringify(activity)}`);
+    }
     assert.deepEqual(browserErrors, [], `browser errors: ${browserErrors.join('; ')}`);
     console.log(JSON.stringify(result, null, 2));
   } finally {

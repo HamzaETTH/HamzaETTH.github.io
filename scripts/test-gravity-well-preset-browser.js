@@ -46,6 +46,13 @@ async function desktop(browser, errors) {
   await page.goto(url, { waitUntil: 'domcontentloaded' });
   await page.waitForFunction(() => window.particleInstance && window.GravityWellPresets);
   await openControls(page);
+  const presetButtonLayout = await page.getByRole('button', { name: /^(Browse|Random) Presets?$/ }).evaluateAll(nodes =>
+    nodes.map(node => node.getBoundingClientRect().toJSON()));
+  assert.strictEqual(presetButtonLayout.length, 2);
+  assert.ok(Math.abs(presetButtonLayout[0].top - presetButtonLayout[1].top) < 1,
+    'Browse and Random must share one compact row');
+  assert.ok(presetButtonLayout[0].right <= presetButtonLayout[1].left,
+    'Browse must appear before Random');
   await page.evaluate(() => {
     const pn = window.particleInstance;
     pn.applyGravityWellPreset('binary', { useRecommendedMotion: false });
@@ -60,7 +67,7 @@ async function desktop(browser, errors) {
   });
   const beforeBrowse = await wellState(page);
   await openBrowser(page);
-  assert.strictEqual(await page.locator('.well-preset-entry').count(), 72);
+  assert.strictEqual(await page.locator('.well-preset-entry').count(), 96);
   assert.strictEqual(await page.getByLabel('Use recommended motion').isChecked(), true);
   assert.strictEqual(await page.locator('.well-preset-family option').count(), 12);
   assert.strictEqual(await page.getByLabel('Search presets').evaluate(node => node === document.activeElement), true);
@@ -161,6 +168,18 @@ async function desktop(browser, errors) {
   assert.deepStrictEqual(controlsDisabled, [true, true, true]);
   await page.getByRole('button', { name: 'Reapply Preset', exact: true }).click();
   assert.strictEqual((await wellState(page)).active.id, 'cross-cage');
+  await page.evaluate(() => {
+    window.particleInstance.applyGravityWellPreset('binary', { useRecommendedMotion: false });
+    window.__nativeRandom = Math.random;
+    Math.random = () => 0;
+  });
+  await page.getByRole('button', { name: 'Random Preset', exact: true }).click();
+  assert.strictEqual((await wellState(page)).active.id, 'cross-cage', 'Random must skip the current preset');
+  assert.deepStrictEqual((await wellState(page)).motion, [0.66, false, 0, 0.6, true, 1.5],
+    'Random must apply recommended motion');
+  await page.getByRole('button', { name: 'Random Preset', exact: true }).click();
+  assert.strictEqual((await wellState(page)).active.id, 'diamond-cage', 'Repeated Random must not repeat the active preset');
+  await page.evaluate(() => { Math.random = window.__nativeRandom; delete window.__nativeRandom; });
   await openBrowser(page);
   await page.getByRole('button', { name: 'Close', exact: true }).click();
   await page.evaluate(() => window.particleSettingsUi.doReset());
@@ -173,7 +192,7 @@ async function desktop(browser, errors) {
   await openControls(page);
   await openBrowser(page);
   assert.strictEqual(await page.locator('#well-preset-browser').count(), 1);
-  assert.strictEqual(await page.locator('.well-preset-entry').count(), 72);
+  assert.strictEqual(await page.locator('.well-preset-entry').count(), 96);
   await context.close();
 }
 
@@ -184,6 +203,8 @@ async function responsive(browser, errors) {
   await page.goto(url, { waitUntil: 'domcontentloaded' });
   await page.waitForFunction(() => window.particleInstance && window.GravityWellPresets);
   await openControls(page);
+  assert.ok(await page.getByRole('button', { name: 'Random Preset', exact: true }).evaluate(node =>
+    node.getBoundingClientRect().height >= 44), 'Random Preset must keep a 44px touch target');
   await openBrowser(page);
   const fit = await page.evaluate(() => {
     const dialog = document.querySelector('#well-preset-browser');
@@ -206,7 +227,7 @@ async function responsive(browser, errors) {
   await openBrowser(page);
   await page.setViewportSize({ width: 844, height: 390 });
   await page.getByLabel('Family', { exact: true }).selectOption('Channels');
-  assert.strictEqual(await page.locator('.well-preset-entry').count(), 6);
+  assert.strictEqual(await page.locator('.well-preset-entry').count(), 9);
   await page.locator('[data-preset-id="funnel"]').tap();
   await screenshot(page, 'presets-phone-landscape');
   await page.getByRole('button', { name: 'Apply Preset', exact: true }).tap();
