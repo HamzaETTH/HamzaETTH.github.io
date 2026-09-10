@@ -137,8 +137,10 @@ catalogue.presets.forEach((preset, index) => {
     gravityWellAccelerationCapped: true, gravityWellAccelerationLimit: 1.5, curvedDrift: false
   });
   const wide = index >= 48;
+  const stableOrbit = preset.id !== 'binary' && preset.id !== 'dipole';
   assert.equal(preset.layout, wide ? 'wide' : 'uniform', `${preset.id} layout`);
-  assert.equal(preset.initialParticlePlacement, wide ? 'spread' : 'center', `${preset.id} particle placement`);
+  assert.equal(preset.initialParticlePlacement, wide ? 'spread' : stableOrbit ? 'orbit' : 'center', `${preset.id} particle placement`);
+  assert.equal(preset.stableOrbit, stableOrbit, `${preset.id} stable orbit`);
   assert.equal(preset.trap, trapIds.has(preset.id), `${preset.id} trap classification`);
   assert.ok(Object.isFrozen(preset) && Object.isFrozen(preset.wells) && Object.isFrozen(preset.motion), `${preset.id} metadata immutable`);
   const positions = new Set();
@@ -271,6 +273,7 @@ catalogue.presets.forEach(preset => {
           assert.equal(layout.layout, preset.layout);
           assert.equal(layout.initialParticlePlacement, preset.initialParticlePlacement);
           assert.equal(layout.trap, preset.trap);
+          assert.equal(layout.stableOrbit, preset.stableOrbit);
           assert.equal(layout.wells.length, preset.wells.length);
           assert.ok(layout.bounds.left + tolerance >= layout.usableBounds.left, `${preset.id} left fit`);
           assert.ok(layout.bounds.top + tolerance >= layout.usableBounds.top, `${preset.id} top fit`);

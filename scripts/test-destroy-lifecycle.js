@@ -203,6 +203,12 @@ async function main() {
               old._lineDetailTileSegments == null && old._lineDetailTileScratch == null &&
               old._blackHoleLineTintStrength == null && old._blackHoleLineTintR == null &&
               old._blackHoleLineTintG == null && old._blackHoleLineTintB == null &&
+              old._presetOrbitAnchors == null && old._presetOrbitAssignments == null &&
+              old._presetOrbitDesiredX == null && old._presetOrbitDesiredY == null &&
+              old._presetOrbitResidualX == null && old._presetOrbitResidualY == null &&
+              old._presetOrbitBlend == null && old._presetOrbitControlValid == null &&
+              old._presetOrbitActive === false && old._presetOrbitFrame === 0 &&
+              old._presetOrbitRunning === false && old._gravityWellPresetUsesRecommendedMotion === false &&
               old.selectedParticleIndices == null && old.selectedGravityWellIds == null &&
               old._selectionClipboard == null && old._selectionUndoStack == null &&
               old._selectionMarqueeElement == null &&

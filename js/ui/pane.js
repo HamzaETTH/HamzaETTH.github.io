@@ -493,6 +493,9 @@ async function buildPane() {
     resetParticleForceProfiles();
     applyPhysicsParamsToNetwork(pn, nextPhysics);
     Object.assign(PARAMS, nextPhysics);
+    if (activePreset && typeof pn._setPresetRecommendedMotionActive === 'function') {
+      pn._setPresetRecommendedMotionActive(true);
+    }
     pn._gatherActive = false;
     if (typeof pn._clearInteractivePointerForces === 'function') pn._clearInteractivePointerForces();
     else {

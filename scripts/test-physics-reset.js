@@ -248,6 +248,7 @@ async function testDesktop(browser) {
     stopAnimation();
     const helperScopeAfter = sceneSnapshot();
     const helperIgnoresUnrelatedParams = helperScopeBefore === helperScopeAfter && rebuilds === 0 && canvasClears === 0;
+    pn._setPresetRecommendedMotionActive(false);
     const presetSceneBefore = sceneSnapshot();
     startTransients();
     resetButton.click();
@@ -260,6 +261,8 @@ async function testDesktop(browser) {
       transientsCleared: transientsCleared(),
       ownership: json(pn.activeGravityWellPreset),
       expectedOwnership: json({ id: 'cross-cage', spacing: 100, rotation: 0, strength: 100 }),
+      stableOrbitReenabled: pn._gravityWellPresetUsesRecommendedMotion && pn._presetOrbitActive &&
+        pn._presetOrbitAnchors.length > 0,
       forceDisplay: forceControl && forceControl.element.querySelector('input')?.value,
       toast: toastCalls.at(-1)
     };
@@ -283,6 +286,7 @@ async function testDesktop(browser) {
       transientsCleared: transientsCleared(),
       activePreset: pn.activeGravityWellPreset,
       lastPresetId: pn.lastGravityWellPresetId,
+      stableOrbitInactive: !pn._gravityWellPresetUsesRecommendedMotion && !pn._presetOrbitActive,
       toast: toastCalls.at(-1)
     };
 
@@ -308,6 +312,7 @@ async function testDesktop(browser) {
   assert.deepEqual(evidence.presetResult.uiPhysics, evidence.presetExpected);
   assert.deepEqual(evidence.presetResult.runtimePhysics, evidence.presetExpected);
   assert.equal(evidence.presetResult.scenePreserved, true);
+  assert.equal(evidence.presetResult.stableOrbitReenabled, true);
   assert.equal(evidence.presetResult.transientsCleared, true);
   assert.equal(evidence.presetResult.ownership, evidence.presetResult.expectedOwnership);
   assert.equal(evidence.presetResult.forceDisplay, '60%');
@@ -315,6 +320,7 @@ async function testDesktop(browser) {
   assert.deepEqual(evidence.customResult.uiPhysics, evidence.customExpected);
   assert.deepEqual(evidence.customResult.runtimePhysics, evidence.customExpected);
   assert.equal(evidence.customResult.scenePreserved, true);
+  assert.equal(evidence.customResult.stableOrbitInactive, true);
   assert.equal(evidence.customResult.transientsCleared, true);
   assert.equal(evidence.customResult.activePreset, null);
   assert.equal(evidence.customResult.lastPresetId, 'cross-cage');

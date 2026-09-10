@@ -7,180 +7,256 @@ const { chromium } = require('playwright');
 const url = process.argv[2];
 if (!url) throw new Error('Usage: rtk node scripts/test-gravity-well-preset-orbit-size.js URL');
 
+const namedProblemPresets = new Set([
+  'cross-cage', 'diamond-cage', 'triangular-cage', 'hexagonal-cage', 'octagonal-cage',
+  'split-cage', 'twin-cages', 'crossroads', 'corner-refuges', 'staggered-anchors',
+  'spiral-cage', 'twin-havens', 'diagonal-weave'
+]);
+
+async function auditPreset(page, id, steps) {
+  return page.evaluate(({ id, steps }) => {
+    const pn = window.particleInstance;
+    const preset = window.GravityWellPresets.get(id);
+    const count = 64;
+    pn.setParticleCount(count);
+    for (let i = 0; i < count; i++) {
+      const angle = i * 2.399963229728653;
+      const magnitude = i === 0 ? 0 : 0.66;
+      pn.velX[i] = Math.cos(angle) * magnitude;
+      pn.velY[i] = Math.sin(angle) * magnitude;
+    }
+    pn._syncObjectsFromSoA();
+    pn.applyGravityWellPreset(id);
+    cancelAnimationFrame(pn._rafId);
+    pn._rafActive = false;
+    pn._clearInteractivePointerForces();
+    pn._cursorCaptureActive = false;
+    pn.options.interactive = false;
+    pn.options.particleAttraction = false;
+    pn.options.particleRepulsion = false;
+    pn.options.boundaryMode = 'bounce';
+
+    const bufferRefs = [pn.posX, pn.posY, pn.velX, pn.velY, pn.sizeA];
+    const objectRefs = pn.o.slice(0, count);
+    const wellsBefore = JSON.stringify(pn.gravityWells.map(well => ({
+      id: well.id, type: well.type, x: well.x, y: well.y,
+      radius: well.radius, strength: well.strength
+    })));
+    const blackWells = pn.gravityWells.filter(well =>
+      (well.strength < 0 ? (well.type === 'white' ? 'black' : 'white') : well.type) === 'black');
+    const insideBlackHalo = (x, y) => blackWells.some(well =>
+      Math.hypot(x - well.x, y - well.y) <= well.radius * window.GravityWellPresets.visualExtentScale);
+    const assignmentsAtLaunch = Array.from(pn._presetOrbitAssignments.slice(0, count));
+    const launch = Array.from({ length: count }, (_, index) => [pn.posX[index], pn.posY[index]]);
+    const launchOutsideHalo = launch.filter(([x, y], index) =>
+      assignmentsAtLaunch[index] >= 0 && !insideBlackHalo(x, y)).length / count;
+
+    const previousAngle = new Float64Array(count);
+    const previousAnchor = new Int16Array(count);
+    const angularTravel = new Float64Array(count);
+    const slowStreak = new Uint16Array(count);
+    const maxSlowStreak = new Uint16Array(count);
+    previousAnchor.fill(-1);
+    let insideSamples = 0;
+    let movingSamples = 0;
+    let sampled = 0;
+    const checkpoints = [];
+
+    for (let step = 1; step <= steps; step++) {
+      pn._updateSoA();
+      for (let i = 0; i < count; i++) {
+        const speed = Math.hypot(pn.velX[i], pn.velY[i]);
+        if (speed <= 0.35) {
+          slowStreak[i]++;
+          maxSlowStreak[i] = Math.max(maxSlowStreak[i], slowStreak[i]);
+        } else {
+          slowStreak[i] = 0;
+        }
+        const anchorIndex = pn._presetOrbitAssignments[i];
+        const anchor = pn._presetOrbitAnchors[anchorIndex];
+        if (!anchor) continue;
+        const angle = Math.atan2(pn.posY[i] - anchor.y, pn.posX[i] - anchor.x);
+        if (previousAnchor[i] === anchorIndex) {
+          let delta = angle - previousAngle[i];
+          if (delta > Math.PI) delta -= Math.PI * 2;
+          else if (delta < -Math.PI) delta += Math.PI * 2;
+          if (step > 600 && step <= 1800) angularTravel[i] += Math.abs(delta);
+        }
+        previousAngle[i] = angle;
+        previousAnchor[i] = anchorIndex;
+      }
+      if (step >= 600 && step % 30 === 0) {
+        for (let i = 0; i < count; i++) {
+          const anchor = pn._presetOrbitAnchors[pn._presetOrbitAssignments[i]];
+          if (!anchor) continue;
+          sampled++;
+          if (insideBlackHalo(pn.posX[i], pn.posY[i])) insideSamples++;
+          if (Math.hypot(pn.velX[i], pn.velY[i]) > 0.35) movingSamples++;
+        }
+      }
+      if (step === 600 || step === 2400 || step === 10000) {
+        let inside = 0;
+        let moving = 0;
+        for (let i = 0; i < count; i++) {
+          const anchor = pn._presetOrbitAnchors[pn._presetOrbitAssignments[i]];
+          if (anchor && insideBlackHalo(pn.posX[i], pn.posY[i])) inside++;
+          if (Math.hypot(pn.velX[i], pn.velY[i]) > 0.35) moving++;
+        }
+        checkpoints.push({ step, insideFraction: inside / count, movingFraction: moving / count });
+      }
+    }
+
+    const normalizedRadii = [];
+    for (let i = 0; i < count; i++) {
+      const anchor = pn._presetOrbitAnchors[pn._presetOrbitAssignments[i]];
+      if (anchor) normalizedRadii.push(Math.hypot(pn.posX[i] - anchor.x, pn.posY[i] - anchor.y) / anchor.visualRadius);
+    }
+    normalizedRadii.sort((left, right) => left - right);
+    const rotatingFraction = Array.from(angularTravel).filter(value => value >= Math.PI).length / count;
+    const radialIqr = normalizedRadii.length
+      ? normalizedRadii[Math.floor(normalizedRadii.length * 0.75)] - normalizedRadii[Math.floor(normalizedRadii.length * 0.25)]
+      : 0;
+    return {
+      id, steps, placement: preset.initialParticlePlacement,
+      launchOutsideHalo,
+      insideFraction: sampled ? insideSamples / sampled : 0,
+      movingFraction: sampled ? movingSamples / sampled : 0,
+      rotatingFraction,
+      radialIqr,
+      maximumSlowStreak: Math.max(...maxSlowStreak),
+      checkpoints,
+      noRebuild: bufferRefs.every((buffer, index) => buffer === [pn.posX, pn.posY, pn.velX, pn.velY, pn.sizeA][index]) &&
+        objectRefs.every((particle, index) => particle === pn.o[index]),
+      wellsUnchanged: wellsBefore === JSON.stringify(pn.gravityWells.map(well => ({
+        id: well.id, type: well.type, x: well.x, y: well.y,
+        radius: well.radius, strength: well.strength
+      }))),
+      finite: Array.from(pn.posX.slice(0, count)).every(Number.isFinite) &&
+        Array.from(pn.posY.slice(0, count)).every(Number.isFinite) &&
+        Array.from(pn.velX.slice(0, count)).every(Number.isFinite) &&
+        Array.from(pn.velY.slice(0, count)).every(Number.isFinite)
+    };
+  }, { id, steps });
+}
+
 async function main() {
   const browser = await chromium.launch({
-    channel: 'msedge',
-    headless: true,
+    channel: 'msedge', headless: true,
     args: ['--no-first-run', '--disable-background-timer-throttling', '--disable-renderer-backgrounding']
   });
-  const browserErrors = [];
+  const result = { cases: [], baseline: {}, gating: null, browserErrors: [] };
   try {
-    const page = await browser.newPage({ viewport: { width: 1280, height: 900 } });
-    page.on('pageerror', error => browserErrors.push(String(error)));
-    await page.goto(url, { waitUntil: 'domcontentloaded' });
-    await page.waitForFunction(() => window.particleInstance && window.GravityWellPresets);
-
-    const result = await page.evaluate(() => {
-      const pn = window.particleInstance;
-      const preset = window.GravityWellPresets.get('diagonal-weave');
-      const particleCount = 300;
-      const warmupSteps = 1600;
-      const sampleSteps = 400;
-
-      function run(spin) {
-        pn.setParticleCount(particleCount);
-        pn.applyGravityWellPreset('diagonal-weave');
-        cancelAnimationFrame(pn._rafId);
-        pn._rafActive = false;
-        pn._clearInteractivePointerForces();
-        pn.options.interactive = false;
-        pn.options.particleAttraction = false;
-        pn.options.particleRepulsion = false;
-        pn.options.boundaryMode = 'bounce';
-        pn.options.gravityWellSpin = spin;
-
-        const width = pn.i.size.width;
-        const height = pn.i.size.height;
-        for (let i = 0; i < particleCount; i++) {
-          pn.posX[i] = 20 + ((i % 20) + 0.5) / 20 * (width - 40);
-          pn.posY[i] = 20 + (Math.floor(i / 20) + 0.5) / 15 * (height - 40);
-          const angle = i * 2.399963229728653;
-          pn.velX[i] = Math.cos(angle) * 0.66;
-          pn.velY[i] = Math.sin(angle) * 0.66;
-          pn.sizeA[i] = 1;
-        }
-
-        const blackWells = pn.gravityWells.filter(well => well.type === 'black');
-        const distances = [];
-        let movingSamples = 0;
-        let speedSum = 0;
-        const totalSteps = warmupSteps + sampleSteps;
-        for (let step = 0; step < totalSteps; step++) {
-          pn._updateSoA();
-          if (step < warmupSteps) continue;
-          for (let i = 0; i < particleCount; i++) {
-            let nearest = Infinity;
-            for (const well of blackWells) {
-              nearest = Math.min(nearest,
-                Math.hypot(pn.posX[i] - well.x, pn.posY[i] - well.y) / well.radius);
-            }
-            const speed = Math.hypot(pn.velX[i], pn.velY[i]);
-            distances.push(nearest);
-            speedSum += speed;
-            if (speed > 0.1) movingSamples++;
-          }
-        }
-        distances.sort((left, right) => left - right);
-        return {
-          spin,
-          medianNormalizedDistance: distances[Math.floor(distances.length / 2)],
-          interquartileRange: distances[Math.floor(distances.length * 0.75)] -
-            distances[Math.floor(distances.length * 0.25)],
-          meanSpeed: speedSum / distances.length,
-          movingFraction: movingSamples / distances.length
-        };
+    const contexts = [
+      { label: 'desktop', options: { viewport: { width: 1280, height: 900 } } },
+      { label: 'touch', options: { viewport: { width: 390, height: 844 }, isMobile: true, hasTouch: true } }
+    ];
+    for (const contextSpec of contexts) {
+      const context = await browser.newContext(contextSpec.options);
+      const page = await context.newPage();
+      page.on('pageerror', error => result.browserErrors.push(`${contextSpec.label}: ${error}`));
+      await page.goto(url, { waitUntil: 'domcontentloaded' });
+      await page.waitForFunction(() => window.particleInstance && window.GravityWellPresets);
+      const ids = await page.evaluate(() => window.GravityWellPresets.presets.map(preset => preset.id));
+      for (const id of ids) {
+        if (id === 'binary' || id === 'dipole') continue;
+        const steps = contextSpec.label === 'desktop' && namedProblemPresets.has(id) ? 10000 : 2400;
+        const state = await auditPreset(page, id, steps);
+        state.mode = contextSpec.label;
+        result.cases.push(state);
       }
-
-      function runActivity(id) {
-        const count = 160;
-        const warmup = 600;
-        const samples = 200;
-        pn.setParticleCount(count);
-        pn.applyGravityWellPreset(id);
-        cancelAnimationFrame(pn._rafId);
-        pn._rafActive = false;
-        pn._clearInteractivePointerForces();
-        pn.options.interactive = false;
-        pn.options.particleAttraction = false;
-        pn.options.particleRepulsion = false;
-        pn.options.boundaryMode = 'bounce';
-
-        const width = pn.i.size.width;
-        const height = pn.i.size.height;
-        for (let i = 0; i < count; i++) {
-          pn.posX[i] = 20 + ((i % 16) + 0.5) / 16 * (width - 40);
-          pn.posY[i] = 20 + (Math.floor(i / 16) + 0.5) / 10 * (height - 40);
-          const angle = i * 2.399963229728653;
-          pn.velX[i] = Math.cos(angle) * 0.66;
-          pn.velY[i] = Math.sin(angle) * 0.66;
-          pn.sizeA[i] = 1;
-        }
-
-        for (let step = 0; step < warmup; step++) pn._updateSoA();
-        let movingSamples = 0;
-        let speedSum = 0;
-        for (let step = 0; step < samples; step++) {
+      result.baseline[contextSpec.label] = await page.evaluate(() => {
+          const pn = window.particleInstance;
+          const catalogue = window.GravityWellPresets;
+          const output = {};
+          for (const id of ['binary', 'dipole']) {
+            pn.setParticleCount(32);
+            const velocities = [Array.from(pn.velX), Array.from(pn.velY)];
+            pn.applyGravityWellPreset(id);
+            output[id] = {
+              stableOrbit: catalogue.get(id).stableOrbit,
+              placement: catalogue.get(id).initialParticlePlacement,
+              force: catalogue.get(id).motion.gravityWellForceMultiplier,
+              controllerActive: pn._presetOrbitActive,
+              gathered: Array.from(pn.posX).every((x, index) => Math.hypot(
+                x - pn.i.size.width * 0.5, pn.posY[index] - pn.i.size.height * 0.5) <= pn.options.gatherRadius + 0.01),
+              velocitiesPreserved: velocities[0].every((vx, index) => vx === pn.velX[index] && velocities[1][index] === pn.velY[index])
+            };
+          }
+          return output;
+      });
+      if (contextSpec.label === 'desktop') {
+        result.gating = await page.evaluate(() => {
+          const pn = window.particleInstance;
+          pn.options.gravityWellForceMultiplier = 1.73;
+          pn.applyGravityWellPreset('cross-cage', { useRecommendedMotion: false });
+          const unchecked = {
+            force: pn.options.gravityWellForceMultiplier,
+            active: pn._presetOrbitActive,
+            ownership: pn._gravityWellPresetUsesRecommendedMotion
+          };
+          pn.applyGravityWellPreset('cross-cage');
+          pn.options.gravityWellForceMultiplier = 0;
+          pn.options.velocity = 0;
+          pn.options.curvedDrift = false;
+          pn.velX[0] = 0;
+          pn.velY[0] = 0;
+          const before = [pn.posX[0], pn.posY[0], pn.velX[0], pn.velY[0]];
           pn._updateSoA();
-          for (let i = 0; i < count; i++) {
-            const speed = Math.hypot(pn.velX[i], pn.velY[i]);
-            speedSum += speed;
-            if (speed > 0.1) movingSamples++;
-          }
-        }
-
-        const blackWells = pn.gravityWells.filter(well => well.type === 'black');
-        let outsideHalo = 0;
-        let minX = Infinity;
-        let minY = Infinity;
-        let maxX = -Infinity;
-        let maxY = -Infinity;
-        for (let i = 0; i < count; i++) {
-          let nearest = Infinity;
-          for (const well of blackWells) {
-            nearest = Math.min(nearest,
-              Math.hypot(pn.posX[i] - well.x, pn.posY[i] - well.y) / well.radius);
-          }
-          if (nearest > window.GravityWellPresets.visualExtentScale) outsideHalo++;
-          minX = Math.min(minX, pn.posX[i]);
-          minY = Math.min(minY, pn.posY[i]);
-          maxX = Math.max(maxX, pn.posX[i]);
-          maxY = Math.max(maxY, pn.posY[i]);
-        }
-        return {
-          id,
-          movingFraction: movingSamples / (count * samples),
-          meanSpeed: speedSum / (count * samples),
-          outsideHaloFraction: outsideHalo / count,
-          spanX: (maxX - minX) / width,
-          spanY: (maxY - minY) / height
-        };
+          const forceZeroUnchanged = before.every((value, index) => value === [pn.posX[0], pn.posY[0], pn.velX[0], pn.velY[0]][index]);
+          pn.options.gravityWellForceMultiplier = 0.6;
+          pn.updateGravityWell(pn.gravityWells[0].id, { x: pn.gravityWells[0].x + 1 });
+          return {
+            unchecked,
+            forceZeroUnchanged,
+            detached: pn.activeGravityWellPreset === null && !pn._presetOrbitActive && !pn._gravityWellPresetUsesRecommendedMotion
+          };
+        });
       }
-
-      const baseline = run(0.08);
-      const recommended = run(preset.motion.gravityWellSpin);
-      const activityIds = [
-        'slingshot', 'lagrange-run', 'orbital-relay', 'broken-orbit', 'solar-flare', 'crescent-engine',
-        'pulsar-core', 'accretion-bloom', 'fractured-core', 'serpentine-gate', 'crosswind', 'jetstream',
-        'helix-wake', 'pinwheel-surge', 'vortex-ladder', 'quasar-chain', 'nova-choir', 'celestial-forge',
-        'dark-matter-map', 'meteor-garden', 'deep-space-buoys', 'gravity-highway', 'cosmic-current',
-        'singularity-parade'
-      ];
-      return {
-        recommendedSpin: preset.motion.gravityWellSpin,
-        hasOrbitRadiusLock: preset.wells.some(well => 'orbitRadiusScale' in well),
-        runtimeHasOrbitRadiusLock: pn.gravityWells.some(well => 'orbitRadiusScale' in well),
-        baseline,
-        recommended,
-        activity: activityIds.map(runActivity)
-      };
-    });
-
-    assert.equal(result.recommendedSpin, 0.18, 'Diagonal Weave recommended spin');
-    assert.equal(result.hasOrbitRadiusLock, false, 'preset must use only natural well physics');
-    assert.equal(result.runtimeHasOrbitRadiusLock, false, 'runtime wells must use only natural well physics');
-    assert.ok(result.recommended.medianNormalizedDistance >= result.baseline.medianNormalizedDistance * 2,
-      `recommended orbit ${result.recommended.medianNormalizedDistance} must exceed old orbit ${result.baseline.medianNormalizedDistance}`);
-    assert.ok(result.recommended.movingFraction > 0.95, 'particles must remain actively moving');
-    for (const activity of result.activity) {
-      assert.ok(activity.movingFraction > 0.95, `${activity.id} must keep particles moving: ${JSON.stringify(activity)}`);
-      assert.ok(activity.meanSpeed > 0.5, `${activity.id} must retain visible speed: ${JSON.stringify(activity)}`);
-      assert.ok(activity.outsideHaloFraction > 0.15,
-        `${activity.id} must keep particles visible outside well halos: ${JSON.stringify(activity)}`);
-      assert.ok(activity.spanX > 0.45 && activity.spanY > 0.45,
-        `${activity.id} must retain a broad two-dimensional spread: ${JSON.stringify(activity)}`);
+      await context.close();
     }
-    assert.deepEqual(browserErrors, [], `browser errors: ${browserErrors.join('; ')}`);
-    console.log(JSON.stringify(result, null, 2));
+
+    const failures = [];
+    for (const state of result.cases) {
+      const reasons = [];
+      if (!state.finite) reasons.push('non-finite state');
+      if (!state.noRebuild) reasons.push('particle rebuild');
+      if (!state.wellsUnchanged) reasons.push('well mutation');
+      if (state.placement === 'orbit' && state.launchOutsideHalo < 0.99) reasons.push(`launch ${state.launchOutsideHalo}`);
+      const maximumInsideFraction = namedProblemPresets.has(state.id) ? 0.01 : 0.2;
+      if (state.insideFraction > maximumInsideFraction) reasons.push(`inside ${state.insideFraction}`);
+      if (state.movingFraction < 0.95) reasons.push(`moving ${state.movingFraction}`);
+      if (state.rotatingFraction < 0.8) reasons.push(`rotating ${state.rotatingFraction}`);
+      if (state.radialIqr <= 0.0001) reasons.push(`radialIqr ${state.radialIqr}`);
+      if (state.maximumSlowStreak >= 120) reasons.push(`slowStreak ${state.maximumSlowStreak}`);
+      if (reasons.length) failures.push({ mode: state.mode, id: state.id, reasons, checkpoints: state.checkpoints });
+    }
+    if (failures.length) process.stderr.write(`${JSON.stringify(failures, null, 2)}\n`);
+    assert.deepEqual(failures, [], 'stable-orbit audit failures');
+    for (const mode of ['desktop', 'touch']) {
+      for (const id of ['binary', 'dipole']) {
+        assert.deepEqual(result.baseline[mode][id], {
+          stableOrbit: false, placement: 'center', force: 0.6,
+          controllerActive: false, gathered: true, velocitiesPreserved: true
+        }, `${id} ${mode} baseline behavior`);
+      }
+    }
+    assert.deepEqual(result.gating.unchecked, { force: 1.73, active: false, ownership: false });
+    assert.equal(result.gating.forceZeroUnchanged, true, 'zero force must disable orbit controller');
+    assert.equal(result.gating.detached, true, 'manual well edits must detach orbit controller');
+    assert.deepEqual(result.browserErrors, [], `browser errors: ${result.browserErrors.join('; ')}`);
+    process.stdout.write(`${JSON.stringify({
+      auditedCases: result.cases.length,
+      namedProblemPresets: result.cases.filter(state => namedProblemPresets.has(state.id)).map(state => ({
+        mode: state.mode, id: state.id, steps: state.steps,
+        insideFraction: state.insideFraction,
+        movingFraction: state.movingFraction,
+        rotatingFraction: state.rotatingFraction,
+        maximumSlowStreak: state.maximumSlowStreak
+      })),
+      baseline: result.baseline,
+      gating: result.gating,
+      browserErrors: result.browserErrors
+    }, null, 2)}\n`);
   } finally {
     await browser.close();
   }

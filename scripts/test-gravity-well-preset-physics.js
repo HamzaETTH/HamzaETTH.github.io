@@ -24,6 +24,7 @@ async function audit(page, id, cohort) {
     const preset = catalogue.get(id);
     pn.setParticleCount(particleCount);
     pn.applyGravityWellPreset(id);
+    pn._setPresetRecommendedMotionActive(false);
     cancelAnimationFrame(pn._rafId);
     pn._rafActive = false;
     pn._clearInteractivePointerForces();

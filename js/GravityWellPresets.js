@@ -101,13 +101,16 @@
   function add(id, name, family, description, wells, axial, metadata) {
     metadata = metadata || {};
     var trap = metadata.trap === true;
+    var stableOrbit = metadata.stableOrbit !== false;
     var spin = Number.isFinite(metadata.spin) ? metadata.spin : (trap ? 0 : familySpin[family]);
     var preset = {
       id: id, name: name, family: family, description: description,
       wells: wells.map(function(item) { return Object.freeze(item); }), axial: !!axial,
       layout: metadata.layout === 'wide' ? 'wide' : 'uniform',
-      initialParticlePlacement: metadata.initialParticlePlacement === 'spread' ? 'spread' : 'center',
-      trap: trap,
+      initialParticlePlacement: metadata.initialParticlePlacement === 'spread'
+        ? 'spread'
+        : (stableOrbit ? 'orbit' : 'center'),
+      trap: trap, stableOrbit: stableOrbit,
       motion: Object.freeze({
         velocity: 0.66,
         gravityWellSpin: spin,
@@ -129,6 +132,7 @@
   var wideSurgeMetadata = Object.freeze({ layout: 'wide', initialParticlePlacement: 'spread', spin: 0.24 });
   var wideScatterMetadata = Object.freeze({ layout: 'wide', initialParticlePlacement: 'spread', spin: 0.16 });
   var wideTrapMetadata = Object.freeze({ layout: 'wide', initialParticlePlacement: 'spread', trap: true });
+  var naturalOrbitMetadata = Object.freeze({ stableOrbit: false });
 
   add('cross-cage', 'Cross Cage', 'Cages', 'A central black hole enclosed by four cardinal white holes.',
     [center('black', 36)].concat(ring(4, 'white')), false, trapMetadata);
@@ -144,9 +148,9 @@
     [well(-0.25, 0, 'black', 0.3, 42), well(0.25, 0, 'black', 0.3, 42)].concat(ring(6, 'white')), false, trapMetadata);
 
   add('binary', 'Binary', 'Pairs & axes', 'Two equal black holes share a single axis.',
-    [well(-0.65, 0, 'black', 0.42), well(0.65, 0, 'black', 0.42)], true);
+    [well(-0.65, 0, 'black', 0.42), well(0.65, 0, 'black', 0.42)], true, naturalOrbitMetadata);
   add('dipole', 'Dipole', 'Pairs & axes', 'A white repulsor faces a black attractor.',
-    [well(-0.65, 0, 'white', 0.38), well(0.65, 0, 'black', 0.38)], true);
+    [well(-0.65, 0, 'white', 0.38), well(0.65, 0, 'black', 0.38)], true, naturalOrbitMetadata);
   add('triple-anchor', 'Triple Anchor', 'Pairs & axes', 'Three equal black holes along one axis.',
     [-0.85, 0, 0.85].map(function(x) { return well(x, 0, 'black', 0.3); }), true);
   add('repulsor-gate', 'Repulsor Gate', 'Pairs & axes', 'Two white holes stand between two outer black anchors.',
@@ -665,7 +669,8 @@
     return {
       id: id, wells: wells, width: width, height: height,
       spacing: spacing, rotation: rotation, strength: strength, orientation: orientation,
-      layout: preset.layout, initialParticlePlacement: preset.initialParticlePlacement, trap: preset.trap,
+      layout: preset.layout, initialParticlePlacement: preset.initialParticlePlacement,
+      trap: preset.trap, stableOrbit: preset.stableOrbit,
       center: { x: centerX, y: centerY }, scale: low, scaleX: scaleX, scaleY: scaleY,
       fits: fits, bounds: bounds,
       usableBounds: { left: left, top: top, right: width - right, bottom: height - bottom },

@@ -84,17 +84,21 @@ async function main() {
       pn.options.particleRepulsion = false;
       pn.options.particleInteractionDistance = 47;
       const oldOptions = { ...pn.options };
-      const oldVelocities = json([Array.from(pn.velX), Array.from(pn.velY)]);
+      const oldVelocityMagnitudes = Array.from(pn.velX, (vx, index) => Math.hypot(vx, pn.velY[index]));
       pn._selectionUndoStack = [];
       let notifications = 0;
       const onChange = () => notifications++;
       window.addEventListener('particle-gravity-wells-change', onChange);
       pn.applyGravityWellPreset('cross-cage');
       check('applyAtomic', notifications === 1 && pn._selectionUndoStack.length === 1 && pn.gravityWells.length === 5);
-      const gathered = Array.from(pn.posX).every((x, index) =>
-        Math.hypot(x - pn.i.size.width / 2, pn.posY[index] - pn.i.size.height / 2) <= pn.options.gatherRadius + 0.01);
-      check('applyGathersParticlesOnce', gathered && pn._startupGravityState === 'stopped');
-      check('applyPreservesParticleVelocity', oldVelocities === json([Array.from(pn.velX), Array.from(pn.velY)]));
+      const orbitPlaced = pn._presetOrbitActive && pn._presetOrbitAnchors.length > 0 &&
+        Array.from(pn.posX).every((x, index) => {
+          const anchor = pn._presetOrbitAnchors[pn._presetOrbitAssignments[index]];
+          return anchor && Math.hypot(x - anchor.x, pn.posY[index] - anchor.y) > anchor.visualRadius;
+        });
+      check('applyLaunchesStableOrbitOnce', orbitPlaced && pn._startupGravityState === 'stopped');
+      check('applyPreservesParticleSpeed', oldVelocityMagnitudes.every((magnitude, index) =>
+        Math.abs(magnitude - Math.hypot(pn.velX[index], pn.velY[index])) < 0.000001));
       check('applyClearsSelection', !pn.selectedGravityWellId && !pn.selectedGravityWellIds.size && !pn.selectedParticleIndices.size);
       const allowed = new Set(['velocity', 'curvedDrift', 'gravityWellSpin', 'gravityWellForceMultiplier',
         'gravityWellAccelerationCapped', 'gravityWellAccelerationLimit', 'gravityWellsEnabled']);
@@ -135,6 +139,7 @@ async function main() {
         beforeWideAdjustment === json([Array.from(pn.posX), Array.from(pn.posY)]));
       pn.applyGravityWellPreset('binary', { useRecommendedMotion: false });
       check('motionTogglePreservesPhysics', Object.keys(oldOptions).every(key => json(oldOptions[key]) === json(pn.options[key])));
+      check('uncheckedMotionDisablesStableOrbit', !pn._presetOrbitActive && !pn._gravityWellPresetUsesRecommendedMotion);
       const ids = pn.gravityWells.map(well => well.id);
       const initialGeometry = json(pn.gravityWells);
       const depth = pn._selectionUndoStack.length;

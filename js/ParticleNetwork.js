@@ -69,6 +69,17 @@
   var mobileGravityWellInfluenceScale = 2;
   var mobileGravityWellViewportRadiusScale = 0.45;
   var mobileGravityWellContainmentTolerance = 0.01;
+  var presetOrbitVisualExtentScale = 1.65;
+  var presetOrbitDesktopRatioMin = 1.25;
+  var presetOrbitDesktopRatioMax = 1.70;
+  var presetOrbitTouchRatioMin = 1.08;
+  var presetOrbitTouchRatioMax = 1.20;
+  var presetOrbitAnchorSwitchRatio = 1.35;
+  var presetOrbitAnchorRescanMask = 15;
+  var presetOrbitControlRefreshMask = 7;
+  var presetOrbitRadialGain = 0.045;
+  var presetOrbitSteeringGain = 0.12;
+  var presetOrbitRawFieldShare = 0.25;
   var mobileWellAdjustDeadZone = 12;
   var mobileWellStrengthPixelsPerStep = 8;
   var startupHeroDurationMs = 10000;
@@ -111,6 +122,23 @@
     var type = well && well.type === 'white' ? 'white' : 'black';
     var strength = well && Number.isFinite(well.strength) ? well.strength : 0;
     return strength < 0 ? (type === 'white' ? 'black' : 'white') : type;
+  }
+
+  function presetOrbitStringHash(value) {
+    var hash = 2166136261;
+    value = String(value || '');
+    for (var i = 0; i < value.length; i++) {
+      hash ^= value.charCodeAt(i);
+      hash = Math.imul(hash, 16777619);
+    }
+    return hash >>> 0;
+  }
+
+  function presetOrbitHash(index, salt) {
+    var hash = ((index + 1) ^ salt) >>> 0;
+    hash = Math.imul(hash ^ (hash >>> 16), 2246822507);
+    hash = Math.imul(hash ^ (hash >>> 13), 3266489909);
+    return ((hash ^ (hash >>> 16)) >>> 0) / 4294967296;
   }
 
   function formatGravityWellMagnitude(well) {
@@ -825,6 +853,19 @@
       this.lastGravityWellPresetId = null;
       this._gravityWellPresetAdjustment = null;
       this._gravityWellPresetViewport = null;
+      this._gravityWellPresetUsesRecommendedMotion = false;
+      this._presetOrbitActive = false;
+      this._presetOrbitAnchors = [];
+      this._presetOrbitAssignments = null;
+      this._presetOrbitDesiredX = null;
+      this._presetOrbitDesiredY = null;
+      this._presetOrbitResidualX = null;
+      this._presetOrbitResidualY = null;
+      this._presetOrbitBlend = null;
+      this._presetOrbitControlValid = null;
+      this._presetOrbitSalt = 0;
+      this._presetOrbitFrame = 0;
+      this._presetOrbitRunning = false;
       this.selectedGravityWellId = null;
       this.gravityWellDraft = null;
       this._nextGravityWellId = 1;
@@ -990,6 +1031,214 @@
         var yFraction = (0.5 + (i + 1) * 0.5698402909980532) % 1;
         this.posX[i] = left + xFraction * width;
         this.posY[i] = top + yFraction * height;
+      }
+      this._syncObjectsFromSoA();
+      return count;
+    }),
+    (b.prototype._clearPresetOrbitState = function() {
+      this._presetOrbitActive = false;
+      this._presetOrbitAnchors = [];
+      this._presetOrbitSalt = 0;
+      this._presetOrbitFrame = 0;
+      this._presetOrbitRunning = false;
+      if (this._presetOrbitAssignments) this._presetOrbitAssignments.fill(-1);
+      if (this._presetOrbitControlValid) this._presetOrbitControlValid.fill(0);
+    }),
+    (b.prototype._rebuildPresetOrbitAnchors = function() {
+      var active = this.activeGravityWellPreset;
+      var catalogue = window.GravityWellPresets;
+      var preset = active && catalogue ? catalogue.get(active.id) : null;
+      if (!preset || preset.stableOrbit !== true || this._gravityWellPresetUsesRecommendedMotion !== true) {
+        this._clearPresetOrbitState();
+        return false;
+      }
+      var blackWells = [];
+      for (var i = 0; i < this.gravityWells.length; i++) {
+        var well = this.gravityWells[i];
+        if (effectiveGravityWellType(well) !== 'black') continue;
+        blackWells.push({
+          well: well,
+          extent: Math.max(1, Number.isFinite(well.radius) ? well.radius : 1) * presetOrbitVisualExtentScale
+        });
+      }
+      if (!blackWells.length) {
+        this._clearPresetOrbitState();
+        return false;
+      }
+      var visited = new Uint8Array(blackWells.length);
+      var anchors = [];
+      for (var start = 0; start < blackWells.length; start++) {
+        if (visited[start]) continue;
+        var memberIndices = [start];
+        visited[start] = 1;
+        for (var cursor = 0; cursor < memberIndices.length; cursor++) {
+          var member = blackWells[memberIndices[cursor]];
+          for (var candidate = 0; candidate < blackWells.length; candidate++) {
+            if (visited[candidate]) continue;
+            var other = blackWells[candidate];
+            var overlapX = member.well.x - other.well.x;
+            var overlapY = member.well.y - other.well.y;
+            var overlapRadius = member.extent + other.extent;
+            if (overlapX * overlapX + overlapY * overlapY <= overlapRadius * overlapRadius) {
+              visited[candidate] = 1;
+              memberIndices.push(candidate);
+            }
+          }
+        }
+        var totalMass = 0;
+        var centerX = 0;
+        var centerY = 0;
+        for (var mi = 0; mi < memberIndices.length; mi++) {
+          var black = blackWells[memberIndices[mi]].well;
+          var blackRadius = Math.max(1, Number.isFinite(black.radius) ? black.radius : 1);
+          var mass = Math.max(0.0001, Math.abs(Number.isFinite(black.strength) ? black.strength : 0) * blackRadius * blackRadius);
+          totalMass += mass;
+          centerX += black.x * mass;
+          centerY += black.y * mass;
+        }
+        centerX /= totalMass;
+        centerY /= totalMass;
+        var visualRadius = 1;
+        for (var vi = 0; vi < memberIndices.length; vi++) {
+          var visualMember = blackWells[memberIndices[vi]];
+          visualRadius = Math.max(visualRadius,
+            Math.hypot(visualMember.well.x - centerX, visualMember.well.y - centerY) + visualMember.extent);
+        }
+        anchors.push({
+          x: centerX,
+          y: centerY,
+          mass: totalMass,
+          visualRadius: visualRadius,
+          softenedRadius: Math.max(12, visualRadius * 0.12)
+        });
+      }
+      this._presetOrbitActive = true;
+      this._presetOrbitAnchors = anchors;
+      this._presetOrbitSalt = presetOrbitStringHash(active.id);
+      this._presetOrbitFrame = 0;
+      this._presetOrbitRunning = false;
+      if (!this._presetOrbitAssignments || this._presetOrbitAssignments.length < this.numParticles) {
+        this._presetOrbitAssignments = new Int16Array(this.posX ? this.posX.length : this.numParticles);
+      }
+      this._presetOrbitAssignments.fill(-1);
+      if (this._presetOrbitControlValid) this._presetOrbitControlValid.fill(0);
+      return true;
+    }),
+    (b.prototype._setPresetRecommendedMotionActive = function(enabled) {
+      if (!this.activeGravityWellPreset) {
+        this._clearPresetOrbitState();
+        return false;
+      }
+      this._gravityWellPresetUsesRecommendedMotion = enabled === true;
+      return enabled === true ? this._rebuildPresetOrbitAnchors() : (this._clearPresetOrbitState(), false);
+    }),
+    (b.prototype._presetOrbitTargetRadius = function(anchor, particleIndex, unitX, unitY, mobile) {
+      var random = presetOrbitHash(particleIndex, this._presetOrbitSalt);
+      var ratioMin = mobile ? presetOrbitTouchRatioMin : presetOrbitDesktopRatioMin;
+      var ratioMax = mobile ? presetOrbitTouchRatioMax : presetOrbitDesktopRatioMax;
+      var target = anchor.visualRadius * (ratioMin + (ratioMax - ratioMin) * random);
+      var size = this.sizeA && Number.isFinite(this.sizeA[particleIndex]) ? this.sizeA[particleIndex] : 1;
+      var clearanceX = unitX > 0.000001 ? (this.i.size.width - anchor.x) / unitX
+        : unitX < -0.000001 ? -anchor.x / unitX : Infinity;
+      var clearanceY = unitY > 0.000001 ? (this.i.size.height - anchor.y) / unitY
+        : unitY < -0.000001 ? -anchor.y / unitY : Infinity;
+      var clearance = Math.min(clearanceX, clearanceY) - Math.max(2, size + 1);
+      return Math.max(0, Math.min(target, clearance));
+    }),
+    (b.prototype._selectPresetOrbitAnchor = function(particleIndex, x, y) {
+      var anchors = this._presetOrbitAnchors;
+      var assignments = this._presetOrbitAssignments;
+      if (!anchors || !anchors.length || !assignments) return -1;
+      var current = assignments[particleIndex];
+      var currentScore = -1;
+      if (current >= 0 && current < anchors.length) {
+        var currentAnchor = anchors[current];
+        var currentDx = x - currentAnchor.x;
+        var currentDy = y - currentAnchor.y;
+        currentScore = currentAnchor.mass /
+          (currentDx * currentDx + currentDy * currentDy + currentAnchor.softenedRadius * currentAnchor.softenedRadius);
+      }
+      var best = current >= 0 && current < anchors.length ? current : 0;
+      var bestScore = currentScore;
+      for (var i = 0; i < anchors.length; i++) {
+        var anchor = anchors[i];
+        var dx = x - anchor.x;
+        var dy = y - anchor.y;
+        var score = anchor.mass / (dx * dx + dy * dy + anchor.softenedRadius * anchor.softenedRadius);
+        if (score > bestScore) {
+          best = i;
+          bestScore = score;
+        }
+      }
+      if (currentScore < 0 || bestScore > currentScore * presetOrbitAnchorSwitchRatio) {
+        assignments[particleIndex] = best;
+        return best;
+      }
+      return current;
+    }),
+    (b.prototype._placeParticlesInPresetOrbits = function() {
+      if (!this._presetOrbitActive || !this._presetOrbitAnchors.length || !this.posX || !this.posY) return 0;
+      var anchors = this._presetOrbitAnchors;
+      var mobile = !!(this._mobileLayoutMedia && this._mobileLayoutMedia.matches);
+      var direction = Number.isFinite(this.options.gravityWellSpin) && this.options.gravityWellSpin < 0 ? -1 : 1;
+      var goldenAngle = 2.399963229728653;
+      var count = this.numParticles | 0;
+      for (var i = 0; i < count; i++) {
+        var anchorIndex = i % anchors.length;
+        var anchor = anchors[anchorIndex];
+        var baseAngle = i * goldenAngle + presetOrbitHash(i, this._presetOrbitSalt ^ 2654435769) * Math.PI * 2;
+        var bestAngle = baseAngle;
+        var bestRadius = 0;
+        var bestScore = -Infinity;
+        for (var sample = 0; sample < 64; sample++) {
+          var angle = baseAngle + sample * Math.PI / 32;
+          var unitX = Math.cos(angle);
+          var unitY = Math.sin(angle);
+          var radius = this._presetOrbitTargetRadius(anchor, i, unitX, unitY, mobile);
+          var px = anchor.x + unitX * radius;
+          var py = anchor.y + unitY * radius;
+          var score = radius - Math.abs(px - this.i.size.width * 0.5) * 0.0001 -
+            Math.abs(py - this.i.size.height * 0.5) * 0.0001;
+          for (var wi = 0; wi < this.gravityWells.length; wi++) {
+            var well = this.gravityWells[wi];
+            var wellExtent = Math.max(1, well.radius) * presetOrbitVisualExtentScale;
+            var wellClearance = Math.hypot(px - well.x, py - well.y) / wellExtent;
+            if (effectiveGravityWellType(well) === 'white') {
+              score += Math.min(4, wellClearance);
+            } else if (wellClearance <= 1.02) {
+              score -= 10000 * (1.02 - wellClearance);
+            }
+          }
+          for (var ai = 0; ai < anchors.length; ai++) {
+            if (ai === anchorIndex) continue;
+            score += Math.min(4, Math.hypot(px - anchors[ai].x, py - anchors[ai].y) /
+              anchors[ai].visualRadius);
+          }
+          if (score > bestScore) {
+            bestScore = score;
+            bestAngle = angle;
+            bestRadius = radius;
+          }
+        }
+        var bestUnitX = Math.cos(bestAngle);
+        var bestUnitY = Math.sin(bestAngle);
+        if (bestRadius < 4) {
+          var padding = Math.max(4, (this.sizeA[i] || 1) + 1);
+          this.posX[i] = padding + presetOrbitHash(i, this._presetOrbitSalt ^ 374761393) *
+            Math.max(0, this.i.size.width - padding * 2);
+          this.posY[i] = padding + presetOrbitHash(i, this._presetOrbitSalt ^ 668265263) *
+            Math.max(0, this.i.size.height - padding * 2);
+          this._presetOrbitAssignments[i] = -1;
+          continue;
+        }
+        this.posX[i] = anchor.x + bestUnitX * bestRadius;
+        this.posY[i] = anchor.y + bestUnitY * bestRadius;
+        this._presetOrbitAssignments[i] = anchorIndex;
+        var velocityMagnitude = Math.hypot(this.velX[i], this.velY[i]);
+        if (velocityMagnitude > 0) {
+          this.velX[i] = -bestUnitY * direction * velocityMagnitude;
+          this.velY[i] = bestUnitX * direction * velocityMagnitude;
+        }
       }
       this._syncObjectsFromSoA();
       return count;
@@ -1841,6 +2090,7 @@
               this.gravityWells = entry.wells.map(function(well) { return Object.assign({}, well); });
               this.activeGravityWellPreset = entry.preset.active ? Object.assign({}, entry.preset.active) : null;
               this.lastGravityWellPresetId = entry.preset.lastId;
+              this._gravityWellPresetUsesRecommendedMotion = entry.preset.usesRecommendedMotion === true;
               this.options.gravityWellsEnabled = entry.enabled;
               if (entry.motion) {
                 Object.assign(this.options, entry.motion);
@@ -1849,6 +2099,10 @@
               }
               if (entry.viewport.width !== this.i.size.width || entry.viewport.height !== this.i.size.height) {
                 this._reflowGravityWellPreset(false);
+              } else if (this.activeGravityWellPreset) {
+                this._rebuildPresetOrbitAnchors();
+              } else {
+                this._clearPresetOrbitState();
               }
               if (entry.startupWellId && this.getGravityWell(entry.startupWellId)) {
                 this._startupGravityWellId = entry.startupWellId;
@@ -2410,7 +2664,8 @@
       return {
         active: this.activeGravityWellPreset ? Object.assign({}, this.activeGravityWellPreset) : null,
         lastId: this.lastGravityWellPresetId,
-        viewport: this.activeGravityWellPreset ? this._getGravityWellPresetViewport() : null
+        viewport: this.activeGravityWellPreset ? this._getGravityWellPresetViewport() : null,
+        usesRecommendedMotion: this._gravityWellPresetUsesRecommendedMotion === true
       };
     }),
     (b.prototype._captureGravityWellPresetUndo = function(includeMotion) {
@@ -2435,6 +2690,8 @@
     }),
     (b.prototype._restoreGravityWellPresetOwnership = function(state) {
       this.activeGravityWellPreset = null;
+      this._gravityWellPresetUsesRecommendedMotion = false;
+      this._clearPresetOrbitState();
       this.lastGravityWellPresetId = state.lastId;
       if (!state.active || !window.GravityWellPresets) return;
       var resolved = window.GravityWellPresets.resolve(state.active.id,
@@ -2447,6 +2704,7 @@
         });
       }, this)) {
         this.activeGravityWellPreset = Object.assign({}, state.active);
+        this._gravityWellPresetUsesRecommendedMotion = state.usesRecommendedMotion === true;
         this._reflowGravityWellPreset(true);
       }
     }),
@@ -2460,12 +2718,16 @@
     (b.prototype._detachGravityWellPreset = function() {
       this._finishGravityWellPresetAdjustment();
       this.activeGravityWellPreset = null;
+      this._gravityWellPresetUsesRecommendedMotion = false;
+      this._clearPresetOrbitState();
     }),
     (b.prototype.resetGravityWellPreset = function() {
       this.activeGravityWellPreset = null;
       this.lastGravityWellPresetId = null;
       this._gravityWellPresetAdjustment = null;
       this._gravityWellPresetViewport = null;
+      this._gravityWellPresetUsesRecommendedMotion = false;
+      this._clearPresetOrbitState();
     }),
     (b.prototype._cancelGravityWellPresetInteraction = function() {
       this._clearInteractivePointerForces();
@@ -2506,13 +2768,17 @@
         this.options.gravityWellsEnabled = true;
         this.activeGravityWellPreset = active;
         this.lastGravityWellPresetId = id;
+        this._gravityWellPresetUsesRecommendedMotion = useMotion;
         if (useMotion) {
           Object.assign(this.options, preset.motion);
           this.gravityWellAccelerationCapped = preset.motion.gravityWellAccelerationCapped;
           this.gravityWellAccelerationLimit = preset.motion.gravityWellAccelerationLimit;
         }
+        this._rebuildPresetOrbitAnchors();
         if (preset.initialParticlePlacement === 'spread') {
           this._spreadParticlesAcrossPresetViewport(this._getGravityWellPresetViewport());
+        } else if (preset.initialParticlePlacement === 'orbit' && useMotion && this._presetOrbitActive) {
+          this._placeParticlesInPresetOrbits();
         } else {
           this._gatherParticlesAt(this.i.size.width * 0.5, this.i.size.height * 0.5, true);
         }
@@ -2533,6 +2799,7 @@
         return false;
       }
       resolved.wells.forEach(function(well, index) { Object.assign(this.gravityWells[index], well); }, this);
+      this._rebuildPresetOrbitAnchors();
       this._invalidateGravityWellPresetInfluence(snapshot);
       return true;
     }),
@@ -5245,16 +5512,40 @@
       var nextVelX = new Float32Array(capacity);
       var nextVelY = new Float32Array(capacity);
       var nextSizeA = new Float32Array(capacity);
+      var nextPresetOrbitAssignments = new Int16Array(capacity);
+      var nextPresetOrbitDesiredX = new Float32Array(capacity);
+      var nextPresetOrbitDesiredY = new Float32Array(capacity);
+      var nextPresetOrbitResidualX = new Float32Array(capacity);
+      var nextPresetOrbitResidualY = new Float32Array(capacity);
+      var nextPresetOrbitBlend = new Float32Array(capacity);
+      var nextPresetOrbitControlValid = new Uint8Array(capacity);
+      nextPresetOrbitAssignments.fill(-1);
       if (this.posX) nextPosX.set(this.posX.subarray(0, this.numParticles));
       if (this.posY) nextPosY.set(this.posY.subarray(0, this.numParticles));
       if (this.velX) nextVelX.set(this.velX.subarray(0, this.numParticles));
       if (this.velY) nextVelY.set(this.velY.subarray(0, this.numParticles));
       if (this.sizeA) nextSizeA.set(this.sizeA.subarray(0, this.numParticles));
+      if (this._presetOrbitAssignments) {
+        nextPresetOrbitAssignments.set(this._presetOrbitAssignments.subarray(0, this.numParticles));
+      }
+      if (this._presetOrbitDesiredX) nextPresetOrbitDesiredX.set(this._presetOrbitDesiredX.subarray(0, this.numParticles));
+      if (this._presetOrbitDesiredY) nextPresetOrbitDesiredY.set(this._presetOrbitDesiredY.subarray(0, this.numParticles));
+      if (this._presetOrbitResidualX) nextPresetOrbitResidualX.set(this._presetOrbitResidualX.subarray(0, this.numParticles));
+      if (this._presetOrbitResidualY) nextPresetOrbitResidualY.set(this._presetOrbitResidualY.subarray(0, this.numParticles));
+      if (this._presetOrbitBlend) nextPresetOrbitBlend.set(this._presetOrbitBlend.subarray(0, this.numParticles));
+      if (this._presetOrbitControlValid) nextPresetOrbitControlValid.set(this._presetOrbitControlValid.subarray(0, this.numParticles));
       this.posX = nextPosX;
       this.posY = nextPosY;
       this.velX = nextVelX;
       this.velY = nextVelY;
       this.sizeA = nextSizeA;
+      this._presetOrbitAssignments = nextPresetOrbitAssignments;
+      this._presetOrbitDesiredX = nextPresetOrbitDesiredX;
+      this._presetOrbitDesiredY = nextPresetOrbitDesiredY;
+      this._presetOrbitResidualX = nextPresetOrbitResidualX;
+      this._presetOrbitResidualY = nextPresetOrbitResidualY;
+      this._presetOrbitBlend = nextPresetOrbitBlend;
+      this._presetOrbitControlValid = nextPresetOrbitControlValid;
     }),
     (b.prototype._spawnParticlesAt = function(x, y, count) {
       count = Math.max(0, count | 0);
@@ -5283,6 +5574,8 @@
         this.velX[index] = particle.velocity.x;
         this.velY[index] = particle.velocity.y;
         this.sizeA[index] = particle.size;
+        this._presetOrbitAssignments[index] = -1;
+        this._presetOrbitControlValid[index] = 0;
       }
       if (this.p && this.o[start] === this.p) {
         Array.prototype.splice.apply(this.o, [start, 0].concat(spawned));
@@ -5334,6 +5627,14 @@
       this.velX = new Float32Array(n);
       this.velY = new Float32Array(n);
       this.sizeA = new Float32Array(n);
+      this._presetOrbitAssignments = new Int16Array(n);
+      this._presetOrbitAssignments.fill(-1);
+      this._presetOrbitDesiredX = new Float32Array(n);
+      this._presetOrbitDesiredY = new Float32Array(n);
+      this._presetOrbitResidualX = new Float32Array(n);
+      this._presetOrbitResidualY = new Float32Array(n);
+      this._presetOrbitBlend = new Float32Array(n);
+      this._presetOrbitControlValid = new Uint8Array(n);
       for (var i = 0; i < n; i++) {
         var p = this.o[i];
         this.posX[i] = p.x;
@@ -5386,6 +5687,27 @@
         : 1;
       var gravitySpin = Number.isFinite(this.options.gravityWellSpin) ? this.options.gravityWellSpin : 0.2;
       var limitMobileGravityWellRange = !!(this._mobileLayoutMedia && this._mobileLayoutMedia.matches);
+      var presetOrbitAnchors = this._presetOrbitAnchors;
+      var presetOrbitAssignments = this._presetOrbitAssignments;
+      var presetOrbitDesiredX = this._presetOrbitDesiredX;
+      var presetOrbitDesiredY = this._presetOrbitDesiredY;
+      var presetOrbitResidualX = this._presetOrbitResidualX;
+      var presetOrbitResidualY = this._presetOrbitResidualY;
+      var presetOrbitBlend = this._presetOrbitBlend;
+      var presetOrbitControlValid = this._presetOrbitControlValid;
+      var stablePresetOrbit = !!this.activeGravityWellPreset && this._presetOrbitActive === true &&
+        this._gravityWellPresetUsesRecommendedMotion === true && gravityForceMultiplier > 0 &&
+        gravityWells.length > 0 && presetOrbitAnchors && presetOrbitAnchors.length > 0;
+      var presetOrbitFrame = 0;
+      if (stablePresetOrbit) {
+        if (!this._presetOrbitRunning) {
+          presetOrbitControlValid.fill(0);
+          this._presetOrbitRunning = true;
+        }
+        presetOrbitFrame = this._presetOrbitFrame = (this._presetOrbitFrame + 1) & 2147483647;
+      } else {
+        this._presetOrbitRunning = false;
+      }
       var mobileGravityWellViewportRadius = limitMobileGravityWellRange
         ? Math.min(width, height) * mobileGravityWellViewportRadiusScale
         : 0;
@@ -5447,7 +5769,7 @@
 	            var softenedRadius = Math.max(12, wellRadius * 0.12);
 	            var softenedSq = gravityDistanceSq + softenedRadius * softenedRadius;
 	            var gravityMagnitude = wellStrength * wellRadius * wellRadius / softenedSq * 0.012 * gravityForceMultiplier;
-              if (limitMobileGravityWellRange && effectiveWellType === 'black' &&
+              if (limitMobileGravityWellRange && !stablePresetOrbit && effectiveWellType === 'black' &&
                   gravityMagnitude > mobileBlackHoleMagnitude) {
                 mobileBlackHoleX = wellX;
                 mobileBlackHoleY = wellY;
@@ -5459,6 +5781,98 @@
             var gravityUnitY = gravityDy / gravityDistance;
             gravityX += (gravityUnitX * gravitySign - gravityUnitY * gravitySign * gravitySpin) * gravityMagnitude;
             gravityY += (gravityUnitY * gravitySign + gravityUnitX * gravitySign * gravitySpin) * gravityMagnitude;
+          }
+          if (stablePresetOrbit) {
+            if (capturedByCursor) {
+              presetOrbitControlValid[i] = 0;
+            } else {
+              var refreshOrbitControl = !presetOrbitControlValid[i] ||
+                ((i + presetOrbitFrame) & presetOrbitControlRefreshMask) === 0;
+              if (refreshOrbitControl) {
+                var orbitAnchorIndex = presetOrbitAssignments[i];
+                if (orbitAnchorIndex < 0 || orbitAnchorIndex >= presetOrbitAnchors.length ||
+                    ((i + presetOrbitFrame) & presetOrbitAnchorRescanMask) === 0) {
+                  orbitAnchorIndex = this._selectPresetOrbitAnchor(i, x, y);
+                }
+                if (orbitAnchorIndex >= 0) {
+                  var orbitAnchor = presetOrbitAnchors[orbitAnchorIndex];
+                  var orbitDx = x - orbitAnchor.x;
+                  var orbitDy = y - orbitAnchor.y;
+                  var orbitDistance = Math.sqrt(orbitDx * orbitDx + orbitDy * orbitDy);
+                  var orbitUnitX;
+                  var orbitUnitY;
+                  if (orbitDistance > 0.0001) {
+                    orbitUnitX = orbitDx / orbitDistance;
+                    orbitUnitY = orbitDy / orbitDistance;
+                  } else {
+                    var fallbackAngle = presetOrbitHash(i, this._presetOrbitSalt ^ 1597334677) * Math.PI * 2;
+                    orbitUnitX = Math.cos(fallbackAngle);
+                    orbitUnitY = Math.sin(fallbackAngle);
+                    orbitDistance = 0;
+                  }
+                  var orbitTarget = this._presetOrbitTargetRadius(
+                    orbitAnchor, i, orbitUnitX, orbitUnitY, limitMobileGravityWellRange);
+                  var attractionAtTarget = orbitAnchor.mass /
+                    (orbitTarget * orbitTarget + orbitAnchor.softenedRadius * orbitAnchor.softenedRadius) *
+                    0.012 * gravityForceMultiplier;
+                  var baseOrbitSpeed = Math.max(0, Math.abs(Number.isFinite(speed) ? speed : 0));
+                  var naturalOrbitSpeed = Math.sqrt(Math.max(0, orbitTarget * attractionAtTarget));
+                  var orbitSpeed = Math.max(baseOrbitSpeed * 1.5,
+                    Math.min(baseOrbitSpeed * 4, naturalOrbitSpeed));
+                  var radialTarget = presetOrbitRadialGain * (orbitTarget - orbitDistance);
+                  var radialLimit = orbitSpeed * 0.6;
+                  radialTarget = Math.max(-radialLimit, Math.min(radialLimit, radialTarget));
+                  var orbitDirection = gravitySpin < 0 ? -1 : 1;
+                  var tangentX = -orbitUnitY * orbitDirection;
+                  var tangentY = orbitUnitX * orbitDirection;
+                  var desiredVelocityX = orbitUnitX * radialTarget + tangentX * orbitSpeed;
+                  var desiredVelocityY = orbitUnitY * radialTarget + tangentY * orbitSpeed;
+                  var controlledX = (desiredVelocityX - vx) * presetOrbitSteeringGain;
+                  var controlledY = (desiredVelocityY - vy) * presetOrbitSteeringGain;
+                  var rawRadial = gravityX * orbitUnitX + gravityY * orbitUnitY;
+                  var rawTangential = gravityX * tangentX + gravityY * tangentY;
+                  var residualLimit = Math.sqrt(controlledX * controlledX + controlledY * controlledY) *
+                    presetOrbitRawFieldShare;
+                  var residualTangential = Math.max(-residualLimit,
+                    Math.min(residualLimit, rawTangential * presetOrbitRawFieldShare));
+                  var residualRadial = 0;
+                  if ((orbitDistance < orbitTarget && rawRadial > 0) ||
+                      (orbitDistance > orbitTarget && rawRadial < 0)) {
+                    residualRadial = Math.max(-residualLimit,
+                      Math.min(residualLimit, rawRadial * presetOrbitRawFieldShare));
+                  }
+                  var orbitBlend = Math.max(0, Math.min(1,
+                    (orbitTarget * 3 - orbitDistance) / Math.max(1, orbitTarget * 2)));
+                  orbitBlend = orbitBlend * orbitBlend * (3 - 2 * orbitBlend);
+                  var slowThreshold = baseOrbitSpeed;
+                  var particleSpeedSq = vx * vx + vy * vy;
+                  if (slowThreshold > 0 && particleSpeedSq < slowThreshold * slowThreshold) {
+                    var particleSpeed = Math.sqrt(particleSpeedSq);
+                    var slowBlend = Math.max(0, Math.min(1,
+                      (slowThreshold - particleSpeed) / Math.max(0.0001, slowThreshold * 0.5)));
+                    slowBlend = slowBlend * slowBlend * (3 - 2 * slowBlend);
+                    orbitBlend += (1 - orbitBlend) * slowBlend;
+                  }
+                  presetOrbitDesiredX[i] = desiredVelocityX;
+                  presetOrbitDesiredY[i] = desiredVelocityY;
+                  presetOrbitResidualX[i] = tangentX * residualTangential + orbitUnitX * residualRadial;
+                  presetOrbitResidualY[i] = tangentY * residualTangential + orbitUnitY * residualRadial;
+                  presetOrbitBlend[i] = orbitBlend;
+                  presetOrbitControlValid[i] = 1;
+                } else {
+                  presetOrbitControlValid[i] = 0;
+                }
+              }
+              if (presetOrbitControlValid[i]) {
+                var cachedControlledX = (presetOrbitDesiredX[i] - vx) * presetOrbitSteeringGain +
+                  presetOrbitResidualX[i];
+                var cachedControlledY = (presetOrbitDesiredY[i] - vy) * presetOrbitSteeringGain +
+                  presetOrbitResidualY[i];
+                var cachedOrbitBlend = presetOrbitBlend[i];
+                gravityX += (cachedControlledX - gravityX) * cachedOrbitBlend;
+                gravityY += (cachedControlledY - gravityY) * cachedOrbitBlend;
+              }
+            }
           }
           if (this.gravityWellAccelerationCapped) {
             var gravityAcceleration = Math.sqrt(gravityX * gravityX + gravityY * gravityY);
