@@ -159,6 +159,7 @@ async function main() {
     const assertions = {
       particleRuntimeHealthy: initial.particleCount > 0 && initial.rafActive &&
         initial.hasWebGl && !initial.webGlContextLost,
+      desktopStartsWithOneThousandParticles: initial.particleCount === 1000,
       expectedClassicScriptOrder: JSON.stringify(localClassicScripts) === JSON.stringify(expectedClassicScripts)
     };
     if (!options.blockTweakpane) {

@@ -833,6 +833,10 @@
         (this.i.size = { width: this.i.offsetWidth, height: this.i.offsetHeight }),
         (b = void 0 !== b ? b : {});
 
+      this._initialDesktopParticleCount = Number.isFinite(b.initialDesktopParticleCount)
+        ? Math.max(0, Math.round(b.initialDesktopParticleCount))
+        : null;
+
       this.options = window.ParticleNetworkConfig.createRuntimeConfig(
         b,
         this.setVelocity,
@@ -4683,7 +4687,11 @@
       // Particle array initialization (use logical dimensions, not DPR-scaled)
       this.o = [];
       var initialLogicalArea = this.i.size.width * this.i.size.height;
-      for (var a = 0; a < initialLogicalArea / this.options.density; a++) {
+      var initialParticleTarget = this._initialDesktopParticleCount !== null &&
+        !(this._mobileLayoutMedia && this._mobileLayoutMedia.matches)
+        ? this._initialDesktopParticleCount
+        : initialLogicalArea / this.options.density;
+      for (var a = 0; a < initialParticleTarget; a++) {
         var particle = new c(this);
         particle.index = a;
         this.o.push(particle);
@@ -6474,6 +6482,7 @@ var options = {
   // Velocity and density options
   speed: "1",
   density: "5000",
+  initialDesktopParticleCount: 1000,
 
   // Color effect options
   opacity: 0.7,
