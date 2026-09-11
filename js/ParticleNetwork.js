@@ -908,6 +908,7 @@
       this._cursorCapturePending = null;
       this._cursorCaptureHoldTimer = null;
       this._lastPrimaryEmptyDown = null;
+      this._gatherActive = false;
       this.selectedParticleIndices = new Set();
       this.selectedGravityWellIds = new Set();
       this._selectionClipboard = null;
@@ -1473,6 +1474,7 @@
 	    }),
 	    (b.prototype._clearInteractivePointerForces = function(preserveMobilePointers) {
 	      this._stopCursorCapture();
+	      this._gatherActive = false;
 	      this.attractionForce = null;
 	      this.repulsionForce = null;
 	      if (!preserveMobilePointers) this._resetMobileGesture(true);
@@ -5052,6 +5054,7 @@
             if (!this._forceHue) this._forceHue = 0;
             console.warn('[PN] Force hue sweep:', this.forceHueSweep ? 'ON' : 'OFF');
           } else if ((event.key === 'a' || event.key === 'A') && !event.ctrlKey && !event.metaKey) {
+            if (event.repeat || this._gatherActive) return;
             // Hold-to-gather: while A is held, attract particles to pointer (use repulsionForce, which is attractive in this codebase)
             this._gatherActive = true;
             if (this.p && Number.isFinite(this.p.x) && Number.isFinite(this.p.y)) {
@@ -5084,12 +5087,13 @@
 
       // Keyup to end gather
       document.addEventListener('keyup', function(event){
-        if (event.key === 'a' || event.key === 'A') {
+        if ((event.key === 'a' || event.key === 'A') && this._gatherActive) {
           this._gatherActive = false;
           // Clear our repulsion-driven gather unless the user is still holding left mouse (handled by mousedown elsewhere)
           if (!(this._activePointers && this._activePointers.size > 0)) {
             this.repulsionForce = null;
           }
+          this._ensureAnimationLoop();
         }
       }.bind(this));
 
@@ -5204,7 +5208,10 @@
         if (this._touchedCells) this._touchedCells.length = 0; else this._touchedCells = [];
       }
       var grid = this.grid;
-      var lineDetailEnabled = prepareLineDetailFrame(this);
+      var gatherLinesSuppressed = this._gatherActive === true;
+      var lineDetailEnabled = gatherLinesSuppressed
+        ? (resetLineDetailDiagnostics(this), false)
+        : prepareLineDetailFrame(this);
       var lineMaxCellOccupancy = 0;
 
       // Assign particles to grid cells
@@ -5330,57 +5337,65 @@
 
       if (lineDetailEnabled) beginLineDetailFrame(this, now, elapsedSeconds, lineMaxCellOccupancy);
 
-      if ((this.glRenderer && this.glRenderer.addLine) || options.blackHoleLineColor === true) {
+      if (!gatherLinesSuppressed &&
+          ((this.glRenderer && this.glRenderer.addLine) || options.blackHoleLineColor === true)) {
         prepareFrameLineColors(this);
       }
-      prepareBlackHoleLineTints(this, particles, numParticles);
+      if (!gatherLinesSuppressed) prepareBlackHoleLineTints(this, particles, numParticles);
 
       // Process interactions
-      for (var x = 0; x < gridWidth; x++) {
-        for (var y = 0; y < gridHeight; y++) {
-          var cellIndex = x + y * gridWidth;
-          var cellParticles = grid[cellIndex];
-          var numCellParticles = cellParticles.length;
+      if (gatherLinesSuppressed) {
+        drawGatheredParticles(this, particles, numParticles);
+        if (options.particleRepulsion || options.particleAttraction) {
+          interactParticleForcesInGrid(this, grid, gridWidth, gridHeight);
+        }
+      } else {
+        for (var x = 0; x < gridWidth; x++) {
+          for (var y = 0; y < gridHeight; y++) {
+            var cellIndex = x + y * gridWidth;
+            var cellParticles = grid[cellIndex];
+            var numCellParticles = cellParticles.length;
 
-          for (var m = 0; m < numCellParticles; m++) {
-            var particleA = cellParticles[m];
+            for (var m = 0; m < numCellParticles; m++) {
+              var particleA = cellParticles[m];
 
-            // Draw particle
-            // When trails are enabled, render particles on 2D canvas to accumulate trails
-            if (!this.options.trails && this.glRenderer && this.glRenderer.addPoint) {
-              this.glRenderer.addPoint(
-                particleA.x,
-                particleA.y,
-                this._frameParticleColor,
-                particleA.size || options.particleSize
-              );
-            } else {
-              particleA.h(this._frameParticleCssColor); // 2D fallback draw
-            }
+              // Draw particle
+              // When trails are enabled, render particles on 2D canvas to accumulate trails
+              if (!this.options.trails && this.glRenderer && this.glRenderer.addPoint) {
+                this.glRenderer.addPoint(
+                  particleA.x,
+                  particleA.y,
+                  this._frameParticleColor,
+                  particleA.size || options.particleSize
+                );
+              } else {
+                particleA.h(this._frameParticleCssColor); // 2D fallback draw
+              }
 
-            // Interactions within the same cell
-            for (var n = m + 1; n < numCellParticles; n++) {
-              var particleB = cellParticles[n];
-              interactParticles(this, particleA, particleB);
-            }
+              // Interactions within the same cell
+              for (var n = m + 1; n < numCellParticles; n++) {
+                var particleB = cellParticles[n];
+                interactParticles(this, particleA, particleB);
+              }
 
-            // Interactions with neighboring cells
-            for (var offsetX = 0; offsetX <= 1; offsetX++) {
-              var neighborX = x + offsetX;
-              if (neighborX >= gridWidth) continue;
+              // Interactions with neighboring cells
+              for (var offsetX = 0; offsetX <= 1; offsetX++) {
+                var neighborX = x + offsetX;
+                if (neighborX >= gridWidth) continue;
 
-              var firstOffsetY = offsetX === 0 ? 1 : -1;
-              for (var offsetY = firstOffsetY; offsetY <= 1; offsetY++) {
-                var neighborY = y + offsetY;
-                if (neighborY < 0 || neighborY >= gridHeight) continue;
+                var firstOffsetY = offsetX === 0 ? 1 : -1;
+                for (var offsetY = firstOffsetY; offsetY <= 1; offsetY++) {
+                  var neighborY = y + offsetY;
+                  if (neighborY < 0 || neighborY >= gridHeight) continue;
 
-                var neighborIndex = neighborX + neighborY * gridWidth;
-                var neighborParticles = grid[neighborIndex];
-                var numNeighborParticles = neighborParticles.length;
+                  var neighborIndex = neighborX + neighborY * gridWidth;
+                  var neighborParticles = grid[neighborIndex];
+                  var numNeighborParticles = neighborParticles.length;
 
-                for (var k = 0; k < numNeighborParticles; k++) {
-                  var particleB = neighborParticles[k];
-                  interactParticles(this, particleA, particleB);
+                  for (var k = 0; k < numNeighborParticles; k++) {
+                    var particleB = neighborParticles[k];
+                    interactParticles(this, particleA, particleB);
+                  }
                 }
               }
             }
@@ -5999,6 +6014,88 @@
     }),
     b
   );
+
+  function drawGatheredParticles(network, particles, numParticles) {
+    for (var i = 0; i < numParticles; i++) {
+      var particle = particles[i];
+      if (!network.options.trails && network.glRenderer && network.glRenderer.addPoint) {
+        network.glRenderer.addPoint(
+          particle.x,
+          particle.y,
+          network._frameParticleColor,
+          particle.size || network.options.particleSize
+        );
+      } else {
+        particle.h(network._frameParticleCssColor);
+      }
+    }
+  }
+
+  function interactParticleForcesInGrid(network, grid, gridWidth, gridHeight) {
+    for (var x = 0; x < gridWidth; x++) {
+      for (var y = 0; y < gridHeight; y++) {
+        var cellParticles = grid[x + y * gridWidth];
+        var numCellParticles = cellParticles.length;
+        for (var m = 0; m < numCellParticles; m++) {
+          var particleA = cellParticles[m];
+          for (var n = m + 1; n < numCellParticles; n++) {
+            interactParticleForces(network, particleA, cellParticles[n]);
+          }
+          for (var offsetX = 0; offsetX <= 1; offsetX++) {
+            var neighborX = x + offsetX;
+            if (neighborX >= gridWidth) continue;
+            var firstOffsetY = offsetX === 0 ? 1 : -1;
+            for (var offsetY = firstOffsetY; offsetY <= 1; offsetY++) {
+              var neighborY = y + offsetY;
+              if (neighborY < 0 || neighborY >= gridHeight) continue;
+              var neighborParticles = grid[neighborX + neighborY * gridWidth];
+              for (var k = 0; k < neighborParticles.length; k++) {
+                interactParticleForces(network, particleA, neighborParticles[k]);
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+
+  function interactParticleForces(network, particleA, particleB) {
+    var options = network.options;
+    var dx = particleA.x - particleB.x;
+    var dy = particleA.y - particleB.y;
+    var distanceSq = dx * dx + dy * dy;
+
+    if (distanceSq < 0.0001) return;
+
+    var interDistSq = options.particleInteractionDistance * options.particleInteractionDistance;
+    if (distanceSq < interDistSq) {
+      var cx = (particleA.x + particleB.x) / 2;
+      var cy = (particleA.y + particleB.y) / 2;
+      if (options.particleRepulsion) {
+        applyParticleInteraction(particleA, particleB, cx, cy, options.particleInteractionDistance, options.particleRepulsionForce);
+      } else if (options.particleAttraction) {
+        applyParticleInteraction(
+          particleA,
+          particleB,
+          cx,
+          cy,
+          options.particleInteractionDistance,
+          -Math.abs(options.particleAttractionForce)
+        );
+      }
+    }
+
+    if (isNaN(particleA.velocity.x) || isNaN(particleA.velocity.y)) {
+      console.warn("particleA velocity is NaN. Resetting to zero.");
+      particleA.velocity.x = 0;
+      particleA.velocity.y = 0;
+    }
+    if (isNaN(particleB.velocity.x) || isNaN(particleB.velocity.y)) {
+      console.warn("particleB velocity is NaN. Resetting to zero.");
+      particleB.velocity.x = 0;
+      particleB.velocity.y = 0;
+    }
+  }
 
   function interactParticles(network, particleA, particleB) {
     var options = network.options;

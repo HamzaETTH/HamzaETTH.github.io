@@ -108,6 +108,7 @@
       });
       if (this._cancelMobileHold) this._cancelMobileHold();
       if (this._activePointers) this._activePointers.clear();
+      this._gatherActive = false;
       this.attractionForce = null;
       this.repulsionForce = null;
       this._middleSpawnActive = false;

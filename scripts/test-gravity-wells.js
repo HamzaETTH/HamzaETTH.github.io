@@ -406,15 +406,33 @@ async function runDesktop(browser, options, browserErrors) {
       pn.velY[i] = 0;
     }
     pn._syncObjectsFromSoA();
+    const originalGather = pn._gatherParticlesAt;
+    let gatherCalls = 0;
+    pn._gatherParticlesAt = function() {
+      gatherCalls++;
+      return originalGather.apply(this, arguments);
+    };
     document.dispatchEvent(new KeyboardEvent('keydown', { key: 'a', bubbles: true }));
     const distances = Array.from({ length: pn.numParticles }, (_, index) =>
       Math.hypot(pn.posX[index] - point.x, pn.posY[index] - point.y)
     );
+    const positionsAfterFirstKeydown = Array.from({ length: pn.numParticles }, (_, index) =>
+      [pn.posX[index], pn.posY[index]]
+    );
+    document.dispatchEvent(new KeyboardEvent('keydown', { key: 'a', repeat: true, bubbles: true }));
+    document.dispatchEvent(new KeyboardEvent('keydown', { key: 'a', bubbles: true }));
+    const positionsAfterIgnoredKeydowns = Array.from({ length: pn.numParticles }, (_, index) =>
+      [pn.posX[index], pn.posY[index]]
+    );
     const activeDuringKey = pn._gatherActive;
     document.dispatchEvent(new KeyboardEvent('keyup', { key: 'a', bubbles: true }));
+    pn._gatherParticlesAt = originalGather;
     return {
       activeDuringKey,
       activeAfterKey: pn._gatherActive,
+      gatherCalls,
+      repeatedKeydownsPreservedPositions: positionsAfterIgnoredKeydowns.every((position, index) =>
+        position[0] === positionsAfterFirstKeydown[index][0] && position[1] === positionsAfterFirstKeydown[index][1]),
       maxDistance: Math.max(...distances),
       radius: pn.options.gatherRadius
     };
@@ -1562,6 +1580,7 @@ async function runDesktop(browser, options, browserErrors) {
       whiteReversed.innerColor === '#ff8080' && whiteReversed.outerColor === '#3633ff',
     quickDoubleClickDoesNotCapture: !quickDoubleClickCapture.active && !quickDoubleClickCapture.pending,
     aGatherStillTeleportsParticles: aGatherState.activeDuringKey && !aGatherState.activeAfterKey &&
+      aGatherState.gatherCalls === 1 && aGatherState.repeatedKeydownsPreservedPositions &&
       aGatherState.maxDistance <= aGatherState.radius + 0.1,
     doublePressHoldStartsWithoutTeleport: captureActivated.active && !captureActivated.pending && captureActivated.cursorActive &&
       captureActivated.point.x === capturePoint.x && captureActivated.point.y === capturePoint.y &&

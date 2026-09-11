@@ -29,6 +29,7 @@ This file is the permanent optimization record. Every optimization must be isola
 | 17 | Requested-scope cumulative milestone | **COMPLETE** | Final regression suite and 54-measurement three-profile A/B below | Keep application checkpoint `2cabf86` |
 | 18 | Full SoA/index architecture | **REJECTED** | Final-engine profile, exact state contract, and two rejected staged A/B experiments below | Revisit only if a future runtime/profile changes the bottleneck |
 | 19 | Adaptive line detail | **COMPLETE** | Five-trial sparse/dense/10k A/B, visual captures, and adaptive regression suite below | Keep; Full remains generous at healthy FPS |
+| 20 | A-key gather line suppression | **COMPLETE** | Nine-trial 185/5k/10k A/B plus focused render, input, cleanup, and physics coverage below | Keep; pair forces and collisions remain authoritative |
 
 Progress protocol:
 
@@ -931,3 +932,31 @@ A focused end-to-end transition benchmark used 1,200 stationary particles packed
 That is a 40.06% lower median frame time in this stress case. It validates that the threshold reaches the existing adaptive line system and produces a material recovery; it is not a general-device FPS guarantee. Rendering and device performance vary.
 
 Reproduce with `rtk node scripts/test-gravity-well-presets.js http://127.0.0.1:8137/`, `rtk node scripts/test-gravity-well-preset-physics.js http://127.0.0.1:8137/`, `rtk node scripts/test-auto-adaptive-line-detail.js --url http://127.0.0.1:8137/`, and `rtk node scripts/benchmark-auto-adaptive-lines.js http://127.0.0.1:8137/`; optional artifact directories record JSON and evolved screenshots. Geometry, transactions, UI, and representative WebGL/Trails/touch/reduced-motion/Canvas checks are documented in `docs/gravity-well-presets.md`.
+
+## A-key gather line suppression — COMPLETE (2026-09-10)
+
+**Goal:** eliminate the near-quadratic connection-pair work created after `A` gathers thousands of particles into a few grid cells. While `A` is held, particle connection lines are transiently suppressed without changing saved line options, Adaptive Line Detail ownership/state, or Tweakpane controls. The first non-repeat keydown gathers once; keyup and interaction-cancellation paths restore normal rendering.
+
+With default particle attraction and repulsion disabled, held gather draws particles but skips connection-pair traversal entirely. If either pair force is enabled, a physics-only grid traversal retains its exact motion result while omitting line work. Trails, Canvas fallback, pointer attraction, gravity wells, selection overlays, and the existing separate collision pass remain active.
+
+### Measurement
+
+**Environment:** Microsoft Edge 152.0.4191.66 through Playwright, Windows, WebGL, 1280×720 CSS pixels, DPR 1, headless. Baseline `b06e0e3` and the optimized working tree were served from separate localhost worktrees.
+
+**Method:** nine alternating baseline/optimized trials at 185, 5,000, and 10,000 deterministic particles, with seven timing samples per phase. Each trial measured the unchanged line-rendering path first, then dispatched one `A` keydown, measured held-gather frames, dispatched keyup, and rendered a release frame. Pair attraction, pair repulsion, collisions, automatic Adaptive Line Detail, Trails, gravity wells, and particle velocity were disabled for the performance matrix. The 185-particle timings batch repeated updates to remain above the browser timer resolution; dense timings used individual frames.
+
+| Particles | Normal baseline → optimized | Normal change | Held gather baseline → optimized | Gather improvement | Candidates baseline → optimized | Segments baseline → optimized |
+|---:|---:|---:|---:|---:|---:|---:|
+| 185 | 0.1147 → 0.1142 ms | -0.44% | 1.1433 → 0.0333 ms | **97.08%** | 17,020 → 0 | 3,083 → 0 |
+| 5,000 | 49.3 → 46.7 ms | -5.27% | 416.7 → 0.7 ms | **99.83%** | 9,502,175 → 0 | 76,721 → 0 |
+| 10,000 | 161.3 → 157.0 ms | -2.67% | 1,512.3 → 1.1 ms | **99.93%** | 38,014,050 → 0 | 80,702 → 0 |
+
+All acceptance gates passed: held gather improved by more than 50% at 5,000 and 10,000, no normal-mode median regressed, optimized held frames emitted zero connection candidates/segments/vertices, WebGL points remained visible at the exact requested counts, release frames restored lines and settings exactly, WebGL remained healthy, and browser errors were empty.
+
+### Verification and limitations
+
+- `scripts/test-gather-lines.js` passed one-shot keydown, ignored repeat and duplicate keydowns, `Ctrl+A`, keyup restoration, central cancellation, blur, visibility loss, physics reset, full reset, WebGL points, Trails, Canvas fallback, pointer gather motion, exact pair-attraction/repulsion/collision results, Adaptive Line Detail/controller/pane preservation, and browser/WebGL health.
+- Existing gravity-well, selection/clipboard, physics-reset, visibility, adaptive-line, pair-hot-path, exact SoA-state, and destroy/recreate suites passed. The destroy test used a plain static server because the live-reload server intentionally owns one timeout.
+- User-enabled pair attraction or repulsion still performs the physics-only pair traversal, and enabled collisions still perform the existing separate collision traversal. Those authoritative features can therefore retain near-quadratic cost in a dense gather; the performance figures above apply to the default pair-force/collision-off configuration.
+
+**Decision:** keep. The default held-gather path removes the measured bottleneck, normal rendering remains within its regression gate, and line state returns immediately without a public setting or persistent mutation.

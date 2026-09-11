@@ -196,6 +196,7 @@ async function main() {
             canvasConnected: Boolean(old.canvas && old.canvas.isConnected),
             glContextLost: oldGl ? oldGl.isContextLost() : true,
             staleFramesAfterDestroy: staleFrames - framesAtDestroy,
+            gatherInactive: old._gatherActive === false,
             storageReleased: old.o === null && old.grid === null && old.posX === null &&
               old.posY === null && old.velX === null && old.velY === null && old.sizeA === null &&
               old._lineDetailLinkCounts == null && old._lineDetailParticleTiles == null &&
@@ -306,7 +307,7 @@ async function main() {
       twoCleanDestroyCycles: Boolean(evidence && evidence.cycles.length === 2 && evidence.cycles.every(cycle =>
         cycle.destroyed && !cycle.rafActive && !cycle.rafIdPresent &&
         !cycle.containerConnected && !cycle.canvasConnected && cycle.glContextLost &&
-        cycle.staleFramesAfterDestroy === 0 && cycle.storageReleased &&
+        cycle.staleFramesAfterDestroy === 0 && cycle.gatherInactive && cycle.storageReleased &&
         cycle.listenersReleased && cycle.globalsReleased &&
         cycle.snapshot.activeRafCount === 0 && cycle.snapshot.activeTimeoutCount === 0 &&
         ownedGlobalListenerKeys.every(key => !cycle.snapshot.byTargetType[key]))),
