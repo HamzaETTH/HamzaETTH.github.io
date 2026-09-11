@@ -121,7 +121,7 @@ async function main() {
     await page.keyboard.press('c');
     await page.waitForFunction(() => {
       const container = document.getElementById('tp-container');
-      return container && getComputedStyle(container).display !== 'none';
+      return container?.querySelector('.particle-controls-body')?.hidden === false;
     }, null, { timeout: 30000 });
     await page.keyboard.press('c');
 
@@ -238,6 +238,8 @@ async function main() {
             containers: document.querySelectorAll('#particle-canvas > div').length,
             overlays: document.querySelectorAll('.performance-overlay').length,
             paneContainers: document.querySelectorAll('#tp-container').length,
+            launcherPresent: Boolean(document.querySelector('.particle-controls-launcher')),
+            paneClosed: document.querySelector('.particle-controls-body')?.hidden === true,
             hotkeys: Array.from(window.hotkeyManager.handlers.keys()).sort(),
             webGlContextLost: live.glRenderer.gl.isContextLost(),
             snapshot: window.__lifecycleProbe.snapshot()
@@ -250,14 +252,14 @@ async function main() {
       await page.keyboard.press('c');
       await page.waitForFunction(() => {
         const container = document.getElementById('tp-container');
-        return container && getComputedStyle(container).display !== 'none';
+        return container?.querySelector('.particle-controls-body')?.hidden === false;
       }, null, { timeout: 30000 });
       evidence.recreatedUi = await page.evaluate(() => {
         const container = document.getElementById('tp-container');
         return {
           paneContainers: document.querySelectorAll('#tp-container').length,
           populated: Boolean(container && container.querySelector('.tp-dfwv, .tp-rotv')),
-          visible: Boolean(container && getComputedStyle(container).display !== 'none'),
+          open: container?.querySelector('.particle-controls-body')?.hidden === false,
           hotkeys: Array.from(window.hotkeyManager.handlers.keys()).sort()
         };
       });
@@ -314,13 +316,14 @@ async function main() {
       oneHealthyLiveInstance: Boolean(evidence && evidence.final.particleCount > 0 &&
         evidence.final.rafActive && evidence.final.rafIdPresent &&
         evidence.final.canvases === 2 && evidence.final.containers === 1 &&
-        evidence.final.overlays === 1 && evidence.final.paneContainers === 0 &&
+        evidence.final.overlays === 1 && evidence.final.paneContainers === 1 &&
+        evidence.final.launcherPresent && evidence.final.paneClosed &&
         !evidence.final.webGlContextLost),
       hotkeysRecreatedOnce: Boolean(evidence &&
         JSON.stringify(evidence.final.hotkeys) === JSON.stringify(expectedHotkeys)),
       lazyPaneRecreatedOnce: Boolean(evidence && evidence.recreatedUi &&
         evidence.recreatedUi.paneContainers === 1 && evidence.recreatedUi.populated &&
-        evidence.recreatedUi.visible &&
+        evidence.recreatedUi.open &&
         JSON.stringify(evidence.recreatedUi.hotkeys) === JSON.stringify(expectedHotkeys)),
       pendingPaneBuildStayedDestroyed: Boolean(evidence && evidence.pendingBuild &&
         evidence.pendingBuild.particleInstance === null && evidence.pendingBuild.hotkeyManager === null &&

@@ -5756,6 +5756,8 @@
         if (gravityWells.length) {
           var gravityX = 0;
           var gravityY = 0;
+	        var whiteGravityX = 0;
+	        var whiteGravityY = 0;
 	          for (var wi = 0; wi < gravityWells.length; wi++) {
 	            var gravityWell = gravityWells[wi];
 	            var wellX = Number.isFinite(gravityWell.x) ? gravityWell.x : width * 0.5;
@@ -5794,8 +5796,14 @@
             var gravitySign = effectiveWellType === 'white' ? -1 : 1;
             var gravityUnitX = gravityDx / gravityDistance;
             var gravityUnitY = gravityDy / gravityDistance;
-            gravityX += (gravityUnitX * gravitySign - gravityUnitY * gravitySign * gravitySpin) * gravityMagnitude;
-            gravityY += (gravityUnitY * gravitySign + gravityUnitX * gravitySign * gravitySpin) * gravityMagnitude;
+            var gravityForceX = (gravityUnitX * gravitySign - gravityUnitY * gravitySign * gravitySpin) * gravityMagnitude;
+            var gravityForceY = (gravityUnitY * gravitySign + gravityUnitX * gravitySign * gravitySpin) * gravityMagnitude;
+            gravityX += gravityForceX;
+            gravityY += gravityForceY;
+            if (stablePresetOrbit && effectiveWellType === 'white') {
+              whiteGravityX += gravityForceX;
+              whiteGravityY += gravityForceY;
+            }
           }
           if (stablePresetOrbit) {
             if (capturedByCursor) {
@@ -5844,8 +5852,10 @@
                   var desiredVelocityY = orbitUnitY * radialTarget + tangentY * orbitSpeed;
                   var controlledX = (desiredVelocityX - vx) * presetOrbitSteeringGain;
                   var controlledY = (desiredVelocityY - vy) * presetOrbitSteeringGain;
-                  var rawRadial = gravityX * orbitUnitX + gravityY * orbitUnitY;
-                  var rawTangential = gravityX * tangentX + gravityY * tangentY;
+                  var rawBlackGravityX = gravityX - whiteGravityX;
+                  var rawBlackGravityY = gravityY - whiteGravityY;
+                  var rawRadial = rawBlackGravityX * orbitUnitX + rawBlackGravityY * orbitUnitY;
+                  var rawTangential = rawBlackGravityX * tangentX + rawBlackGravityY * tangentY;
                   var residualLimit = Math.sqrt(controlledX * controlledX + controlledY * controlledY) *
                     presetOrbitRawFieldShare;
                   var residualTangential = Math.max(-residualLimit,
@@ -5884,8 +5894,31 @@
                 var cachedControlledY = (presetOrbitDesiredY[i] - vy) * presetOrbitSteeringGain +
                   presetOrbitResidualY[i];
                 var cachedOrbitBlend = presetOrbitBlend[i];
-                gravityX += (cachedControlledX - gravityX) * cachedOrbitBlend;
-                gravityY += (cachedControlledY - gravityY) * cachedOrbitBlend;
+                var cachedBlackGravityX = gravityX - whiteGravityX;
+                var cachedBlackGravityY = gravityY - whiteGravityY;
+                gravityX = cachedBlackGravityX +
+                  (cachedControlledX - cachedBlackGravityX) * cachedOrbitBlend + whiteGravityX;
+                gravityY = cachedBlackGravityY +
+                  (cachedControlledY - cachedBlackGravityY) * cachedOrbitBlend + whiteGravityY;
+                // White wells remain fully present, but opposing fields must not
+                // leave a recommended preset parked at a static equilibrium.
+                var minimumPresetOrbitSpeed = Math.abs(speed) * 0.75;
+                var predictedVelocityX = vx + gravityX;
+                var predictedVelocityY = vy + gravityY;
+                var cachedDesiredMagnitude = Math.sqrt(
+                  presetOrbitDesiredX[i] * presetOrbitDesiredX[i] +
+                  presetOrbitDesiredY[i] * presetOrbitDesiredY[i]);
+                if (minimumPresetOrbitSpeed > 0 && cachedDesiredMagnitude > 0.0001) {
+                  var desiredUnitX = presetOrbitDesiredX[i] / cachedDesiredMagnitude;
+                  var desiredUnitY = presetOrbitDesiredY[i] / cachedDesiredMagnitude;
+                  var predictedAlongDesired = predictedVelocityX * desiredUnitX +
+                    predictedVelocityY * desiredUnitY;
+                  if (predictedAlongDesired < minimumPresetOrbitSpeed) {
+                    var orbitRecovery = minimumPresetOrbitSpeed - predictedAlongDesired;
+                    gravityX += desiredUnitX * orbitRecovery;
+                    gravityY += desiredUnitY * orbitRecovery;
+                  }
+                }
               }
             }
           }

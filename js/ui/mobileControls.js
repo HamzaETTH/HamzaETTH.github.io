@@ -75,7 +75,14 @@ export function mountMobileControls(pn, actions = {}) {
     'data-mobile-count': 'increase'
   });
   increase.textContent = '+';
-  countControls.append(decrease, countTrigger, increase);
+  const helpButton = createButton('Show keyboard and mouse shortcuts', {
+    'class': 'mobile-hotkey-help',
+    'aria-controls': 'hotkey-guide',
+    'aria-expanded': 'false',
+    'data-mobile-hotkey-help': ''
+  });
+  helpButton.textContent = '!';
+  countControls.append(decrease, countTrigger, increase, helpButton);
   root.append(holeBank, countControls);
 
   const dialog = document.createElement('dialog');
@@ -140,10 +147,13 @@ export function mountMobileControls(pn, actions = {}) {
   let suppressCountClick = false;
   let suppressCountClickTimer = null;
   let restoreFocusAfterDialog = true;
+  let helpOpen = false;
+  let helpPointerKind = null;
+  const helpOwner = helpButton;
 
   function toolbarIsBusy() {
     return !!(drag || countHold || dialog.open || repeatDelay != null || repeatInterval != null ||
-      pn._gravityWellDrag || root.matches(':focus-within'));
+      helpOpen || pn._gravityWellDrag || root.matches(':focus-within'));
   }
 
   function handleActivityDeadline() {
@@ -510,6 +520,77 @@ export function mountMobileControls(pn, actions = {}) {
     setActive();
   }
 
+  function openHelp() {
+    const manager = window.hotkeyManager;
+    if (!manager || typeof manager.showHelp !== 'function') return;
+    manager.showHelp({
+      position: 'top-right',
+      persistent: true,
+      includeMouse: true,
+      anchor: helpButton,
+      owner: helpOwner
+    });
+    helpOpen = true;
+    helpButton.setAttribute('aria-expanded', 'true');
+    root.classList.add('is-help-open');
+    setActive();
+  }
+
+  function closeHelp(immediate = false, releaseFocus = false) {
+    if (window.hotkeyManager && typeof window.hotkeyManager.hideHelp === 'function') {
+      window.hotkeyManager.hideHelp(helpOwner, { immediate });
+    }
+    helpOpen = false;
+    helpButton.setAttribute('aria-expanded', 'false');
+    root.classList.remove('is-help-open');
+    if (releaseFocus && document.activeElement === helpButton) helpButton.blur();
+  }
+
+  function handleHelpPointerDown(event) {
+    helpPointerKind = event.pointerType || 'mouse';
+  }
+
+  function handleHelpPointerEnter(event) {
+    if ((event.pointerType || 'mouse') === 'mouse') openHelp();
+  }
+
+  function handleHelpPointerLeave(event) {
+    if ((event.pointerType || 'mouse') === 'mouse' && document.activeElement !== helpButton) closeHelp();
+  }
+
+  function handleHelpFocus() {
+    const coarsePointer = window.matchMedia && window.matchMedia('(hover: none), (pointer: coarse)').matches;
+    if (helpPointerKind !== 'touch' && !coarsePointer) openHelp();
+  }
+
+  function handleHelpBlur() {
+    const coarsePointer = window.matchMedia && window.matchMedia('(hover: none), (pointer: coarse)').matches;
+    if (helpPointerKind !== 'touch' && !coarsePointer && !helpButton.matches(':hover')) closeHelp();
+  }
+
+  function toggleTouchHelp(event) {
+    const coarsePointer = window.matchMedia && window.matchMedia('(hover: none), (pointer: coarse)').matches;
+    const touchActivation = helpPointerKind === 'touch' || coarsePointer;
+    helpPointerKind = null;
+    if (!touchActivation) return;
+    if (helpOpen) closeHelp(false, true);
+    else openHelp();
+    event.preventDefault();
+    event.stopPropagation();
+  }
+
+  function dismissHelpOutside(event) {
+    const target = event.target;
+    const targetIsNode = target instanceof Node;
+    if (!helpOpen || (targetIsNode && (helpButton.contains(target) ||
+        document.getElementById('hotkey-guide')?.contains(target)))) return;
+    closeHelp(false, true);
+  }
+
+  function dismissHelpWithEscape(event) {
+    if (helpOpen && event.key === 'Escape') closeHelp(false, true);
+  }
+
   function handleVisibilityChange() {
     if (document.hidden) {
       stopCountRepeat();
@@ -518,6 +599,7 @@ export function mountMobileControls(pn, actions = {}) {
       if (drag) pn.cancelGravityWellPlacement();
       drag = null;
       root.classList.remove('is-dragging');
+      closeHelp(true);
     }
   }
 
@@ -528,6 +610,7 @@ export function mountMobileControls(pn, actions = {}) {
     if (drag) pn.cancelGravityWellPlacement();
     drag = null;
     root.classList.remove('is-dragging');
+    closeHelp(true);
   }
 
   function handleToolbarActivity() {
@@ -554,6 +637,12 @@ export function mountMobileControls(pn, actions = {}) {
   countTrigger.addEventListener('pointercancel', cancelCountHold);
   countTrigger.addEventListener('lostpointercapture', loseCountHoldCapture);
   countTrigger.addEventListener('click', activateCountTrigger);
+  helpButton.addEventListener('pointerdown', handleHelpPointerDown);
+  helpButton.addEventListener('pointerenter', handleHelpPointerEnter);
+  helpButton.addEventListener('pointerleave', handleHelpPointerLeave);
+  helpButton.addEventListener('focus', handleHelpFocus);
+  helpButton.addEventListener('blur', handleHelpBlur);
+  helpButton.addEventListener('click', toggleTouchHelp);
   form.addEventListener('submit', submitCount);
   closeDialog.addEventListener('click', closeDialogSubmission);
   dialog.addEventListener('cancel', cancelNativeDialog);
@@ -566,6 +655,8 @@ export function mountMobileControls(pn, actions = {}) {
   window.addEventListener('pointermove', handleToolbarActivity, { passive: true });
   window.addEventListener('pointerdown', handleToolbarActivity, { passive: true });
   window.addEventListener('keydown', handleToolbarActivity);
+  window.addEventListener('pointerdown', dismissHelpOutside, true);
+  window.addEventListener('keydown', dismissHelpWithEscape);
   window.addEventListener('pointermove', moveHoleDrag, { passive: false });
   window.addEventListener('pointermove', trackExistingWellDeleteTarget, { capture: true, passive: false });
   window.addEventListener('pointerup', commitHoleDrag, { passive: false });
@@ -591,6 +682,7 @@ export function mountMobileControls(pn, actions = {}) {
       if (suppressCountClickTimer != null) clearTimeout(suppressCountClickTimer);
       suppressCountClickTimer = null;
       suppressCountClick = false;
+      closeHelp(true);
       clearExistingWellDeleteTarget();
       if (drag && pn && !pn._destroyed) pn.cancelGravityWellPlacement();
       drag = null;
@@ -611,6 +703,12 @@ export function mountMobileControls(pn, actions = {}) {
       countTrigger.removeEventListener('pointercancel', cancelCountHold);
       countTrigger.removeEventListener('lostpointercapture', loseCountHoldCapture);
       countTrigger.removeEventListener('click', activateCountTrigger);
+      helpButton.removeEventListener('pointerdown', handleHelpPointerDown);
+      helpButton.removeEventListener('pointerenter', handleHelpPointerEnter);
+      helpButton.removeEventListener('pointerleave', handleHelpPointerLeave);
+      helpButton.removeEventListener('focus', handleHelpFocus);
+      helpButton.removeEventListener('blur', handleHelpBlur);
+      helpButton.removeEventListener('click', toggleTouchHelp);
       form.removeEventListener('submit', submitCount);
       closeDialog.removeEventListener('click', closeDialogSubmission);
       dialog.removeEventListener('cancel', cancelNativeDialog);
@@ -623,6 +721,8 @@ export function mountMobileControls(pn, actions = {}) {
       window.removeEventListener('pointermove', handleToolbarActivity);
       window.removeEventListener('pointerdown', handleToolbarActivity);
       window.removeEventListener('keydown', handleToolbarActivity);
+      window.removeEventListener('pointerdown', dismissHelpOutside, true);
+      window.removeEventListener('keydown', dismissHelpWithEscape);
       window.removeEventListener('pointermove', moveHoleDrag, { passive: false });
       window.removeEventListener('pointermove', trackExistingWellDeleteTarget, true);
       window.removeEventListener('pointerup', commitHoleDrag, { passive: false });

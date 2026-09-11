@@ -16,6 +16,9 @@
     this.context = null;
     this._timerIds = new Set();
     this._transientNodes = new Set();
+    this._helpOwner = null;
+    this._helpTimerId = null;
+    this._helpRemovalTimerId = null;
     this._destroyed = false;
     this.setupListeners();
   }
@@ -159,21 +162,65 @@
     this._timerIds.add(timerId);
   };
 
+  HotkeyManager.prototype._clearHelpTimers = function() {
+    [this._helpTimerId, this._helpRemovalTimerId].forEach(timerId => {
+      if (timerId == null) return;
+      clearTimeout(timerId);
+      this._timerIds.delete(timerId);
+    });
+    this._helpTimerId = null;
+    this._helpRemovalTimerId = null;
+  };
+
+  HotkeyManager.prototype.hideHelp = function(owner, options) {
+    if (owner != null && this._helpOwner !== owner) return false;
+    const guide = document.getElementById('hotkey-guide');
+    this._clearHelpTimers();
+    if (!guide) {
+      this._helpOwner = null;
+      return false;
+    }
+
+    const immediate = options && options.immediate === true;
+    const reducedMotion = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+    const remove = () => {
+      if (guide.parentNode) guide.parentNode.removeChild(guide);
+      this._transientNodes.delete(guide);
+      if (document.getElementById('hotkey-guide') !== guide || this._helpOwner === owner || owner == null) {
+        this._helpOwner = null;
+      }
+    };
+    if (immediate || reducedMotion) {
+      remove();
+      return true;
+    }
+
+    guide.classList.remove('is-visible');
+    guide.classList.add('is-hiding');
+    const timerId = setTimeout(() => {
+      this._timerIds.delete(timerId);
+      if (this._helpRemovalTimerId === timerId) this._helpRemovalTimerId = null;
+      remove();
+    }, 180);
+    this._helpRemovalTimerId = timerId;
+    this._timerIds.add(timerId);
+    return true;
+  };
+
   /**
-   * Show help dialog with all registered hotkeys
-   * @param {Object} options - Options {position: 'bottom-right'|'top-right', duration: number, includeMouse: bool}
+   * Show help with all registered hotkeys.
+   * @param {Object} options - {position, duration, includeMouse, persistent, anchor, owner}
+   * @returns {*} owner token used by hideHelp()
    */
   HotkeyManager.prototype.showHelp = function(options) {
     options = options || {};
     const position = options.position || 'bottom-right';
-    const duration = options.duration || 3000;
+    const duration = Number.isFinite(options.duration) ? Math.max(0, options.duration) : 3000;
     const includeMouse = options.includeMouse !== false; // default true
+    const persistent = options.persistent === true;
+    const owner = options.owner || {};
 
-    // Remove existing help if present
-    const existing = document.getElementById('hotkey-guide');
-    if (existing && existing.parentNode) {
-      existing.parentNode.removeChild(existing);
-    }
+    this.hideHelp(null, { immediate: true });
 
     // Build help text from registered handlers
     const entries = Array.from(this.handlers.entries())
@@ -182,11 +229,13 @@
 
     if (entries.length === 0) {
       console.warn('HotkeyManager: No hotkeys registered');
-      return;
+      return null;
     }
 
     const guide = document.createElement('div');
     guide.id = 'hotkey-guide';
+    guide.className = `hotkey-guide hotkey-guide-${position}`;
+    guide.setAttribute('role', 'tooltip');
     
     // Build help text
     const helpLines = ['Shortcuts:', ''].concat(entries);
@@ -201,24 +250,32 @@
     
     guide.textContent = helpLines.join('\n');
     
-    const isBottom = position === 'bottom-right';
-    guide.style.cssText = `
-      position: fixed;
-      ${isBottom ? 'bottom' : 'top'}: 10px;
-      right: 10px;
-      background: rgba(0,0,0,0.7);
-      color: white;
-      padding: 8px 12px;
-      border-radius: 4px;
-      font-family: 'Fira Code', monospace;
-      z-index: 4000;
-      white-space: pre;
-    `;
-
     document.body.appendChild(guide);
+    this._transientNodes.add(guide);
+    this._helpOwner = owner;
 
-    // Auto-remove after duration
-    this.removeLater(guide, duration);
+    if (options.anchor && options.anchor.isConnected) {
+      const anchorRect = options.anchor.getBoundingClientRect();
+      const top = Math.max(8, Math.min(window.innerHeight - guide.offsetHeight - 8, anchorRect.bottom + 8));
+      guide.style.top = `${top}px`;
+      guide.style.right = `${Math.max(8, window.innerWidth - anchorRect.right)}px`;
+      guide.style.bottom = 'auto';
+    }
+
+    requestAnimationFrame(() => {
+      if (guide.isConnected) guide.classList.add('is-visible');
+    });
+
+    if (!persistent && duration > 0) {
+      const timerId = setTimeout(() => {
+        this._timerIds.delete(timerId);
+        if (this._helpTimerId === timerId) this._helpTimerId = null;
+        this.hideHelp(owner);
+      }, duration);
+      this._helpTimerId = timerId;
+      this._timerIds.add(timerId);
+    }
+    return owner;
   };
 
   /**
@@ -254,14 +311,13 @@
     this._destroyed = true;
     window.removeEventListener('keydown', this._onKeyDown);
     window.removeEventListener('keyup', this._onKeyUp);
+    this.hideHelp(null, { immediate: true });
     this._timerIds.forEach(timerId => clearTimeout(timerId));
     this._timerIds.clear();
     this._transientNodes.forEach(node => {
       if (node.parentNode) node.parentNode.removeChild(node);
     });
     this._transientNodes.clear();
-    const guide = document.getElementById('hotkey-guide');
-    if (guide && guide.parentNode) guide.parentNode.removeChild(guide);
     this.handlers.clear();
     this.context = null;
     this._onKeyDown = null;

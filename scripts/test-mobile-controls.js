@@ -803,15 +803,47 @@ async function runPalette(page, screenshotDir) {
   assert.notStrictEqual(layout.display, 'none');
   assert(layout.opacity < 0.6, `idle palette should be translucent, got ${layout.opacity}`);
   assert.strictEqual(layout.flexDirection, 'row', 'normal phone toolbar should use one row');
-  assert(layout.rect.width <= 240, `phone toolbar should be at most 240px wide, got ${layout.rect.width}`);
+  assert(layout.rect.width <= 288, `phone toolbar should be at most 288px wide, got ${layout.rect.width}`);
   assert(layout.rect.height <= 56, `phone toolbar should be at most 56px tall, got ${layout.rect.height}`);
-  assert.strictEqual(layout.controls.length, 5, 'toolbar should expose black, white, minus, count, and plus buttons');
+  assert.strictEqual(layout.controls.length, 6, 'toolbar should expose black, white, minus, count, plus, and help buttons');
   assert(layout.controls.every(control => control.width >= 44 && control.height >= 44), 'mobile touch targets must be at least 44px');
   assert(layout.controls.every(control => Math.abs(control.top - layout.controls[0].top) < 1), 'toolbar buttons should share one row');
   assert(layout.groupGap <= 4, `toolbar group gap should be at most 4px, got ${layout.groupGap}`);
   assert(layout.rect.left >= 0 && layout.rect.top >= 0 && layout.rect.right <= 390 && layout.rect.bottom <= 844);
   assert(Math.abs(390 - layout.rect.right - 12) < 1,
     `phone toolbar should be top-right: ${JSON.stringify(layout.rect)}`);
+
+  await page.locator('[data-mobile-hotkey-help]').tap();
+  await page.waitForSelector('#hotkey-guide.is-visible');
+  const touchHelp = await page.evaluate(() => ({
+    expanded: document.querySelector('[data-mobile-hotkey-help]').getAttribute('aria-expanded'),
+    active: document.querySelector('[data-mobile-particle-controls]').classList.contains('is-help-open'),
+    text: document.getElementById('hotkey-guide').textContent,
+    fits: (() => {
+      const rect = document.getElementById('hotkey-guide').getBoundingClientRect();
+      return rect.left >= 0 && rect.top >= 0 && rect.right <= innerWidth && rect.bottom <= innerHeight;
+    })()
+  }));
+  assert.strictEqual(touchHelp.expanded, 'true');
+  assert.strictEqual(touchHelp.active, true);
+  assert.match(touchHelp.text, /H = Show Help/);
+  assert.strictEqual(touchHelp.fits, true, 'touch shortcut guide should fit the viewport');
+  await page.evaluate(() => window.dispatchEvent(new PointerEvent('pointerdown', {
+    bubbles: true,
+    pointerId: 31,
+    pointerType: 'touch',
+    isPrimary: true,
+    clientX: 20,
+    clientY: 400
+  })));
+  await page.waitForTimeout(220);
+  assert.strictEqual(await page.locator('#hotkey-guide').count(), 0, 'outside touch should dismiss shortcut help');
+  assert.strictEqual(await page.locator('[data-mobile-hotkey-help]').getAttribute('aria-expanded'), 'false');
+  await page.locator('[data-mobile-hotkey-help]').tap();
+  await page.waitForSelector('#hotkey-guide.is-visible');
+  await page.keyboard.press('Escape');
+  await page.waitForTimeout(220);
+  assert.strictEqual(await page.locator('#hotkey-guide').count(), 0, 'Escape should dismiss shortcut help');
 
   await page.evaluate(() => window.dispatchEvent(new PointerEvent('pointerdown', {
     bubbles: true,
@@ -1272,7 +1304,7 @@ async function runPalette(page, screenshotDir) {
 
   await page.keyboard.press('c');
   await page.waitForFunction(
-    () => window.particleSettingsUi && document.getElementById('tp-container')?.style.display !== 'none',
+    () => window.particleSettingsUi && !document.querySelector('.particle-controls-body')?.hidden,
     null,
     { timeout: 30000 }
   );
@@ -1412,8 +1444,27 @@ async function runDesktop(browser, options, browserErrors) {
     desktopLayout.rect.bottom <= 720, `desktop toolbar escaped the viewport: ${JSON.stringify(desktopLayout)}`);
   assert(Math.abs(1280 - desktopLayout.rect.right - 12) < 1,
     `desktop toolbar should be top-right: ${JSON.stringify(desktopLayout.rect)}`);
-  assert(desktopLayout.controls.length === 5 && desktopLayout.controls.every(control =>
-    control.width >= 44 && control.height >= 44), 'desktop toolbar should retain five 44px targets');
+  assert(desktopLayout.controls.length === 6 && desktopLayout.controls.every(control =>
+    control.width >= 44 && control.height >= 44), 'desktop toolbar should retain six 44px targets');
+
+  const desktopHelpButton = page.locator('[data-mobile-hotkey-help]');
+  await desktopHelpButton.hover();
+  await page.waitForSelector('#hotkey-guide.is-visible');
+  const desktopHelp = await page.evaluate(() => {
+    const button = document.querySelector('[data-mobile-hotkey-help]').getBoundingClientRect();
+    const guide = document.getElementById('hotkey-guide').getBoundingClientRect();
+    return { below: guide.top >= button.bottom, text: document.getElementById('hotkey-guide').textContent };
+  });
+  assert.strictEqual(desktopHelp.below, true, 'desktop shortcut guide should open below the help button');
+  assert.match(desktopHelp.text, /H = Show Help/);
+  await page.mouse.move(600, 400);
+  await page.waitForTimeout(220);
+  assert.strictEqual(await page.locator('#hotkey-guide').count(), 0, 'shortcut guide should fade after pointer leave');
+  await desktopHelpButton.focus();
+  await page.waitForSelector('#hotkey-guide.is-visible');
+  await page.evaluate(() => document.querySelector('[data-mobile-hotkey-help]').blur());
+  await page.waitForTimeout(220);
+  assert.strictEqual(await page.locator('#hotkey-guide').count(), 0, 'shortcut guide should fade after keyboard blur');
 
   await page.waitForTimeout(2400);
   await page.mouse.move(40, 400);
@@ -1651,7 +1702,8 @@ async function runLandscape(browser, options, browserErrors) {
     `landscape toolbar should be top-right: ${JSON.stringify(layout)}`);
   assert(layout.opacity < 0.6);
   assert.strictEqual(layout.flexDirection, 'row');
-  assert(layout.width <= 240 && layout.height <= 56, `landscape toolbar is not compact: ${JSON.stringify(layout)}`);
+  assert(layout.width <= 288 && layout.height <= 56, `landscape toolbar is not compact: ${JSON.stringify(layout)}`);
+  assert.strictEqual(layout.controls.length, 6, 'landscape toolbar should retain all six controls');
   assert(layout.controls.every(control => control.width >= 44 && control.height >= 44));
   assert(layout.controls.every(control => Math.abs(control.top - layout.controls[0].top) < 1));
   if (options.screenshotDir) {

@@ -305,13 +305,25 @@ function recommendedParticleForceMaximum(pn) {
   return Math.ceil(clampedMaximum * 4) / 4;
 }
 
-// Utility: create container for pane we can show/hide
+// Keep a lightweight launcher visible while the full settings UI remains lazy-loaded.
 function ensurePaneContainer() {
   let el = document.getElementById('tp-container');
   if (!el) {
     el = document.createElement('div');
     el.id = 'tp-container';
-    el.style.display = 'none';
+    el.className = 'particle-controls-shell';
+    const launcher = document.createElement('button');
+    launcher.type = 'button';
+    launcher.className = 'particle-controls-launcher';
+    launcher.setAttribute('aria-controls', 'particle-controls-body');
+    launcher.setAttribute('aria-expanded', 'false');
+    launcher.innerHTML = '<span>Controls</span><span aria-hidden="true">≡</span>';
+    const body = document.createElement('div');
+    body.id = 'particle-controls-body';
+    body.className = 'particle-controls-body';
+    body.hidden = true;
+    launcher.addEventListener('click', () => invokePaneAction(ui => ui.togglePane()));
+    el.append(launcher, body);
     document.body.appendChild(el);
   }
   return el;
@@ -420,7 +432,9 @@ async function buildPane() {
   let currentColorMethodIndex = 0;
 
   const container = ensurePaneContainer();
-  const pane = new Pane({ title: 'Controls', container });
+  const paneBody = container.querySelector('.particle-controls-body');
+  const paneLauncher = container.querySelector('.particle-controls-launcher');
+  const pane = new Pane({ container: paneBody });
 
   const PARAMS = buildParamsFromNetwork(pn);
   const adaptiveLineDetailController = pn._adaptiveLineDetailController;
@@ -1148,10 +1162,10 @@ async function buildPane() {
   }
 
   function scheduleRuntimeSync() {
-    if (syncTimerId !== null || container.style.display === 'none') return;
+    if (syncTimerId !== null || paneBody.hidden) return;
     syncTimerId = setTimeout(() => {
       syncTimerId = null;
-      if (container.style.display === 'none') return;
+      if (paneBody.hidden) return;
       try {
         syncRuntimeToControls();
       } finally {
@@ -1236,9 +1250,10 @@ async function buildPane() {
 
   // --- Unified Key Controls via HotkeyManager ---
   function togglePane() {
-    const isHidden = container.style.display === 'none';
-    const showing = isHidden;
-    container.style.display = showing ? 'block' : 'none';
+    const showing = paneBody.hidden;
+    paneBody.hidden = !showing;
+    paneLauncher.setAttribute('aria-expanded', String(showing));
+    container.classList.toggle('is-open', showing);
     if (showing) {
       startRuntimeSync();
       // Fade away the features-tiles section once controls are shown
@@ -1521,6 +1536,8 @@ function registerBootstrapHotkeys() {
     container: null,
     applyParamsToNetwork
   });
+
+  ensurePaneContainer();
 
   if (mobileControls) mobileControls.destroy();
   mobileControls = mountMobileControls(pn, {

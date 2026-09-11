@@ -23,6 +23,7 @@ html, body, main.site-content {
 }
 
 .well-preset-browser {
+  position: fixed;
   width: min(1040px, calc(100vw - 40px));
   height: min(780px, calc(100dvh - 40px));
   max-width: none;
@@ -31,11 +32,17 @@ html, body, main.site-content {
   padding: 24px;
   border: 1px solid #555;
   border-radius: 12px;
-  background: #151515;
+  background: rgb(21 21 21 / 90%);
   color: #ededed;
   font: 13px/1.5 "Fira Code", monospace;
   letter-spacing: 0;
   overflow: hidden;
+  container: preset-browser / inline-size;
+  box-sizing: border-box;
+}
+
+.well-preset-browser.is-positioned {
+  margin: 0;
 }
 
 .well-preset-browser[open] {
@@ -45,7 +52,7 @@ html, body, main.site-content {
 }
 
 .well-preset-browser::backdrop {
-  background: rgb(0 0 0 / 76%);
+  background: rgb(0 0 0 / 55%);
 }
 
 .well-preset-browser h2,
@@ -180,7 +187,7 @@ html, body, main.site-content {
 
 .well-preset-gallery {
   display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(170px, 1fr));
   grid-auto-rows: min-content;
   align-content: start;
   gap: 8px;
@@ -311,18 +318,31 @@ html, body, main.site-content {
   color: #bdbdbd;
 }
 
-@media (max-width: 850px) {
-  .well-preset-browser {
-    padding: 16px;
-  }
-
+@container preset-browser (max-width: 850px) {
   .well-preset-content {
     grid-template-columns: minmax(0, 1fr) 230px;
     gap: 16px;
   }
+}
 
-  .well-preset-gallery {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
+@container preset-browser (max-width: 650px) {
+  .well-preset-content {
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-rows: minmax(160px, 1fr) auto;
+    gap: 12px;
+  }
+
+  .well-preset-detail {
+    display: grid;
+    grid-template-columns: minmax(108px, 0.42fr) minmax(0, 1fr);
+    gap: 12px;
+    max-height: 44%;
+    padding-top: 12px;
+    border-top: 1px solid #444;
+  }
+
+  .well-preset-actions {
+    grid-column: 1 / -1;
   }
 }
 
@@ -333,6 +353,10 @@ html, body, main.site-content {
     border: 0;
     border-radius: 0;
     padding: max(12px, env(safe-area-inset-top)) max(12px, env(safe-area-inset-right)) max(12px, env(safe-area-inset-bottom)) max(12px, env(safe-area-inset-left));
+  }
+
+  .well-preset-resize {
+    display: none;
   }
 
   .well-preset-browser[open] {
@@ -392,6 +416,10 @@ html, body, main.site-content {
     width: calc(100vw - 16px);
     height: calc(100dvh - 16px);
     padding: 12px;
+  }
+
+  .well-preset-resize {
+    display: none;
   }
 
   .well-preset-browser[open] {
@@ -554,6 +582,7 @@ section, main {
   .mobile-particle-controls.is-dialog-open,
   .mobile-particle-controls.is-repeating,
   .mobile-particle-controls.is-holding,
+  .mobile-particle-controls.is-help-open,
   .mobile-particle-controls:focus-within {
     opacity: 0.96;
     transform: translateY(1px);
@@ -567,6 +596,7 @@ section, main {
     .mobile-particle-controls.is-dialog-open,
     .mobile-particle-controls.is-repeating,
     .mobile-particle-controls.is-holding,
+    .mobile-particle-controls.is-help-open,
     .mobile-particle-controls:focus-within {
       opacity: 0.72;
     }
@@ -830,10 +860,87 @@ section, main {
   .mobile-particle-controls .mobile-hole-token {
     transition: none;
   }
+
+  .hotkey-guide,
+  .particle-controls-shell {
+    transition: none !important;
+  }
 }
 
-.tp-dfwv {
-  width: min(400px, calc(100vw - 24px)) !important;
+.particle-controls-shell {
+  width: 102px;
+  opacity: 0.28;
+  transition: opacity 240ms cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+.particle-controls-shell:hover,
+.particle-controls-shell:focus-within {
+  opacity: 0.82;
+}
+
+.particle-controls-shell.is-open {
+  width: min(400px, calc(100vw - 24px));
+  opacity: 1;
+}
+
+.particle-controls-launcher {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  width: 100%;
+  min-height: 24px;
+  margin: 0;
+  padding: 3px 8px 3px 10px;
+  border: 0;
+  border-radius: 6px;
+  background: #46484f;
+  color: #ddd;
+  font: 500 11px/1.4 system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  cursor: pointer;
+}
+
+.particle-controls-launcher:focus-visible {
+  outline: 2px solid #8edfff;
+  outline-offset: 2px;
+}
+
+.particle-controls-body,
+.particle-controls-body .tp-dfwv {
+  width: 100% !important;
+}
+
+.well-preset-header {
+  cursor: move;
+  touch-action: none;
+  user-select: none;
+}
+
+.well-preset-header .well-preset-close {
+  cursor: pointer;
+}
+
+.well-preset-browser.is-moving,
+.well-preset-browser.is-resizing {
+  user-select: none;
+}
+
+.well-preset-resize {
+  position: absolute;
+  right: 0;
+  bottom: 0;
+  width: 44px;
+  height: 44px;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  background: linear-gradient(135deg, transparent 0 48%, rgba(255, 255, 255, 0.22) 49% 54%, transparent 55% 64%, rgba(255, 255, 255, 0.52) 65% 70%, transparent 71%);
+  cursor: nwse-resize;
+  touch-action: none;
+}
+
+.well-preset-resize:focus-visible {
+  outline: 2px solid #8edfff;
+  outline-offset: -5px;
 }
 
 #tp-container,
@@ -1060,13 +1167,53 @@ h1 {
   --tp-base-font-size: 12px;
 }
 
+.mobile-particle-controls .mobile-hotkey-help {
+  font-size: 17px;
+}
+
+.hotkey-guide {
+  position: fixed;
+  right: 10px;
+  z-index: 4000;
+  box-sizing: border-box;
+  max-width: min(430px, calc(100vw - 20px));
+  max-height: calc(100dvh - 20px);
+  padding: 10px 14px;
+  overflow: auto;
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  border-radius: 8px;
+  background: rgba(0, 0, 0, 0.88);
+  color: #fff;
+  font: 12px/1.55 "Fira Code", monospace;
+  white-space: pre-wrap;
+  opacity: 0;
+  transform: translateY(-4px);
+  pointer-events: none;
+  transition: opacity 180ms cubic-bezier(0.22, 1, 0.36, 1),
+    transform 180ms cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+.hotkey-guide-bottom-right {
+  bottom: 10px;
+}
+
+.hotkey-guide-top-right {
+  top: 10px;
+}
+
+.hotkey-guide.is-visible {
+  opacity: 1;
+  transform: translateY(0);
+}
+
 @media (hover: none) and (pointer: coarse) {
   #tp-container {
     top: calc(12px + env(safe-area-inset-top));
   }
 
   #tp-container .physics-reset-button,
-  #tp-container .preset-button-pair .tp-btnv_b {
+  #tp-container .preset-button-pair .tp-btnv_b,
+  #tp-container .particle-controls-launcher {
     min-height: 44px;
   }
 }

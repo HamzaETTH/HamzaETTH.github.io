@@ -25,7 +25,7 @@ async function openControls(page) {
   });
   await page.waitForFunction(() => {
     const ui = window.particleSettingsUi;
-    return ui && getComputedStyle(ui.container).display !== 'none';
+    return ui && !ui.container.querySelector('.particle-controls-body')?.hidden;
   });
 }
 

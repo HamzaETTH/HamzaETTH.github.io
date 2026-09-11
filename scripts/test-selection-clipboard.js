@@ -332,7 +332,7 @@ async function main() {
 
     const paneBeforeCopy = await page.evaluate(() => {
       const container = document.getElementById('tp-container');
-      return !container || getComputedStyle(container).display === 'none';
+      return !container || container.querySelector('.particle-controls-body')?.hidden;
     });
     await page.keyboard.press('Control+c');
     const copied = await page.evaluate(() => {
@@ -344,7 +344,7 @@ async function main() {
         wells: clipboard?.wells.length,
         particleSources: clipboard?.particleSources?.length,
         wellSourceIds: clipboard?.wellSourceIds?.slice(),
-        paneStillHidden: !container || getComputedStyle(container).display === 'none',
+        paneStillHidden: !container || container.querySelector('.particle-controls-body')?.hidden,
         snapshot: clipboard ? {
           particles: clipboard.particles.map(particle => ({ ...particle })),
           wells: clipboard.wells.map(well => ({ ...well }))

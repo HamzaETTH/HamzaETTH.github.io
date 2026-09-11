@@ -39,7 +39,7 @@ async function main() {
 
     await page.keyboard.press('c');
     await page.waitForFunction(
-      () => window.particleSettingsUi && document.getElementById('tp-container')?.style.display !== 'none',
+      () => window.particleSettingsUi && !document.querySelector('.particle-controls-body')?.hidden,
       null,
       { timeout: 30000 }
     );

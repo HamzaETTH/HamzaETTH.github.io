@@ -46,6 +46,9 @@ export function createGravityWellPresetBrowser(pn) {
   title.id = 'well-preset-title';
   const close = button('well-preset-close', 'Close');
   header.append(title, close);
+  const resizeHandle = button('well-preset-resize');
+  resizeHandle.setAttribute('aria-label', 'Resize preset window');
+  resizeHandle.title = 'Drag to resize';
 
   const filters = element('div', 'well-preset-filters');
   const searchLabel = element('label', 'well-preset-search');
@@ -106,11 +109,125 @@ export function createGravityWellPresetBrowser(pn) {
   actions.append(motionLabel, apply, replaceNote);
   detail.append(detailPreview, description, actions);
   content.append(gallery, detail);
-  dialog.append(header, filters, summary, content);
+  dialog.append(header, filters, summary, content, resizeHandle);
 
   let selectedId = null;
   let opener = null;
   let destroyed = false;
+  let windowLayout = null;
+  let drag = null;
+  let resize = null;
+
+  function usesFloatingWindow() {
+    return window.innerWidth > 600 && window.innerHeight > 500;
+  }
+
+  function clampLayout(layout) {
+    const gutter = 8;
+    const availableWidth = Math.max(1, window.innerWidth - gutter * 2);
+    const availableHeight = Math.max(1, window.innerHeight - gutter * 2);
+    const width = Math.min(availableWidth, Math.max(Math.min(520, availableWidth), layout.width));
+    const height = Math.min(availableHeight, Math.max(Math.min(420, availableHeight), layout.height));
+    return {
+      width,
+      height,
+      left: Math.max(gutter, Math.min(layout.left, window.innerWidth - width - gutter)),
+      top: Math.max(gutter, Math.min(layout.top, window.innerHeight - height - gutter))
+    };
+  }
+
+  function applyWindowLayout() {
+    if (!windowLayout || !usesFloatingWindow()) {
+      dialog.classList.remove('is-positioned');
+      dialog.style.removeProperty('left');
+      dialog.style.removeProperty('top');
+      dialog.style.removeProperty('width');
+      dialog.style.removeProperty('height');
+      return;
+    }
+    windowLayout = clampLayout(windowLayout);
+    dialog.classList.add('is-positioned');
+    dialog.style.left = `${windowLayout.left}px`;
+    dialog.style.top = `${windowLayout.top}px`;
+    dialog.style.width = `${windowLayout.width}px`;
+    dialog.style.height = `${windowLayout.height}px`;
+  }
+
+  function captureWindowLayout() {
+    const rect = dialog.getBoundingClientRect();
+    windowLayout = clampLayout({ left: rect.left, top: rect.top, width: rect.width, height: rect.height });
+    applyWindowLayout();
+    return windowLayout;
+  }
+
+  function beginDrag(event) {
+    if (!usesFloatingWindow() || event.button !== 0 || event.target.closest('button, input, select, a')) return;
+    const layout = captureWindowLayout();
+    drag = { pointerId: event.pointerId, x: event.clientX, y: event.clientY, left: layout.left, top: layout.top };
+    dialog.classList.add('is-moving');
+    try { header.setPointerCapture(event.pointerId); } catch (_) {}
+    event.preventDefault();
+  }
+
+  function moveDrag(event) {
+    if (!drag || drag.pointerId !== event.pointerId) return;
+    windowLayout = clampLayout({
+      ...windowLayout,
+      left: drag.left + event.clientX - drag.x,
+      top: drag.top + event.clientY - drag.y
+    });
+    applyWindowLayout();
+    event.preventDefault();
+  }
+
+  function endDrag(event) {
+    if (!drag || drag.pointerId !== event.pointerId) return;
+    drag = null;
+    dialog.classList.remove('is-moving');
+    try { header.releasePointerCapture(event.pointerId); } catch (_) {}
+  }
+
+  function beginResize(event) {
+    if (!usesFloatingWindow() || event.button !== 0) return;
+    const layout = captureWindowLayout();
+    resize = { pointerId: event.pointerId, x: event.clientX, y: event.clientY, width: layout.width, height: layout.height };
+    dialog.classList.add('is-resizing');
+    try { resizeHandle.setPointerCapture(event.pointerId); } catch (_) {}
+    event.preventDefault();
+    event.stopPropagation();
+  }
+
+  function moveResize(event) {
+    if (!resize || resize.pointerId !== event.pointerId) return;
+    windowLayout = clampLayout({
+      ...windowLayout,
+      width: resize.width + event.clientX - resize.x,
+      height: resize.height + event.clientY - resize.y
+    });
+    applyWindowLayout();
+    event.preventDefault();
+  }
+
+  function endResize(event) {
+    if (!resize || resize.pointerId !== event.pointerId) return;
+    resize = null;
+    dialog.classList.remove('is-resizing');
+    try { resizeHandle.releasePointerCapture(event.pointerId); } catch (_) {}
+  }
+
+  function resizeWithKeyboard(event) {
+    if (!usesFloatingWindow() || !['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown'].includes(event.key)) return;
+    const step = event.shiftKey ? 50 : 20;
+    const layout = windowLayout || captureWindowLayout();
+    windowLayout = clampLayout({
+      ...layout,
+      width: layout.width + (event.key === 'ArrowRight' ? step : event.key === 'ArrowLeft' ? -step : 0),
+      height: layout.height + (event.key === 'ArrowDown' ? step : event.key === 'ArrowUp' ? -step : 0)
+    });
+    applyWindowLayout();
+    event.preventDefault();
+    event.stopPropagation();
+  }
 
   function getViewport() {
     if (typeof pn._getGravityWellPresetViewport === 'function') return pn._getGravityWellPresetViewport();
@@ -160,6 +277,9 @@ export function createGravityWellPresetBrowser(pn) {
 
   function restoreFocus() {
     window.removeEventListener('resize', onResize);
+    drag = null;
+    resize = null;
+    dialog.classList.remove('is-moving', 'is-resizing');
     if (!destroyed && opener?.isConnected) opener.focus({ preventScroll: true });
   }
 
@@ -197,12 +317,24 @@ export function createGravityWellPresetBrowser(pn) {
 
   function onResize() {
     if (!dialog.open) return;
+    applyWindowLayout();
     const focusedId = document.activeElement?.dataset.presetId;
     renderGallery();
     if (focusedId) gallery.querySelector(`[data-preset-id="${focusedId}"]`)?.focus({ preventScroll: true });
   }
 
   close.addEventListener('click', closeBrowser);
+  header.addEventListener('pointerdown', beginDrag);
+  header.addEventListener('pointermove', moveDrag);
+  header.addEventListener('pointerup', endDrag);
+  header.addEventListener('pointercancel', endDrag);
+  header.addEventListener('lostpointercapture', endDrag);
+  resizeHandle.addEventListener('pointerdown', beginResize);
+  resizeHandle.addEventListener('pointermove', moveResize);
+  resizeHandle.addEventListener('pointerup', endResize);
+  resizeHandle.addEventListener('pointercancel', endResize);
+  resizeHandle.addEventListener('lostpointercapture', endResize);
+  resizeHandle.addEventListener('keydown', resizeWithKeyboard);
   dialog.addEventListener('close', restoreFocus);
   dialog.addEventListener('keydown', stopCanvasHotkeys);
   dialog.addEventListener('keyup', stopCanvasHotkeys);
@@ -222,6 +354,7 @@ export function createGravityWellPresetBrowser(pn) {
       family.value = '';
       renderGallery();
       dialog.showModal();
+      applyWindowLayout();
       window.addEventListener('resize', onResize);
       search.focus();
     },
@@ -229,6 +362,17 @@ export function createGravityWellPresetBrowser(pn) {
       destroyed = true;
       closeBrowser();
       window.removeEventListener('resize', onResize);
+      header.removeEventListener('pointerdown', beginDrag);
+      header.removeEventListener('pointermove', moveDrag);
+      header.removeEventListener('pointerup', endDrag);
+      header.removeEventListener('pointercancel', endDrag);
+      header.removeEventListener('lostpointercapture', endDrag);
+      resizeHandle.removeEventListener('pointerdown', beginResize);
+      resizeHandle.removeEventListener('pointermove', moveResize);
+      resizeHandle.removeEventListener('pointerup', endResize);
+      resizeHandle.removeEventListener('pointercancel', endResize);
+      resizeHandle.removeEventListener('lostpointercapture', endResize);
+      resizeHandle.removeEventListener('keydown', resizeWithKeyboard);
       dialog.remove();
     }
   };

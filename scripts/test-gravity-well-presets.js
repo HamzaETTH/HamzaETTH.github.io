@@ -249,6 +249,67 @@ async function main() {
     assert(result.assertions.deleteResizeUndoReflows);
     await page.setViewportSize({ width: 1280, height: 800 });
 
+    result.assertions.whiteForceSurvivesStablePresetOrbit = await page.evaluate(() => {
+      const pn = window.particleInstance;
+      pn.applyGravityWellPreset('cross-cage');
+      if (pn._rafId != null) cancelAnimationFrame(pn._rafId);
+      pn._rafActive = false;
+      pn._rafId = null;
+      pn.setParticleCount(1);
+      pn._clearInteractivePointerForces();
+      pn._cursorCaptureActive = false;
+      pn._cursorCapturePoint = null;
+      pn._objectSelectionDrag = null;
+      Object.assign(pn.options, {
+        interactive: false,
+        particleAttraction: false,
+        particleRepulsion: false,
+        particleCollision: false,
+        curvedDrift: false,
+        velocity: 0,
+        boundaryMode: 'audit-unbounded'
+      });
+      pn.attractionForce = null;
+      pn.repulsionForce = null;
+      pn.gravityWellAccelerationCapped = false;
+      pn.options.gravityWellAccelerationCapped = false;
+
+      const presetMetadata = pn.activeGravityWellPreset;
+      const allWells = pn.gravityWells.map(well => ({ ...well }));
+      const testPoint = { x: pn.i.size.width * 0.41, y: pn.i.size.height * 0.37 };
+
+      function run(includeBlack, includeWhite, stableOrbit) {
+        pn.gravityWells = allWells.map(well => ({
+          ...well,
+          strength: ((well.type === 'white' ? includeWhite : includeBlack) ? 1 : 0) * well.strength
+        }));
+        pn.activeGravityWellPreset = stableOrbit ? presetMetadata : null;
+        pn._presetOrbitActive = stableOrbit;
+        pn._gravityWellPresetUsesRecommendedMotion = stableOrbit;
+        pn._presetOrbitControlValid.fill(0);
+        pn._presetOrbitAssignments.fill(-1);
+        pn._presetOrbitFrame = 0;
+        pn._presetOrbitRunning = false;
+        pn.posX[0] = testPoint.x;
+        pn.posY[0] = testPoint.y;
+        pn.velX[0] = 0;
+        pn.velY[0] = 0;
+        pn._updateSoA();
+        return [pn.velX[0], pn.velY[0]];
+      }
+
+      const black = run(true, false, true);
+      const white = run(false, true, false);
+      const mixed = run(true, true, true);
+      const whiteMagnitude = Math.hypot(white[0], white[1]);
+      const decompositionError = Math.hypot(
+        mixed[0] - black[0] - white[0],
+        mixed[1] - black[1] - white[1]
+      );
+      return whiteMagnitude > 1e-4 && decompositionError <= 1e-5;
+    });
+    assert(result.assertions.whiteForceSurvivesStablePresetOrbit);
+
     const presets = await page.evaluate(() => window.GravityWellPresets.presets.map(({ id, name, family }) => ({ id, name, family })));
     const shots = [];
     for (const preset of presets) {

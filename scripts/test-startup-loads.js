@@ -110,13 +110,14 @@ async function main() {
     await page.keyboard.press('c');
     await page.waitForFunction(() => {
       const pane = document.getElementById('tp-container');
-      return pane && getComputedStyle(pane).display !== 'none';
+      return window.particleSettingsUi && pane && !pane.querySelector('.particle-controls-body')?.hidden;
     }, null, { timeout: 30000 });
     const pane = await page.evaluate(() => {
       const element = document.getElementById('tp-container');
       return {
         exists: Boolean(element),
         visible: Boolean(element && getComputedStyle(element).display !== 'none'),
+        open: Boolean(element && !element.querySelector('.particle-controls-body')?.hidden),
         hasControls: Boolean(element && element.querySelector('.tp-dfwv, .tp-rotv'))
       };
     });
@@ -173,7 +174,7 @@ async function main() {
     console.log('RESULTS_JSON=' + JSON.stringify(result));
 
     const runtimeFailed = !runtime.hasParticleInstance || !runtime.rafActive ||
-      !runtime.hasWebGl || runtime.webGlContextLost || !pane.visible || !pane.hasControls;
+      !runtime.hasWebGl || runtime.webGlContextLost || !pane.visible || !pane.open || !pane.hasControls;
     const manifestFailed = options.requireManifest &&
       (manifest.status !== 200 || !manifest.ok || !manifest.json || manifest.parseError);
     if (runtimeFailed || manifestFailed || requestFailures.length || browserErrors.length) {

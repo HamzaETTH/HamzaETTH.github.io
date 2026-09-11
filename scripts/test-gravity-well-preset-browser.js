@@ -11,7 +11,7 @@ if (!url) throw new Error('Usage: rtk node scripts/test-gravity-well-preset-brow
 
 async function openControls(page) {
   await page.evaluate(() => window.dispatchEvent(new KeyboardEvent('keydown', { key: 'c', bubbles: true })));
-  await page.waitForFunction(() => window.particleSettingsUi && getComputedStyle(window.particleSettingsUi.container).display !== 'none');
+  await page.waitForFunction(() => window.particleSettingsUi && !window.particleSettingsUi.container.querySelector('.particle-controls-body')?.hidden);
   await page.getByRole('button', { name: 'Wells', exact: true }).click();
 }
 
@@ -71,6 +71,59 @@ async function desktop(browser, errors) {
   assert.strictEqual(await page.getByLabel('Use recommended motion').isChecked(), true);
   assert.strictEqual(await page.locator('.well-preset-family option').count(), 12);
   assert.strictEqual(await page.getByLabel('Search presets').evaluate(node => node === document.activeElement), true);
+  const initialWindow = await page.locator('#well-preset-browser').evaluate(dialog => {
+    const rect = dialog.getBoundingClientRect();
+    return {
+      rect: rect.toJSON(),
+      background: getComputedStyle(dialog).backgroundColor,
+      backdrop: getComputedStyle(dialog, '::backdrop').backgroundColor,
+      columns: getComputedStyle(dialog.querySelector('.well-preset-content')).gridTemplateColumns.split(' ').length
+    };
+  });
+  assert.match(initialWindow.background, /0\.9\)/, 'preset surface should be slightly transparent');
+  assert.match(initialWindow.backdrop, /0\.55\)/, 'preset backdrop should keep the canvas visible');
+  assert.strictEqual(initialWindow.columns, 2, 'default preset browser should use gallery and detail columns');
+
+  const headerBox = await page.locator('.well-preset-header').boundingBox();
+  await page.mouse.move(headerBox.x + 120, headerBox.y + headerBox.height / 2);
+  await page.mouse.down();
+  await page.mouse.move(headerBox.x + 160, headerBox.y + headerBox.height / 2 + 30);
+  await page.mouse.up();
+  const movedWindow = await page.locator('#well-preset-browser').evaluate(dialog => dialog.getBoundingClientRect().toJSON());
+  assert.ok(movedWindow.x >= initialWindow.rect.x + 39 && movedWindow.y >= initialWindow.rect.y + 29,
+    `preset browser did not follow its header drag: ${JSON.stringify({ initial: initialWindow.rect, moved: movedWindow })}`);
+
+  const resizeBox = await page.locator('.well-preset-resize').boundingBox();
+  await page.mouse.move(resizeBox.x + resizeBox.width / 2, resizeBox.y + resizeBox.height / 2);
+  await page.mouse.down();
+  await page.mouse.move(resizeBox.x + resizeBox.width / 2 - 400, resizeBox.y + resizeBox.height / 2 - 260);
+  await page.mouse.up();
+  const resizedWindow = await page.locator('#well-preset-browser').evaluate(dialog => {
+    const rect = dialog.getBoundingClientRect();
+    const gallery = dialog.querySelector('.well-preset-gallery').getBoundingClientRect();
+    const detail = dialog.querySelector('.well-preset-detail').getBoundingClientRect();
+    return { rect: rect.toJSON(), detailStacked: detail.top >= gallery.bottom - 1 };
+  });
+  assert.ok(Math.abs(resizedWindow.rect.width - 640) < 2 && Math.abs(resizedWindow.rect.height - 520) < 2,
+    `preset browser resize did not retain the requested dimensions: ${JSON.stringify(resizedWindow.rect)}`);
+  assert.strictEqual(resizedWindow.detailStacked, true, 'narrow preset browser should stack its detail panel');
+  const resizeHandle = page.getByRole('button', { name: 'Resize preset window' });
+  const resizeTarget = await resizeHandle.boundingBox();
+  assert.ok(resizeTarget.width >= 44 && resizeTarget.height >= 44, 'preset resize target must be at least 44px');
+  await resizeHandle.focus();
+  await page.keyboard.press('ArrowRight');
+  await page.keyboard.press('ArrowDown');
+  await page.keyboard.press('ArrowLeft');
+  await page.keyboard.press('ArrowUp');
+  const keyboardResizedWindow = await page.locator('#well-preset-browser').evaluate(dialog =>
+    dialog.getBoundingClientRect().toJSON());
+  assert.ok(['width', 'height'].every(key => Math.abs(keyboardResizedWindow[key] - resizedWindow.rect[key]) < 2),
+    'keyboard resizing should update and restore both dimensions');
+  await page.getByRole('button', { name: 'Close', exact: true }).click();
+  await openBrowser(page);
+  const reopenedWindow = await page.locator('#well-preset-browser').evaluate(dialog => dialog.getBoundingClientRect().toJSON());
+  assert.ok(['x', 'y', 'width', 'height'].every(key => Math.abs(reopenedWindow[key] - resizedWindow.rect[key]) < 2),
+    'preset browser should remember its window geometry until reload');
   await page.getByLabel('Search presets').fill('bullseye');
   assert.strictEqual(await page.locator('.well-preset-entry').count(), 2);
   await page.getByLabel('Search presets').fill('unmatched constellation');
@@ -211,11 +264,13 @@ async function responsive(browser, errors) {
     const rect = dialog.getBoundingClientRect();
     const gallery = dialog.querySelector('.well-preset-gallery');
     return { x: rect.x, right: rect.right, bottom: rect.bottom, width: innerWidth, height: innerHeight,
-      overflow: dialog.scrollWidth > dialog.clientWidth, scrollable: gallery.scrollHeight > gallery.clientHeight };
+      overflow: dialog.scrollWidth > dialog.clientWidth, scrollable: gallery.scrollHeight > gallery.clientHeight,
+      resizeHandleHidden: getComputedStyle(dialog.querySelector('.well-preset-resize')).display === 'none' };
   });
   assert.ok(fit.x >= 0 && fit.right <= fit.width && fit.bottom <= fit.height, 'Phone dialog must fit viewport');
   assert.strictEqual(fit.overflow, false);
   assert.strictEqual(fit.scrollable, true);
+  assert.strictEqual(fit.resizeHandleHidden, true, 'Phone dialog must keep its fixed full-screen layout');
   const touchTargets = await page.locator('.well-preset-close, .well-preset-apply, .well-preset-filters input, .well-preset-filters select, .well-preset-motion, .well-preset-entry').evaluateAll(nodes =>
     nodes.map(node => ({ name: node.textContent || node.type, height: node.getBoundingClientRect().height })));
   assert.ok(touchTargets.every(target => target.height >= 44), `Every touch target must be at least 44px: ${JSON.stringify(touchTargets.filter(target => target.height < 44))}`);

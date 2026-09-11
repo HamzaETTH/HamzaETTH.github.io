@@ -907,7 +907,7 @@ async function runDesktop(browser, options, browserErrors) {
     return {
       wells: window.particleInstance.gravityWells.map(well => ({ ...well })),
       selectedId: window.particleInstance.selectedGravityWellId,
-      controlsVisible: !!container && container.style.display !== 'none'
+      controlsVisible: container?.querySelector('.particle-controls-body')?.hidden === false
     };
   });
   await page.evaluate(() => {
@@ -940,7 +940,7 @@ async function runDesktop(browser, options, browserErrors) {
       targetBefore: before.wells[0],
       otherBefore: before.wells[1],
       selectedId: pn.selectedGravityWellId,
-      controlsVisible: !!container && container.style.display !== 'none',
+      controlsVisible: container?.querySelector('.particle-controls-body')?.hidden === false,
       randomCalls: window.__gravityColorRandomCalls,
       repeatPreservedColors: window.__gravityRepeatPreservedColors
     };
@@ -953,7 +953,8 @@ async function runDesktop(browser, options, browserErrors) {
 
   await page.mouse.move(40, 40);
   await page.keyboard.press('c');
-  await page.waitForFunction(() => window.particleSettingsUi && document.getElementById('tp-container')?.style.display !== 'none');
+  await page.waitForFunction(() => window.particleSettingsUi &&
+    document.querySelector('#tp-container .particle-controls-body')?.hidden === false);
   await page.getByText('Wells', { exact: true }).click();
   const panelText = await page.locator('#tp-container').textContent();
   const sliderControls = await page.evaluate(() => {
@@ -1024,7 +1025,7 @@ async function runDesktop(browser, options, browserErrors) {
       well: selected && { ...selected },
       before: window.__gravityFullColorBefore,
       params: { innerColor: params.innerColor, outerColor: params.outerColor },
-      controlsVisible: document.getElementById('tp-container')?.style.display !== 'none',
+      controlsVisible: document.querySelector('#tp-container .particle-controls-body')?.hidden === false,
       randomCalls: window.__gravityColorRandomCalls
     };
     Math.random = window.__gravityOriginalRandom;
@@ -1035,9 +1036,11 @@ async function runDesktop(browser, options, browserErrors) {
   });
   await page.mouse.move(40, 40);
   await page.keyboard.press('c');
-  const fullPaneHidden = await page.evaluate(() => document.getElementById('tp-container')?.style.display === 'none');
+  const fullPaneHidden = await page.evaluate(() =>
+    document.querySelector('#tp-container .particle-controls-body')?.hidden === true);
   await page.keyboard.press('c');
-  const fullPaneVisible = await page.evaluate(() => document.getElementById('tp-container')?.style.display !== 'none');
+  const fullPaneVisible = await page.evaluate(() =>
+    document.querySelector('#tp-container .particle-controls-body')?.hidden === false);
 
   const appliedWellSettings = await page.evaluate(() => {
     const pn = window.particleInstance;
@@ -1083,6 +1086,8 @@ async function runDesktop(browser, options, browserErrors) {
   const strengthAfterPanelRestore = await page.evaluate(() => window.particleInstance.getSelectedGravityWell()?.strength);
 
   await page.getByRole('button', { name: 'Reposition/Resize' }).click();
+  await page.locator('.particle-controls-launcher').click();
+  await page.waitForFunction(() => document.querySelector('.particle-controls-body')?.hidden === true);
   await page.mouse.move(360, 300);
   await page.mouse.down();
   await page.mouse.move(480, 300);
@@ -1097,6 +1102,8 @@ async function runDesktop(browser, options, browserErrors) {
     const well = window.particleInstance.getSelectedGravityWell();
     return well ? { x: well.x, y: well.y, radius: well.radius } : null;
   });
+  await page.locator('.particle-controls-launcher').click();
+  await page.waitForFunction(() => document.querySelector('.particle-controls-body')?.hidden === false);
 
   await page.getByRole('button', { name: 'Remove Selected' }).click();
   const afterRemove = await page.evaluate(() => window.particleInstance.gravityWells.length);
@@ -2820,7 +2827,8 @@ async function runTouch(browser, options, browserErrors) {
     return { x: pn.p.x, y: pn.p.y, dpr: window.devicePixelRatio };
   }, { x: 95, y: 320 });
   await page.keyboard.press('c');
-  await page.waitForFunction(() => window.particleSettingsUi && document.getElementById('tp-container')?.style.display !== 'none');
+  await page.waitForFunction(() => window.particleSettingsUi &&
+    document.querySelector('#tp-container .particle-controls-body')?.hidden === false);
   await page.getByText('Wells', { exact: true }).click();
   const systemOverride = await page.evaluate(() => {
     const ui = window.particleSettingsUi;

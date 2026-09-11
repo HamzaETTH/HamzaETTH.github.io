@@ -184,12 +184,13 @@ async function loadVariant(page, url) {
     await page.waitForFunction(() => {
       const manager = window.hotkeyManager;
       const container = document.getElementById('tp-container');
-      return manager.context.pane && container && getComputedStyle(container).display !== 'none';
+      const body = container?.querySelector('.particle-controls-body');
+      return manager.context.pane && body && !body.hidden;
     }, null, { timeout: 30000 });
     await page.evaluate(dispatchControlToggle);
     await page.waitForFunction(() => {
       const container = document.getElementById('tp-container');
-      return container && getComputedStyle(container).display === 'none';
+      return container?.querySelector('.particle-controls-body')?.hidden === true;
     }, null, { timeout: 5000 });
   }
   await page.evaluate(installUiSyncInstrumentation);
@@ -199,7 +200,7 @@ async function loadVariant(page, url) {
 async function runVariant(page, url, variant, trial) {
   await loadVariant(page, url);
   const initial = await page.evaluate(() => ({
-    paneHidden: getComputedStyle(document.getElementById('tp-container')).display === 'none',
+    paneHidden: document.querySelector('#tp-container .particle-controls-body')?.hidden === true,
     bindingCount: window.__uiSyncBenchmark.bindingCount()
   }));
 
@@ -207,7 +208,7 @@ async function runVariant(page, url, variant, trial) {
 
   await page.evaluate(dispatchControlToggle);
   const visibleStart = await page.evaluate(() => ({
-    paneVisible: getComputedStyle(document.getElementById('tp-container')).display !== 'none',
+    paneVisible: document.querySelector('#tp-container .particle-controls-body')?.hidden === false,
     gradientColor1: window.hotkeyManager.context.params.gradientColor1,
     gradientColor2: window.hotkeyManager.context.params.gradientColor2
   }));
@@ -262,7 +263,7 @@ async function runVariant(page, url, variant, trial) {
       before,
       after,
       ...metrics,
-      paneVisible: getComputedStyle(document.getElementById('tp-container')).display !== 'none',
+      paneVisible: document.querySelector('#tp-container .particle-controls-body')?.hidden === false,
       immediate: after.gradientColor1.sourceValue.toLowerCase() === '#123456' &&
         after.gradientColor2.sourceValue.toLowerCase() === '#654321' &&
         after.renderedGradientColor1.inputValue &&
@@ -278,7 +279,7 @@ async function runVariant(page, url, variant, trial) {
     return {
       hasGl: Boolean(pn.glRenderer && pn.glRenderer.gl),
       glContextLost: Boolean(pn.glRenderer && pn.glRenderer.gl && pn.glRenderer.gl.isContextLost()),
-      paneVisible: getComputedStyle(document.getElementById('tp-container')).display !== 'none'
+      paneVisible: document.querySelector('#tp-container .particle-controls-body')?.hidden === false
     };
   });
 

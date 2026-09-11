@@ -85,6 +85,10 @@ async function main() {
         paneExists: Boolean(container),
         paneVisible: Boolean(container && getComputedStyle(container).display !== 'none'),
         paneHasControls: Boolean(container && container.querySelector('.tp-dfwv, .tp-rotv')),
+        launcherVisible: Boolean(container && container.querySelector('.particle-controls-launcher')?.getClientRects().length),
+        launcherOpacity: container ? Number(getComputedStyle(container).opacity) : 0,
+        launcherExpanded: container?.querySelector('.particle-controls-launcher')?.getAttribute('aria-expanded'),
+        paneOpen: Boolean(container && !container.querySelector('.particle-controls-body')?.hidden),
         particleCount: pn.o.length,
         rafActive: pn._rafActive,
         hasWebGl: Boolean(pn.glRenderer && pn.glRenderer.gl),
@@ -92,22 +96,31 @@ async function main() {
       };
     });
     initial.tweakpaneRequested = responses.some(isTweakpaneUrl);
+    await page.locator('.particle-controls-launcher').hover();
+    await page.waitForTimeout(260);
+    const launcherHoverOpacity = await page.locator('#tp-container').evaluate(container =>
+      Number(getComputedStyle(container).opacity));
+    await page.mouse.move(640, 360);
 
     let afterFirstOpen = null;
     let afterRepeatToggle = null;
     if (!options.blockTweakpane && initial.hotkeys.includes('c')) {
       const startedAt = performance.now();
-      await page.keyboard.press('c');
+      await page.locator('.particle-controls-launcher').click();
       await page.waitForFunction(() => {
         const container = document.getElementById('tp-container');
-        return container && getComputedStyle(container).display !== 'none';
+        return window.particleSettingsUi && container && !container.querySelector('.particle-controls-body')?.hidden;
       }, null, { timeout: 30000 });
+      await page.waitForTimeout(260);
       afterFirstOpen = await page.evaluate(() => {
         const container = document.getElementById('tp-container');
         return {
           paneContainerCount: document.querySelectorAll('#tp-container').length,
           paneVisible: getComputedStyle(container).display !== 'none',
           paneHasControls: Boolean(container.querySelector('.tp-dfwv, .tp-rotv')),
+          paneOpen: !container.querySelector('.particle-controls-body').hidden,
+          opacity: Number(getComputedStyle(container).opacity),
+          launcherExpanded: container.querySelector('.particle-controls-launcher').getAttribute('aria-expanded'),
           hotkeys: Array.from(window.hotkeyManager.handlers.keys()).sort()
         };
       });
@@ -116,21 +129,22 @@ async function main() {
       await page.keyboard.press('c');
       await page.waitForFunction(() => {
         const container = document.getElementById('tp-container');
-        return container && getComputedStyle(container).display === 'none';
+        return container && container.querySelector('.particle-controls-body')?.hidden;
       }, null, { timeout: 5000 });
       await page.keyboard.press('c');
       await page.waitForFunction(() => {
         const container = document.getElementById('tp-container');
-        return container && getComputedStyle(container).display !== 'none';
+        return container && !container.querySelector('.particle-controls-body')?.hidden;
       }, null, { timeout: 5000 });
       await page.keyboard.press('c');
       await page.waitForFunction(() => {
         const container = document.getElementById('tp-container');
-        return container && getComputedStyle(container).display === 'none';
+        return container && container.querySelector('.particle-controls-body')?.hidden;
       }, null, { timeout: 5000 });
       afterRepeatToggle = await page.evaluate(() => ({
         paneContainerCount: document.querySelectorAll('#tp-container').length,
-        paneVisible: getComputedStyle(document.getElementById('tp-container')).display !== 'none'
+        launcherVisible: document.querySelector('.particle-controls-launcher')?.getClientRects().length > 0,
+        paneOpen: !document.querySelector('.particle-controls-body')?.hidden
       }));
       afterRepeatToggle.tweakpaneRequestCount = responses.filter(isTweakpaneUrl).length;
     }
@@ -150,11 +164,13 @@ async function main() {
     if (!options.blockTweakpane) {
       assertions.hotkeysAvailable = JSON.stringify(initial.hotkeys) === JSON.stringify(expectedHotkeys);
       assertions.firstOpenWorked = Boolean(
-        afterFirstOpen && afterFirstOpen.paneVisible && afterFirstOpen.paneHasControls &&
+        afterFirstOpen && afterFirstOpen.paneVisible && afterFirstOpen.paneOpen &&
+        afterFirstOpen.launcherExpanded === 'true' && afterFirstOpen.opacity === 1 && afterFirstOpen.paneHasControls &&
         afterFirstOpen.paneContainerCount === 1
       );
+      assertions.launcherFadesUntilHovered = initial.launcherOpacity < 0.4 && launcherHoverOpacity > 0.75;
       assertions.repeatToggleReusesPane = Boolean(
-        afterRepeatToggle && !afterRepeatToggle.paneVisible &&
+        afterRepeatToggle && afterRepeatToggle.launcherVisible && !afterRepeatToggle.paneOpen &&
         afterRepeatToggle.paneContainerCount === 1 && afterRepeatToggle.tweakpaneRequestCount === 1
       );
       assertions.noBrowserErrors = browserErrors.length === 0 && failedRequests.length === 0;
@@ -164,14 +180,15 @@ async function main() {
       assertions.engineStartedAfterParse = initial.particleInstanceReadyState === 'interactive';
     }
     if (options.expectLazy) {
-      assertions.paneSkippedInitially = !initial.paneExists && !initial.tweakpaneRequested;
+      assertions.paneSkippedInitially = initial.paneExists && initial.paneVisible && initial.launcherVisible &&
+        initial.launcherExpanded === 'false' && !initial.paneOpen && !initial.paneHasControls && !initial.tweakpaneRequested;
       if (!options.blockTweakpane) {
         assertions.tweakpaneLoadedOnOpen = Boolean(afterFirstOpen && afterFirstOpen.tweakpaneRequested);
       }
     }
     if (options.blockTweakpane && options.expectLazy) {
       assertions.blockedCdnDidNotAffectStartup = JSON.stringify(initial.hotkeys) === JSON.stringify(expectedHotkeys) &&
-        !initial.paneExists && !initial.tweakpaneRequested;
+        initial.paneExists && initial.launcherVisible && !initial.paneOpen && !initial.tweakpaneRequested;
     }
 
     const passed = Object.values(assertions).every(Boolean);
@@ -179,6 +196,7 @@ async function main() {
       passed,
       assertions,
       initial,
+      launcherHoverOpacity,
       afterFirstOpen,
       afterRepeatToggle,
       browserErrors,
