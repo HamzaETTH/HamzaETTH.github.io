@@ -407,6 +407,7 @@ function buildParamsFromNetwork(pn) {
 
     // Gravity wells
     gravityWellsEnabled: o.gravityWellsEnabled !== false,
+    gravityWellPresetOrbitAssist: pn.gravityWellPresetOrbitAssist !== false,
     gravityWellMotion: o.gravityWellMotion || 'system',
     gravityWellAccelerationCapped: pn.gravityWellAccelerationCapped !== false,
     gravityWellAccelerationLimit: Number.isFinite(pn.gravityWellAccelerationLimit) ? pn.gravityWellAccelerationLimit : 1.5,
@@ -775,7 +776,7 @@ async function buildPane() {
   randomPresetButton.element.classList.add('preset-button-pair', 'preset-button-pair-last');
   const randomPresetTrigger = randomPresetButton.element.querySelector('button');
   randomPresetTrigger.classList.add('random-preset-button');
-  randomPresetTrigger.title = 'Apply a different preset with its recommended motion.';
+  randomPresetTrigger.title = 'Apply a different preset. Orbit Assist follows the setting below.';
   randomPresetButton.on('click', () => {
     const catalogue = window.GravityWellPresets;
     const previousId = pn.activeGravityWellPreset?.id || pn.lastGravityWellPresetId;
@@ -786,6 +787,16 @@ async function buildPane() {
   const PRESET_PARAMS = { name: 'Custom', spacing: 100, rotation: 0, strength: 100 };
   let refreshingPresetControls = false;
   let refreshingGravityWellControls = false;
+  const bindPresetOrbitAssist = wellsPage.addBinding(PARAMS, 'gravityWellPresetOrbitAssist', {
+    label: 'Orbit Assist'
+  }).on('change', () => {
+    if (!refreshingGravityWellControls) {
+      pn.setGravityWellPresetOrbitAssist(PARAMS.gravityWellPresetOrbitAssist);
+    }
+  });
+  bindPresetOrbitAssist.element.classList.add('orbit-assist-control');
+  bindPresetOrbitAssist.element.title = 'Keeps preset particles in broad moving orbits and prevents collapse. Turn off for natural well physics.';
+  bindPresetOrbitAssist.element.querySelector('input')?.setAttribute('aria-label', 'Orbit Assist');
   let refreshPresetMotionControls = () => {};
   let refreshPhysicsControls = () => {};
   function applyGravityMotionParams() {
@@ -812,7 +823,7 @@ async function buildPane() {
   }).on('change', adjustPreset);
   const reapplyPresetButton = presetFolder.addButton({ title: 'Reapply Preset' });
   reapplyPresetButton.on('click', () => {
-    if (pn.lastGravityWellPresetId) pn.applyGravityWellPreset(pn.lastGravityWellPresetId, { useRecommendedMotion: false });
+    if (pn.lastGravityWellPresetId) pn.applyGravityWellPreset(pn.lastGravityWellPresetId);
   });
 
   function syncPresetControls() {
@@ -936,6 +947,7 @@ async function buildPane() {
     PARAMS.speed = pn.options.velocity;
     PARAMS.curvedDrift = !!pn.options.curvedDrift;
     PARAMS.gravityWellsEnabled = pn.options.gravityWellsEnabled !== false;
+    PARAMS.gravityWellPresetOrbitAssist = pn.gravityWellPresetOrbitAssist !== false;
     PARAMS.gravityWellAccelerationCapped = pn.gravityWellAccelerationCapped !== false;
     PARAMS.gravityWellAccelerationLimit = Number.isFinite(pn.gravityWellAccelerationLimit) ? pn.gravityWellAccelerationLimit : 1.5;
     PARAMS.gravityWellForceMultiplier = Number.isFinite(pn.options.gravityWellForceMultiplier) ? pn.options.gravityWellForceMultiplier : 1;
@@ -944,6 +956,7 @@ async function buildPane() {
     PARAMS.cursorCaptureMaxSpeed = Number.isFinite(pn.options.cursorCaptureMaxSpeed) ? pn.options.cursorCaptureMaxSpeed : 2.64;
     PARAMS.gatherRadius = Number.isFinite(pn.options.gatherRadius) ? pn.options.gatherRadius : 100;
     bindGravityWellsEnabled.refresh();
+    bindPresetOrbitAssist.refresh();
     bindGravityAccelerationCapped.refresh();
     bindGravityAccelerationLimit.refresh();
     bindGravityForceMultiplier.refresh();

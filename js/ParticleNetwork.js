@@ -854,6 +854,7 @@
       this._gravityWellPresetAdjustment = null;
       this._gravityWellPresetViewport = null;
       this._gravityWellPresetUsesRecommendedMotion = false;
+      this.gravityWellPresetOrbitAssist = true;
       this._presetOrbitActive = false;
       this._presetOrbitAnchors = [];
       this._presetOrbitAssignments = null;
@@ -1132,6 +1133,19 @@
       }
       this._gravityWellPresetUsesRecommendedMotion = enabled === true;
       return enabled === true ? this._rebuildPresetOrbitAnchors() : (this._clearPresetOrbitState(), false);
+    }),
+    (b.prototype.setGravityWellPresetOrbitAssist = function(enabled) {
+      var next = enabled !== false;
+      if (this.gravityWellPresetOrbitAssist === next) return next;
+      this.gravityWellPresetOrbitAssist = next;
+      this._presetOrbitRunning = false;
+      if (this._presetOrbitControlValid) this._presetOrbitControlValid.fill(0);
+      if (next && this.activeGravityWellPreset && this._gravityWellPresetUsesRecommendedMotion) {
+        this._rebuildPresetOrbitAnchors();
+      }
+      this._emitGravityWellsChange();
+      this._ensureAnimationLoop();
+      return next;
     }),
     (b.prototype._presetOrbitTargetRadius = function(anchor, particleIndex, unitX, unitY, mobile) {
       var random = presetOrbitHash(particleIndex, this._presetOrbitSalt);
@@ -2915,15 +2929,24 @@
     (b.prototype.updateGravityWell = function(id, patch) {
       var well = this.getGravityWell(id);
       if (!well || !patch) return null;
-      if (['x', 'y', 'radius', 'strength'].some(function(key) {
+      var geometryChanged = ['x', 'y', 'radius'].some(function(key) {
         return Number.isFinite(patch[key]) && patch[key] !== well[key];
-      })) this._detachGravityWellPreset();
+      });
+      var strengthChanged = Number.isFinite(patch.strength) && patch.strength !== well.strength;
+      var effectiveTypeChanged = strengthChanged && effectiveGravityWellType(well) !== effectiveGravityWellType({
+        type: well.type,
+        strength: patch.strength
+      });
+      if (geometryChanged || effectiveTypeChanged) this._detachGravityWellPreset();
       if (Number.isFinite(patch.x)) well.x = Math.max(0, Math.min(this.i.size.width, patch.x));
       if (Number.isFinite(patch.y)) well.y = Math.max(0, Math.min(this.i.size.height, patch.y));
       if (Number.isFinite(patch.radius)) well.radius = this._clampGravityWellRadius(patch.radius);
       if (Number.isFinite(patch.strength)) well.strength = patch.strength;
       if (typeof patch.innerColor === 'string') well.innerColor = patch.innerColor;
       if (typeof patch.outerColor === 'string') well.outerColor = patch.outerColor;
+      if (strengthChanged && this.activeGravityWellPreset && this._gravityWellPresetUsesRecommendedMotion) {
+        this._rebuildPresetOrbitAnchors();
+      }
       this._emitGravityWellsChange();
       this._ensureAnimationLoop();
       return well;
@@ -5710,7 +5733,8 @@
       var presetOrbitResidualY = this._presetOrbitResidualY;
       var presetOrbitBlend = this._presetOrbitBlend;
       var presetOrbitControlValid = this._presetOrbitControlValid;
-      var stablePresetOrbit = !!this.activeGravityWellPreset && this._presetOrbitActive === true &&
+      var stablePresetOrbit = this.gravityWellPresetOrbitAssist !== false &&
+        !!this.activeGravityWellPreset && this._presetOrbitActive === true &&
         this._gravityWellPresetUsesRecommendedMotion === true && gravityForceMultiplier > 0 &&
         gravityWells.length > 0 && presetOrbitAnchors && presetOrbitAnchors.length > 0;
       var presetOrbitFrame = 0;

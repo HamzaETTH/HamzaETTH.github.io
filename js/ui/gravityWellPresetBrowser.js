@@ -99,14 +99,9 @@ export function createGravityWellPresetBrowser(pn) {
   const selectedDescription = element('p');
   description.append(selectedName, selectedMeta, selectedDescription);
   const actions = element('div', 'well-preset-actions');
-  const motionLabel = element('label', 'well-preset-motion');
-  const motion = element('input');
-  motion.type = 'checkbox';
-  motion.checked = true;
-  motionLabel.append(motion, element('span', '', 'Use recommended motion'));
   const apply = button('well-preset-apply', 'Apply Preset');
   const replaceNote = element('p', 'well-preset-replace-note', 'Replaces current wells. Undo restores them.');
-  actions.append(motionLabel, apply, replaceNote);
+  actions.append(apply, replaceNote);
   detail.append(detailPreview, description, actions);
   content.append(gallery, detail);
   dialog.append(header, filters, summary, content, resizeHandle);
@@ -243,7 +238,6 @@ export function createGravityWellPresetBrowser(pn) {
     });
     detailPreview.replaceChildren();
     apply.disabled = !selected;
-    motion.disabled = !selected;
     selectedName.textContent = selected ? selected.name : 'No matching presets';
     selectedMeta.textContent = selected ? `${selected.family} · ${selected.wells.length} wells` : '';
     selectedDescription.textContent = selected ? selected.description : 'Try another name or choose All families.';
@@ -307,7 +301,7 @@ export function createGravityWellPresetBrowser(pn) {
 
   function applySelection() {
     if (!selectedId || pn._destroyed) return;
-    pn.applyGravityWellPreset(selectedId, { useRecommendedMotion: motion.checked });
+    pn.applyGravityWellPreset(selectedId);
     closeBrowser();
   }
 

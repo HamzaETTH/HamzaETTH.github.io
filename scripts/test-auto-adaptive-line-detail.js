@@ -106,7 +106,7 @@ async function main() {
       const enabledBeforePane = {
         enabled: pn.options.adaptiveLineDetail,
         contextValue: manager.context.params.adaptiveLineDetail,
-        paneAbsent: !document.getElementById('tp-container'),
+        fullPaneAbsent: !window.particleSettingsUi,
         state: controller.getState(),
         toastCalls: toastCalls.slice()
       };
@@ -311,7 +311,7 @@ async function main() {
       nonLowWindowBreaksStreak: !evidence.interruptedLow.enabled &&
         evidence.interruptedLow.state.lowWindows === 1,
       twoLowWindowsEnableBeforePane: evidence.enabledBeforePane.enabled &&
-        evidence.enabledBeforePane.contextValue && evidence.enabledBeforePane.paneAbsent &&
+        evidence.enabledBeforePane.contextValue && evidence.enabledBeforePane.fullPaneAbsent &&
         evidence.enabledBeforePane.state.autoOwned && toastIsCorrect(evidence.enabledBeforePane.toastCalls),
       lazyPaneSynchronizes: evidence.paneSyncAfterLazyBuild,
       fourHighWindowsDoNotRecover: evidence.beforeRecovery.enabled &&

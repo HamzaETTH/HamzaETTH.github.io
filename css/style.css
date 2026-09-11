@@ -273,22 +273,6 @@ html, body, main.site-content {
   gap: 10px;
 }
 
-.well-preset-motion {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  min-height: 44px;
-  cursor: pointer;
-}
-
-.well-preset-motion input {
-  flex: none;
-  width: 18px;
-  height: 18px;
-  margin: 0;
-  accent-color: #ededed;
-}
-
 .well-preset-browser .well-preset-apply {
   min-height: 44px;
   padding: 10px 16px;
@@ -904,6 +888,13 @@ section, main {
   outline-offset: 2px;
 }
 
+.particle-controls-body {
+  max-height: calc(100dvh - 48px - env(safe-area-inset-top));
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scrollbar-gutter: stable;
+}
+
 .particle-controls-body,
 .particle-controls-body .tp-dfwv {
   width: 100% !important;
@@ -1212,6 +1203,7 @@ h1 {
   }
 
   #tp-container .physics-reset-button,
+  #tp-container .orbit-assist-control,
   #tp-container .preset-button-pair .tp-btnv_b,
   #tp-container .particle-controls-launcher {
     min-height: 44px;

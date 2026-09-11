@@ -171,9 +171,36 @@ async function main() {
       for (const [name, mutate] of Object.entries(mutations)) {
         pn.applyGravityWellPreset('binary');
         mutate();
-        check(`customAfter_${name}`, pn.activeGravityWellPreset === null && pn.lastGravityWellPresetId === 'binary');
-        check(`customDisablesUpdate_${name}`, pn.updateGravityWellPreset({ spacing: 110 }) === null);
+        if (name === 'strength') {
+          check('strengthKeepsPresetOrbitAssist', pn.activeGravityWellPreset?.id === 'binary' &&
+            pn.gravityWellPresetOrbitAssist && pn._gravityWellPresetUsesRecommendedMotion);
+        } else {
+          check(`customAfter_${name}`, pn.activeGravityWellPreset === null && pn.lastGravityWellPresetId === 'binary');
+          check(`customDisablesUpdate_${name}`, pn.updateGravityWellPreset({ spacing: 110 }) === null);
+        }
       }
+      pn.applyGravityWellPreset('six-pockets');
+      pn._updateSoA();
+      const sixPocketsWhite = pn.gravityWells.find(well => well.type === 'white');
+      const sixPocketsStrength = sixPocketsWhite.strength;
+      pn.updateGravityWell(sixPocketsWhite.id, { strength: sixPocketsStrength + 1 });
+      pn._updateSoA();
+      check('sixPocketsWhiteEditKeepsController', sixPocketsWhite.strength === sixPocketsStrength + 1 &&
+        pn.activeGravityWellPreset?.id === 'six-pockets' && pn._presetOrbitRunning);
+      const beforeOrbitAssistToggle = json([
+        Array.from(pn.posX), Array.from(pn.posY), Array.from(pn.velX), Array.from(pn.velY), pn.gravityWells
+      ]);
+      pn.setGravityWellPresetOrbitAssist(false);
+      check('orbitAssistOffPreservesScene', beforeOrbitAssistToggle === json([
+        Array.from(pn.posX), Array.from(pn.posY), Array.from(pn.velX), Array.from(pn.velY), pn.gravityWells
+      ]));
+      pn._updateSoA();
+      check('orbitAssistOffIsLive', pn.activeGravityWellPreset?.id === 'six-pockets' &&
+        !pn.gravityWellPresetOrbitAssist && !pn._presetOrbitRunning);
+      pn.setGravityWellPresetOrbitAssist(true);
+      pn._updateSoA();
+      check('orbitAssistOnIsLive', pn.activeGravityWellPreset?.id === 'six-pockets' &&
+        pn.gravityWellPresetOrbitAssist && pn._presetOrbitRunning);
       pn.applyGravityWellPreset('cross-cage');
       pn.selectGravityWell(pn.gravityWells[1].id);
       pn.deleteObjectSelection();

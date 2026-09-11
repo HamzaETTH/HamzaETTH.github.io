@@ -20,6 +20,16 @@ async function openBrowser(page) {
   await page.locator('#well-preset-browser').waitFor({ state: 'visible' });
 }
 
+async function setOrbitAssist(page, enabled) {
+  const input = page.getByLabel('Orbit Assist');
+  await input.evaluate((node, value) => { if (node.checked !== value) node.click(); }, enabled);
+  await page.waitForFunction(value =>
+    document.querySelector('.orbit-assist-control input')?.checked === value &&
+    window.particleInstance.gravityWellPresetOrbitAssist === value,
+  enabled);
+  assert.strictEqual(await input.isChecked(), enabled);
+}
+
 async function wellState(page) {
   return page.evaluate(() => {
     const pn = window.particleInstance;
@@ -29,6 +39,8 @@ async function wellState(page) {
       draft: pn.gravityWellDraft && { ...pn.gravityWellDraft },
       selection: [...pn.selectedGravityWellIds],
       undo: pn._selectionUndoStack.length,
+      orbitAssist: pn.gravityWellPresetOrbitAssist !== false,
+      orbitControllerRunning: pn._presetOrbitRunning === true,
       motion: [pn.options.velocity, pn.options.curvedDrift, pn.options.gravityWellSpin, pn.options.gravityWellForceMultiplier,
         pn.gravityWellAccelerationCapped, pn.gravityWellAccelerationLimit]
     };
@@ -46,6 +58,15 @@ async function desktop(browser, errors) {
   await page.goto(url, { waitUntil: 'domcontentloaded' });
   await page.waitForFunction(() => window.particleInstance && window.GravityWellPresets);
   await openControls(page);
+  const controlsFit = await page.locator('.particle-controls-body').evaluate(node => {
+    const rect = node.getBoundingClientRect();
+    return { bottom: rect.bottom, viewport: innerHeight, overflowY: getComputedStyle(node).overflowY };
+  });
+  assert.ok(controlsFit.bottom <= controlsFit.viewport, 'Open Controls must fit the desktop viewport');
+  assert.strictEqual(controlsFit.overflowY, 'auto');
+  assert.strictEqual(await page.getByLabel('Orbit Assist').isChecked(), true);
+  assert.match(await page.getByLabel('Orbit Assist').evaluate(node => node.closest('.orbit-assist-control').title),
+    /prevents collapse/i);
   const presetButtonLayout = await page.getByRole('button', { name: /^(Browse|Random) Presets?$/ }).evaluateAll(nodes =>
     nodes.map(node => node.getBoundingClientRect().toJSON()));
   assert.strictEqual(presetButtonLayout.length, 2);
@@ -53,6 +74,7 @@ async function desktop(browser, errors) {
     'Browse and Random must share one compact row');
   assert.ok(presetButtonLayout[0].right <= presetButtonLayout[1].left,
     'Browse must appear before Random');
+  await screenshot(page, 'orbit-assist-desktop');
   await page.evaluate(() => {
     const pn = window.particleInstance;
     pn.applyGravityWellPreset('binary', { useRecommendedMotion: false });
@@ -68,7 +90,8 @@ async function desktop(browser, errors) {
   const beforeBrowse = await wellState(page);
   await openBrowser(page);
   assert.strictEqual(await page.locator('.well-preset-entry').count(), 96);
-  assert.strictEqual(await page.getByLabel('Use recommended motion').isChecked(), true);
+  assert.strictEqual(await page.getByLabel('Use recommended motion').count(), 0,
+    'Preset motion mode belongs in the persistent Controls pane');
   assert.strictEqual(await page.locator('.well-preset-family option').count(), 12);
   assert.strictEqual(await page.getByLabel('Search presets').evaluate(node => node === document.activeElement), true);
   const initialWindow = await page.locator('#well-preset-browser').evaluate(dialog => {
@@ -144,9 +167,9 @@ async function desktop(browser, errors) {
   assert.strictEqual(await page.getByRole('button', { name: 'Browse Presets', exact: true }).evaluate(node => node === document.activeElement), true);
   assert.deepStrictEqual(await wellState(page), beforeBrowse, 'Escape must preserve the pending placement as well as existing wells');
 
+  await setOrbitAssist(page, false);
   await openBrowser(page);
   await page.locator('[data-preset-id="cross-cage"]').click();
-  await page.getByLabel('Use recommended motion').uncheck();
   const expectedPreview = await page.locator('.well-preset-detail-preview circle').evaluateAll(circles =>
     circles.map(circle => ['cx', 'cy', 'r'].map(name => Number(circle.getAttribute(name)))));
   await screenshot(page, 'presets-desktop');
@@ -154,7 +177,10 @@ async function desktop(browser, errors) {
   const applied = await wellState(page);
   assert.strictEqual(applied.active.id, 'cross-cage');
   assert.strictEqual(applied.draft, null);
-  assert.deepStrictEqual(applied.motion, beforeBrowse.motion, 'Unchecked motion must preserve every current physics value');
+  assert.deepStrictEqual(applied.motion, [0.66, false, 0, 0.6, true, 1.5],
+    'Orbit Assist off must still apply the preset recommended physics profile');
+  assert.strictEqual(applied.orbitAssist, false);
+  assert.strictEqual(applied.orbitControllerRunning, false);
   assert.deepStrictEqual(applied.wells.map(well => [well.x, well.y, well.radius]), expectedPreview, 'Preview and placement must resolve to identical geometry');
   assert.deepStrictEqual(applied.selection, [], 'Apply must not select all wells');
   assert.strictEqual(applied.undo, beforeBrowse.undo + 1);
@@ -162,9 +188,9 @@ async function desktop(browser, errors) {
   assert.deepStrictEqual((await wellState(page)).wells, beforeBrowse.wells);
   assert.strictEqual((await wellState(page)).active.id, 'binary');
 
+  await setOrbitAssist(page, true);
   await openBrowser(page);
   await page.locator('[data-preset-id="cross-cage"]').click();
-  await page.getByLabel('Use recommended motion').check();
   await page.evaluate(() => {
     const pn = window.particleInstance;
     window.__presetRebuilds = 0;
@@ -180,6 +206,37 @@ async function desktop(browser, errors) {
   });
   assert.deepStrictEqual([synced[0], synced[1], synced[3]], [0.66, false, 0.6]);
   assert.ok(Math.abs(synced[2]) < 1e-12, 'Trap spin must synchronize to zero');
+
+  await setOrbitAssist(page, false);
+  const assistOff = await page.evaluate(() => {
+    const pn = window.particleInstance;
+    if (pn._rafId != null) cancelAnimationFrame(pn._rafId);
+    pn._rafId = null;
+    pn._rafActive = false;
+    pn._updateSoA();
+    return {
+      active: pn.activeGravityWellPreset?.id,
+      enabled: pn.gravityWellPresetOrbitAssist,
+      running: pn._presetOrbitRunning
+    };
+  });
+  assert.deepStrictEqual(assistOff, { active: 'cross-cage', enabled: false, running: false },
+    'Unchecking Orbit Assist must disable the controller live without detaching the preset');
+  await setOrbitAssist(page, true);
+  const assistOn = await page.evaluate(() => {
+    const pn = window.particleInstance;
+    if (pn._rafId != null) cancelAnimationFrame(pn._rafId);
+    pn._rafId = null;
+    pn._rafActive = false;
+    pn._updateSoA();
+    return {
+      active: pn.activeGravityWellPreset?.id,
+      enabled: pn.gravityWellPresetOrbitAssist,
+      running: pn._presetOrbitRunning
+    };
+  });
+  assert.deepStrictEqual(assistOn, { active: 'cross-cage', enabled: true, running: true },
+    'Checking Orbit Assist must resume the controller live');
 
   const gestureBefore = await wellState(page);
   const slider = await page.evaluate(() => {
@@ -220,16 +277,22 @@ async function desktop(browser, errors) {
   });
   assert.deepStrictEqual(controlsDisabled, [true, true, true]);
   await page.getByRole('button', { name: 'Reapply Preset', exact: true }).click();
-  assert.strictEqual((await wellState(page)).active.id, 'cross-cage');
+  const reapplied = await wellState(page);
+  assert.strictEqual(reapplied.active.id, 'cross-cage');
+  assert.strictEqual(reapplied.orbitAssist, true);
+  assert.strictEqual(reapplied.orbitControllerRunning, true,
+    'Reapply must honor the persistent Orbit Assist setting');
   await page.evaluate(() => {
     window.particleInstance.applyGravityWellPreset('binary', { useRecommendedMotion: false });
     window.__nativeRandom = Math.random;
     Math.random = () => 0;
   });
+  await setOrbitAssist(page, false);
   await page.getByRole('button', { name: 'Random Preset', exact: true }).click();
   assert.strictEqual((await wellState(page)).active.id, 'cross-cage', 'Random must skip the current preset');
   assert.deepStrictEqual((await wellState(page)).motion, [0.66, false, 0, 0.6, true, 1.5],
     'Random must apply recommended motion');
+  assert.strictEqual((await wellState(page)).orbitAssist, false, 'Random must respect the global Orbit Assist setting');
   await page.getByRole('button', { name: 'Random Preset', exact: true }).click();
   assert.strictEqual((await wellState(page)).active.id, 'diamond-cage', 'Repeated Random must not repeat the active preset');
   await page.evaluate(() => { Math.random = window.__nativeRandom; delete window.__nativeRandom; });
@@ -258,6 +321,10 @@ async function responsive(browser, errors) {
   await openControls(page);
   assert.ok(await page.getByRole('button', { name: 'Random Preset', exact: true }).evaluate(node =>
     node.getBoundingClientRect().height >= 44), 'Random Preset must keep a 44px touch target');
+  assert.ok(await page.getByLabel('Orbit Assist').evaluate(node =>
+    node.closest('.orbit-assist-control').getBoundingClientRect().height >= 44),
+  'Orbit Assist must keep a 44px touch target');
+  await screenshot(page, 'orbit-assist-phone');
   await openBrowser(page);
   const fit = await page.evaluate(() => {
     const dialog = document.querySelector('#well-preset-browser');
@@ -271,7 +338,7 @@ async function responsive(browser, errors) {
   assert.strictEqual(fit.overflow, false);
   assert.strictEqual(fit.scrollable, true);
   assert.strictEqual(fit.resizeHandleHidden, true, 'Phone dialog must keep its fixed full-screen layout');
-  const touchTargets = await page.locator('.well-preset-close, .well-preset-apply, .well-preset-filters input, .well-preset-filters select, .well-preset-motion, .well-preset-entry').evaluateAll(nodes =>
+  const touchTargets = await page.locator('.well-preset-close, .well-preset-apply, .well-preset-filters input, .well-preset-filters select, .well-preset-entry').evaluateAll(nodes =>
     nodes.map(node => ({ name: node.textContent || node.type, height: node.getBoundingClientRect().height })));
   assert.ok(touchTargets.every(target => target.height >= 44), `Every touch target must be at least 44px: ${JSON.stringify(touchTargets.filter(target => target.height < 44))}`);
   await page.locator('[data-preset-id="compass"]').tap();
