@@ -70,6 +70,8 @@
   var mobileGravityWellViewportRadiusScale = 0.45;
   var mobileGravityWellContainmentTolerance = 0.01;
   var presetOrbitVisualExtentScale = 1.65;
+  var blackHoleSafeOrbitRadiusScale = 1.8;
+  var blackHoleCoreRepulsionBoost = 3;
   var presetOrbitDesktopRatioMin = 1.25;
   var presetOrbitDesktopRatioMax = 1.70;
   var presetOrbitTouchRatioMin = 1.08;
@@ -122,6 +124,17 @@
     var type = well && well.type === 'white' ? 'white' : 'black';
     var strength = well && Number.isFinite(well.strength) ? well.strength : 0;
     return strength < 0 ? (type === 'white' ? 'black' : 'white') : type;
+  }
+
+  function blackHoleRadialProfile(distanceSq, wellRadius) {
+    wellRadius = Math.max(1, wellRadius);
+    var safeOrbitRadius = wellRadius * blackHoleSafeOrbitRadiusScale;
+    var safeOrbitSq = safeOrbitRadius * safeOrbitRadius;
+    // Reverse attraction just outside the rendered aura, then strengthen only
+    // the inner core so overlapping wells cannot cancel into a center trap.
+    var radialProfile = (distanceSq - safeOrbitSq) / (distanceSq + safeOrbitSq);
+    var corePenetration = Math.max(0, 1 - distanceSq / (wellRadius * wellRadius));
+    return radialProfile * (1 + corePenetration * blackHoleCoreRepulsionBoost);
   }
 
   function presetOrbitStringHash(value) {
@@ -5797,7 +5810,17 @@
 	            var gravityDistanceSq = gravityDx * gravityDx + gravityDy * gravityDy;
 
 	            var gravityDistance = Math.sqrt(gravityDistanceSq);
-	            if (gravityDistance < 0.0001) continue;
+	            var gravityUnitX;
+	            var gravityUnitY;
+	            if (gravityDistance < 0.0001) {
+	              if (effectiveWellType === 'white') continue;
+	              var centerEscapeAngle = (i * 2.399963229728653 + wi * 1.618033988749895) % (Math.PI * 2);
+	              gravityUnitX = Math.cos(centerEscapeAngle);
+	              gravityUnitY = Math.sin(centerEscapeAngle);
+	            } else {
+	              gravityUnitX = gravityDx / gravityDistance;
+	              gravityUnitY = gravityDy / gravityDistance;
+	            }
 	            if (limitMobileGravityWellRange) {
 	              var mobileWellRange = wellRadius * mobileGravityWellInfluenceScale;
 	              if (effectiveWellType === 'black') {
@@ -5818,10 +5841,12 @@
                 mobileBlackHoleMagnitude = gravityMagnitude;
               }
             var gravitySign = effectiveWellType === 'white' ? -1 : 1;
-            var gravityUnitX = gravityDx / gravityDistance;
-            var gravityUnitY = gravityDy / gravityDistance;
-            var gravityForceX = (gravityUnitX * gravitySign - gravityUnitY * gravitySign * gravitySpin) * gravityMagnitude;
-            var gravityForceY = (gravityUnitY * gravitySign + gravityUnitX * gravitySign * gravitySpin) * gravityMagnitude;
+            var radialSign = gravitySign;
+            if (effectiveWellType === 'black') {
+              radialSign *= blackHoleRadialProfile(gravityDistanceSq, wellRadius);
+            }
+            var gravityForceX = (gravityUnitX * radialSign - gravityUnitY * gravitySign * gravitySpin) * gravityMagnitude;
+            var gravityForceY = (gravityUnitY * radialSign + gravityUnitX * gravitySign * gravitySpin) * gravityMagnitude;
             gravityX += gravityForceX;
             gravityY += gravityForceY;
             if (stablePresetOrbit && effectiveWellType === 'white') {

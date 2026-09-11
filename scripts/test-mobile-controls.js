@@ -303,7 +303,7 @@ async function runGestures(page, screenshotDir) {
     return result;
   });
   assert.strictEqual(mobileWellInfluence.mobileLayout, true);
-  assert(mobileWellInfluence.blackInside < 0, 'black hole should absorb inside the mobile influence radius');
+  assert(mobileWellInfluence.blackInside > 0, 'black-hole core should push outward inside the safe-orbit shell');
   assert.strictEqual(mobileWellInfluence.blackOutside, 0, 'black hole should stop beyond its mobile influence radius');
   assert(mobileWellInfluence.whiteInside > 0, 'white hole should repel inside the mobile influence radius');
   assert.strictEqual(mobileWellInfluence.whiteOutside, 0, 'white hole should stop beyond its mobile influence radius');

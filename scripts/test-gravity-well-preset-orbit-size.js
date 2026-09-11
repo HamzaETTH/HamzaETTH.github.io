@@ -139,12 +139,103 @@ async function auditPreset(page, id, steps) {
   }, { id, steps });
 }
 
+async function auditPurePhysicsPreset(page, id, steps) {
+  return page.evaluate(({ id, steps }) => {
+    const pn = window.particleInstance;
+    const count = 32;
+    pn.setParticleCount(count);
+    for (let i = 0; i < count; i++) {
+      const angle = i * 2.399963229728653;
+      pn.velX[i] = Math.cos(angle) * 0.66;
+      pn.velY[i] = Math.sin(angle) * 0.66;
+    }
+    pn._syncObjectsFromSoA();
+    pn.setGravityWellPresetOrbitAssist(false);
+    pn.applyGravityWellPreset(id);
+    cancelAnimationFrame(pn._rafId);
+    pn._rafId = null;
+    pn._rafActive = false;
+    pn._clearInteractivePointerForces();
+    pn._cursorCaptureActive = false;
+    pn.options.interactive = false;
+    pn.options.particleAttraction = false;
+    pn.options.particleRepulsion = false;
+    pn.options.boundaryMode = 'bounce';
+
+    const buffers = [pn.posX, pn.posY, pn.velX, pn.velY, pn.sizeA];
+    const wellsBefore = JSON.stringify(pn.gravityWells);
+    const blackWells = pn.gravityWells.filter(well =>
+      (well.strength < 0 ? (well.type === 'white' ? 'black' : 'white') : well.type) === 'black');
+    const deepStreak = new Uint16Array(count);
+    const centerStreak = new Uint16Array(count);
+    let maximumDeepStreak = 0;
+    let maximumCenterStreak = 0;
+    let insideHaloSamples = 0;
+    let deepCoreSamples = 0;
+    let centerSamples = 0;
+    let movingSamples = 0;
+    let normalizedDistanceSum = 0;
+    let samples = 0;
+    let controllerRan = false;
+
+    for (let step = 1; step <= steps; step++) {
+      pn._updateSoA();
+      controllerRan = controllerRan || pn._presetOrbitRunning;
+      if (step < 300) continue;
+      for (let i = 0; i < count; i++) {
+        let nearest = Infinity;
+        for (const well of blackWells) {
+          nearest = Math.min(nearest, Math.hypot(pn.posX[i] - well.x, pn.posY[i] - well.y) / well.radius);
+        }
+        if (nearest < 1) {
+          deepStreak[i]++;
+          maximumDeepStreak = Math.max(maximumDeepStreak, deepStreak[i]);
+        } else {
+          deepStreak[i] = 0;
+        }
+        if (nearest < 0.35) {
+          centerStreak[i]++;
+          maximumCenterStreak = Math.max(maximumCenterStreak, centerStreak[i]);
+        } else {
+          centerStreak[i] = 0;
+        }
+        if (step % 10 !== 0) continue;
+        samples++;
+        normalizedDistanceSum += nearest;
+        if (nearest < window.GravityWellPresets.visualExtentScale) insideHaloSamples++;
+        if (nearest < 1) deepCoreSamples++;
+        if (nearest < 0.35) centerSamples++;
+        if (Math.hypot(pn.velX[i], pn.velY[i]) > 0.2) movingSamples++;
+      }
+    }
+
+    return {
+      id,
+      controllerRan,
+      insideHaloFraction: samples ? insideHaloSamples / samples : 0,
+      deepCoreFraction: samples ? deepCoreSamples / samples : 0,
+      centerFraction: samples ? centerSamples / samples : 0,
+      movingFraction: samples ? movingSamples / samples : 0,
+      meanNearestRadius: samples ? normalizedDistanceSum / samples : Infinity,
+      maximumDeepStreak,
+      maximumCenterStreak,
+      noRebuild: buffers.every((buffer, index) =>
+        buffer === [pn.posX, pn.posY, pn.velX, pn.velY, pn.sizeA][index]),
+      wellsUnchanged: wellsBefore === JSON.stringify(pn.gravityWells),
+      finite: Array.from(pn.posX.slice(0, count)).every(Number.isFinite) &&
+        Array.from(pn.posY.slice(0, count)).every(Number.isFinite) &&
+        Array.from(pn.velX.slice(0, count)).every(Number.isFinite) &&
+        Array.from(pn.velY.slice(0, count)).every(Number.isFinite)
+    };
+  }, { id, steps });
+}
+
 async function main() {
   const browser = await chromium.launch({
     channel: 'msedge', headless: true,
     args: ['--no-first-run', '--disable-background-timer-throttling', '--disable-renderer-backgrounding']
   });
-  const result = { cases: [], baseline: {}, gating: null, browserErrors: [] };
+  const result = { cases: [], purePhysics: [], baseline: {}, gating: null, browserErrors: [] };
   try {
     const contexts = [
       { label: 'desktop', options: { viewport: { width: 1280, height: 900 } } },
@@ -163,6 +254,11 @@ async function main() {
         const state = await auditPreset(page, id, steps);
         state.mode = contextSpec.label;
         result.cases.push(state);
+      }
+      if (contextSpec.label === 'desktop') {
+        for (const id of ids) {
+          result.purePhysics.push(await auditPurePhysicsPreset(page, id, 1200));
+        }
       }
       result.baseline[contextSpec.label] = await page.evaluate(() => {
           const pn = window.particleInstance;
@@ -232,6 +328,16 @@ async function main() {
     }
     if (failures.length) process.stderr.write(`${JSON.stringify(failures, null, 2)}\n`);
     assert.deepEqual(failures, [], 'stable-orbit audit failures');
+    const purePhysicsFailures = result.purePhysics.filter(state =>
+      !state.finite || !state.noRebuild || !state.wellsUnchanged || state.controllerRan ||
+      state.meanNearestRadius < 1.2 || state.deepCoreFraction > 0.2 ||
+      state.centerFraction > 0.005 || state.movingFraction < 0.9 ||
+      state.maximumDeepStreak >= 60 || state.maximumCenterStreak >= 5 ||
+      (namedProblemPresets.has(state.id) && state.deepCoreFraction > 0.005));
+    if (purePhysicsFailures.length) {
+      process.stderr.write(`Pure-physics failures:\n${JSON.stringify(purePhysicsFailures, null, 2)}\n`);
+    }
+    assert.deepEqual(purePhysicsFailures, [], 'pure-physics black-hole safety audit failures');
     for (const mode of ['desktop', 'touch']) {
       for (const id of ['binary', 'dipole']) {
         assert.deepEqual(result.baseline[mode][id], {
@@ -253,6 +359,15 @@ async function main() {
         rotatingFraction: state.rotatingFraction,
         maximumSlowStreak: state.maximumSlowStreak
       })),
+      purePhysics: {
+        auditedPresets: result.purePhysics.length,
+        maximumDeepCoreFraction: Math.max(...result.purePhysics.map(state => state.deepCoreFraction)),
+        maximumCenterFraction: Math.max(...result.purePhysics.map(state => state.centerFraction)),
+        maximumDeepStreak: Math.max(...result.purePhysics.map(state => state.maximumDeepStreak)),
+        maximumCenterStreak: Math.max(...result.purePhysics.map(state => state.maximumCenterStreak)),
+        minimumMovingFraction: Math.min(...result.purePhysics.map(state => state.movingFraction)),
+        minimumMeanNearestRadius: Math.min(...result.purePhysics.map(state => state.meanNearestRadius))
+      },
       baseline: result.baseline,
       gating: result.gating,
       browserErrors: result.browserErrors

@@ -15,7 +15,6 @@ const cohorts = ['centered', 'scattered', 'inherited-fast', 'incoming'];
 const steps = 2400;
 const particleCount = 200;
 const expectedRecommendedForce = 0.6;
-const desktopScatteredRetentionMin = 0.98;
 
 async function audit(page, id, cohort) {
   return page.evaluate(({ id, cohort, steps, particleCount }) => {
@@ -219,8 +218,8 @@ async function main() {
   const result = {
     method: 'Actual _updateSoA, isolated well physics, deterministic cohorts, normal bounce; 257 samples per canvas edge.',
     containment: 'Resolved visual bounds intersected with usable canvas bounds; a coarse arrangement envelope, not an individual orbit.',
-    gates: 'Desktop: no nominal centered edge contacts and at least 98% ordinary scattered retention under softened 60% preset force. Touch/mobile: no edge contacts for nominal particles seeded inside black-well capture regions; full centered/scattered cohorts are diagnostic.',
-    limitations: 'Fast inherited/incoming cohorts are diagnostic. Existing mobile force ranges cannot capture every full-layout seed. No universal capture or speed guarantee.',
+    gates: 'Trap metadata, finite geometry and field samples, inward canvas-edge force, zero recommended spin/drift, and 60% recommended force.',
+    limitations: 'Containment cohorts are diagnostic: the black-hole safe-orbit shell deliberately prevents traps from relying on absorption, and inherited velocities are preserved. No universal capture or speed guarantee.',
     cases: [], failures: [], browserErrors: []
   };
   try {
@@ -255,10 +254,6 @@ async function main() {
           if (state.maxAuthoredStrength > 50 + 1e-9) failures.push('authored strength exceeds 50 (100 at 200%)');
           if (!(state.balance.net > 0)) failures.push('net far-field attraction');
           if (state.balance.maximumOutwardAcceleration > 1e-9) failures.push('outward radial force on sampled canvas boundary');
-          if (((!state.mobile && cohort === 'centered') || (state.mobile && cohort === 'captured')) && state.particlesTouchingEdge !== 0) {
-            failures.push('nominal centered desktop or captured mobile particles touched canvas edge');
-          }
-          if (!state.mobile && cohort === 'scattered' && state.retention < desktopScatteredRetentionMin) failures.push('ordinary scattered retention below 98%');
           if (failures.length) result.failures.push({ id, cohort, viewport: state.viewport, failures });
         }
         process.stderr.write(`Audited ${id} at ${viewport.width}x${viewport.height}\n`);

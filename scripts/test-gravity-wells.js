@@ -1161,10 +1161,11 @@ async function runDesktop(browser, options, browserErrors) {
       return { x: pn.posX[0], y: pn.posY[0], vx: pn.velX[0], vy: pn.velY[0] };
     }
 
-    const black = sample([{ type: 'black', ...center }], center.x + 200, center.y);
-    const white = sample([{ type: 'white', ...center }], center.x + 200, center.y);
-    const invertedBlack = sample([{ type: 'black', ...center, strength: -12 }], center.x + 200, center.y);
-    const invertedWhite = sample([{ type: 'white', ...center, strength: -12 }], center.x + 200, center.y);
+    const black = sample([{ type: 'black', ...center }], center.x + 300, center.y);
+    const blackCore = sample([{ type: 'black', ...center }], center.x + 120, center.y);
+    const white = sample([{ type: 'white', ...center }], center.x + 300, center.y);
+    const invertedBlack = sample([{ type: 'black', ...center, strength: -12 }], center.x + 300, center.y);
+    const invertedWhite = sample([{ type: 'white', ...center, strength: -12 }], center.x + 300, center.y);
     const a = { type: 'black', x: 570, y: 310, radius: 160, strength: 1 };
     const b = { type: 'white', x: 720, y: 420, radius: 140, strength: 1 };
     const onlyA = sample([a], 1000, 600);
@@ -1174,18 +1175,18 @@ async function runDesktop(browser, options, browserErrors) {
     pn.gravityWellAccelerationCapped = false;
     pn.options.gravityWellSpin = 0;
     pn.options.gravityWellForceMultiplier = 1;
-    const globalForceOne = sample([{ type: 'black', ...center }], center.x + 200, center.y);
+    const globalForceOne = sample([{ type: 'black', ...center }], center.x + 300, center.y);
     pn.options.gravityWellForceMultiplier = 2;
-    const globalForceTwo = sample([{ type: 'black', ...center }], center.x + 200, center.y);
+    const globalForceTwo = sample([{ type: 'black', ...center }], center.x + 300, center.y);
     pn.options.gravityWellForceMultiplier = 0;
-    const globalForceZero = sample([{ type: 'black', ...center }], center.x + 200, center.y);
+    const globalForceZero = sample([{ type: 'black', ...center }], center.x + 300, center.y);
     pn.options.gravityWellForceMultiplier = 1;
     pn.options.gravityWellSpin = 0;
-    const spinZero = sample([{ type: 'black', ...center }], center.x + 200, center.y);
+    const spinZero = sample([{ type: 'black', ...center }], center.x + 300, center.y);
     pn.options.gravityWellSpin = 0.4;
-    const spinPositive = sample([{ type: 'black', ...center }], center.x + 200, center.y);
+    const spinPositive = sample([{ type: 'black', ...center }], center.x + 300, center.y);
     pn.options.gravityWellSpin = -0.4;
-    const spinNegative = sample([{ type: 'black', ...center }], center.x + 200, center.y);
+    const spinNegative = sample([{ type: 'black', ...center }], center.x + 300, center.y);
     pn.options.gravityWellSpin = 0.2;
 
     const strongWell = [{ type: 'black', ...center, radius: 150, strength: 10000 }];
@@ -1287,7 +1288,7 @@ async function runDesktop(browser, options, browserErrors) {
     const finite = [pn.posX[0], pn.posY[0], pn.velX[0], pn.velY[0]].every(Number.isFinite);
 
     pn.clearGravityWells();
-    return { black, white, invertedBlack, invertedWhite, onlyA, onlyB, together,
+    return { black, blackCore, white, invertedBlack, invertedWhite, onlyA, onlyB, together,
       globalForceOne, globalForceTwo, globalForceZero, spinZero, spinPositive, spinNegative,
       cappedStrong, uncappedStrong, capturePullZero, capturePullTwo,
       coreTraversal, exactCenterTraversal, naturalFlow, finite };
@@ -1708,7 +1709,8 @@ async function runDesktop(browser, options, browserErrors) {
     removeClearReset: afterRemove === 1 && afterClear === 0 && afterReset.wellCount === 0 && afterReset.capped &&
       afterReset.accelerationLimit === 1.5 && afterReset.forceMultiplier === 1 && afterReset.spin === 0.2 &&
       afterReset.gatherRadius === 100 && afterReset.capturePull === 1 && afterReset.captureMaxSpeed === 2.64,
-    blackAttractsAndSpirals: physics.black.vx < 0 && Math.abs(physics.black.vy) > 0,
+    blackAttractsAndSpiralsOutsideAura: physics.black.vx < 0 && physics.black.vy < 0,
+    blackCorePushesOutWithoutReversingSpin: physics.blackCore.vx > 0 && physics.blackCore.vy < 0,
     whiteRepelsAndSpirals: physics.white.vx > 0 && Math.abs(physics.white.vy) > 0,
     negativeStrengthSwapsBehavior: physics.invertedBlack.vx > 0 && physics.invertedWhite.vx < 0,
     overlappingForcesSum: Math.abs(physics.together.vx - (physics.onlyA.vx + physics.onlyB.vx)) < 0.0002 &&
@@ -1720,10 +1722,10 @@ async function runDesktop(browser, options, browserErrors) {
     configuredGravityCapWorks: Math.hypot(physics.cappedStrong.vx, physics.cappedStrong.vy) <= 0.4001 &&
       Math.hypot(physics.uncappedStrong.vx, physics.uncappedStrong.vy) > 0.4,
     capturePullIsIndependent: Math.abs(physics.capturePullZero.vx) < 0.000001 && physics.capturePullTwo.vx < 0,
-    blackCorePreservesParticlesWithoutSnapping: physics.coreTraversal.finite && physics.coreTraversal.countStable &&
-      physics.coreTraversal.distanceFromCenter < 20 && physics.coreTraversal.distanceFromStart < 10,
-    exactCenterPreservesParticle: physics.exactCenterTraversal.finite && physics.exactCenterTraversal.countStable &&
-      physics.exactCenterTraversal.distance < 0.001,
+    blackCoreEscapesWithoutDeletingParticles: physics.coreTraversal.finite && physics.coreTraversal.countStable &&
+      physics.coreTraversal.distanceFromCenter > Math.hypot(5, 5),
+    exactCenterEscapesDeterministically: physics.exactCenterTraversal.finite && physics.exactCenterTraversal.countStable &&
+      physics.exactCenterTraversal.distance > 0.001,
     blackHoleFlowDoesNotCollapseIntoRing: physics.naturalFlow.finite && physics.naturalFlow.countStable &&
       physics.naturalFlow.maxDistance - physics.naturalFlow.minDistance > 40,
     manyWellsRemainFinite: physics.finite,

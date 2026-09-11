@@ -47,6 +47,10 @@ async function wellState(page) {
   });
 }
 
+function normalizedMotion(motion) {
+  return motion.map(value => typeof value === 'number' && Math.abs(value) < 1e-12 ? 0 : value);
+}
+
 async function screenshot(page, name) {
   if (screenshotDir) await page.screenshot({ path: path.join(screenshotDir, `${name}.png`) });
 }
@@ -177,7 +181,7 @@ async function desktop(browser, errors) {
   const applied = await wellState(page);
   assert.strictEqual(applied.active.id, 'cross-cage');
   assert.strictEqual(applied.draft, null);
-  assert.deepStrictEqual(applied.motion, [0.66, false, 0, 0.6, true, 1.5],
+  assert.deepStrictEqual(normalizedMotion(applied.motion), [0.66, false, 0, 0.6, true, 1.5],
     'Orbit Assist off must still apply the preset recommended physics profile');
   assert.strictEqual(applied.orbitAssist, false);
   assert.strictEqual(applied.orbitControllerRunning, false);
@@ -198,7 +202,7 @@ async function desktop(browser, errors) {
     pn._rebuildOnResize = function(...args) { window.__presetRebuilds++; return rebuild.apply(this, args); };
   });
   await page.getByRole('button', { name: 'Apply Preset', exact: true }).click();
-  assert.deepStrictEqual((await wellState(page)).motion, [0.66, false, 0, 0.6, true, 1.5]);
+  assert.deepStrictEqual(normalizedMotion((await wellState(page)).motion), [0.66, false, 0, 0.6, true, 1.5]);
   assert.strictEqual(await page.evaluate(() => window.__presetRebuilds), 0, 'Pane refresh must not rebuild particles during Apply');
   const synced = await page.evaluate(() => {
     const params = window.particleSettingsUi.params;
@@ -290,7 +294,7 @@ async function desktop(browser, errors) {
   await setOrbitAssist(page, false);
   await page.getByRole('button', { name: 'Random Preset', exact: true }).click();
   assert.strictEqual((await wellState(page)).active.id, 'cross-cage', 'Random must skip the current preset');
-  assert.deepStrictEqual((await wellState(page)).motion, [0.66, false, 0, 0.6, true, 1.5],
+  assert.deepStrictEqual(normalizedMotion((await wellState(page)).motion), [0.66, false, 0, 0.6, true, 1.5],
     'Random must apply recommended motion');
   assert.strictEqual((await wellState(page)).orbitAssist, false, 'Random must respect the global Orbit Assist setting');
   await page.getByRole('button', { name: 'Random Preset', exact: true }).click();
