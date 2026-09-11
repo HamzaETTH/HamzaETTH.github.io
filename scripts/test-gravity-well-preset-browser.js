@@ -93,10 +93,10 @@ async function desktop(browser, errors) {
   });
   const beforeBrowse = await wellState(page);
   await openBrowser(page);
-  assert.strictEqual(await page.locator('.well-preset-entry').count(), 96);
+  assert.strictEqual(await page.locator('.well-preset-entry').count(), 120);
   assert.strictEqual(await page.getByLabel('Use recommended motion').count(), 0,
     'Preset motion mode belongs in the persistent Controls pane');
-  assert.strictEqual(await page.locator('.well-preset-family option').count(), 12);
+  assert.strictEqual(await page.locator('.well-preset-family option').count(), 16);
   assert.strictEqual(await page.getByLabel('Search presets').evaluate(node => node === document.activeElement), true);
   const initialWindow = await page.locator('#well-preset-browser').evaluate(dialog => {
     const rect = dialog.getBoundingClientRect();
@@ -151,6 +151,13 @@ async function desktop(browser, errors) {
   const reopenedWindow = await page.locator('#well-preset-browser').evaluate(dialog => dialog.getBoundingClientRect().toJSON());
   assert.ok(['x', 'y', 'width', 'height'].every(key => Math.abs(reopenedWindow[key] - resizedWindow.rect[key]) < 2),
     'preset browser should remember its window geometry until reload');
+  await page.getByLabel('Search presets').fill('skull nebula');
+  assert.strictEqual(await page.locator('.well-preset-entry').count(), 1);
+  assert.strictEqual(await page.locator('.well-preset-entry').getAttribute('data-preset-id'), 'skull-nebula');
+  await page.getByLabel('Search presets').fill('');
+  await page.getByLabel('Family', { exact: true }).selectOption('Living Cosmos');
+  assert.strictEqual(await page.locator('.well-preset-entry').count(), 6);
+  await page.getByLabel('Family', { exact: true }).selectOption('');
   await page.getByLabel('Search presets').fill('bullseye');
   assert.strictEqual(await page.locator('.well-preset-entry').count(), 2);
   await page.getByLabel('Search presets').fill('unmatched constellation');
@@ -299,6 +306,29 @@ async function desktop(browser, errors) {
   assert.strictEqual((await wellState(page)).orbitAssist, false, 'Random must respect the global Orbit Assist setting');
   await page.getByRole('button', { name: 'Random Preset', exact: true }).click();
   assert.strictEqual((await wellState(page)).active.id, 'diamond-cage', 'Repeated Random must not repeat the active preset');
+  const cinematicRandomReachability = await page.evaluate(() => {
+    const pn = window.particleInstance;
+    const catalogue = window.GravityWellPresets;
+    const trigger = document.querySelector('.random-preset-button');
+    const nativeRandom = Math.random;
+    const reached = [];
+    try {
+      for (const target of catalogue.presets.slice(96)) {
+        const previousId = pn.activeGravityWellPreset?.id || pn.lastGravityWellPresetId;
+        const candidates = catalogue.presets.filter(preset => preset.id !== previousId);
+        const index = candidates.findIndex(preset => preset.id === target.id);
+        Math.random = () => (index + 0.25) / candidates.length;
+        trigger.click();
+        reached.push(pn.activeGravityWellPreset?.id || null);
+      }
+    } finally {
+      Math.random = nativeRandom;
+    }
+    return reached;
+  });
+  assert.deepStrictEqual(cinematicRandomReachability,
+    await page.evaluate(() => window.GravityWellPresets.presets.slice(96).map(preset => preset.id)),
+    'Every cinematic preset must be reachable through Random Preset');
   await page.evaluate(() => { Math.random = window.__nativeRandom; delete window.__nativeRandom; });
   await openBrowser(page);
   await page.getByRole('button', { name: 'Close', exact: true }).click();
@@ -312,7 +342,7 @@ async function desktop(browser, errors) {
   await openControls(page);
   await openBrowser(page);
   assert.strictEqual(await page.locator('#well-preset-browser').count(), 1);
-  assert.strictEqual(await page.locator('.well-preset-entry').count(), 96);
+  assert.strictEqual(await page.locator('.well-preset-entry').count(), 120);
   await context.close();
 }
 

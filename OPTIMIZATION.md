@@ -960,3 +960,18 @@ All acceptance gates passed: held gather improved by more than 50% at 5,000 and 
 - User-enabled pair attraction or repulsion still performs the physics-only pair traversal, and enabled collisions still perform the existing separate collision traversal. Those authoritative features can therefore retain near-quadratic cost in a dense gather; the performance figures above apply to the default pair-force/collision-off configuration.
 
 **Decision:** keep. The default held-gather path removes the measured bottleneck, normal rendering remains within its regression gate, and line state returns immediately without a public setting or persistent mutation.
+
+## Catastrophic dense-band line guard — COMPLETE (2026-09-11)
+
+**Goal:** prevent a preset-compressed particle band from spending a frame traversing nearly every particle pair. The guard is part of user-enabled Adaptive Line Detail. It predicts adjacent spatial-grid pair work before connection traversal, immediately uses the existing point-only render path for catastrophic density, preserves optional pair-force traversal, and restores lines after 12 consecutive frames below 60% of both entry thresholds. A manual Adaptive Line Detail disable bypasses the guard immediately.
+
+**Environment:** Microsoft Edge 152.0.4191.66 through Playwright, Windows, WebGL, 1280×720 CSS pixels, DPR 1, headless. Baseline `5c125d9` and the optimized working tree were served from separate static localhost worktrees. The catastrophic result uses five alternating baseline/optimized trials with ten samples each; the normal control uses seven trials with twenty samples each.
+
+| Scenario | Baseline frame | Guarded frame | Change | Candidates baseline → guarded | Segments baseline → guarded | Visible points |
+|---|---:|---:|---:|---:|---:|---:|
+| Normal distributed, 185 | 0.09455 ms | 0.09315 ms | -1.48% | 787 → 787 | 787 → 787 | 185 |
+| Catastrophic one-cell band, 1,000 | 17.34 ms | 0.10 ms | **-99.42%** | 499,500 → 0 | 5,779 → 0 | 1,000 |
+
+The focused browser test also verifies byte-for-byte particle position/velocity preservation across the point-only rendering decision, first-frame entry, 12-frame release hysteresis, live manual bypass, Trails and Canvas fallback, and healthy WebGL. The normal path skips even the predictor below the minimum possible overload population, which removed the initial microbenchmark overhead. This is an isolated rendering result, not an FPS guarantee; collision and user-enabled pair-force costs remain authoritative and unchanged.
+
+**Decision:** keep. The guard removes the measured catastrophic line bottleneck, preserves ordinary line output exactly, and changes no persistent setting or particle state.

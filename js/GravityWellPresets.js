@@ -7,6 +7,17 @@
   // Include the GL halo and orbiting decorative points, not only the core.
   var visualExtentScale = 1.65;
   var visualPadding = 3;
+  var particleEnvelopeScale = Object.freeze({
+    desktop: visualExtentScale * 1.7,
+    // Mobile force influence reaches 2r. Keep that layout clearance separate
+    // from Orbit Assist's deliberately tighter 1.2x visual-radius target.
+    touch: 2,
+    purePhysics: 1.8
+  });
+  var orbitAssistRadiusRatio = Object.freeze({
+    desktop: Object.freeze({ min: 1.25, max: 1.7 }),
+    touch: Object.freeze({ min: 1.08, max: 1.2 })
+  });
   var familySpin = {
     'Cages': 0.12,
     'Pairs & axes': 0.18,
@@ -18,7 +29,11 @@
     'Clusters': 0.18,
     'Scattered anchors': 0.1,
     'Wide patterns': 0.08,
-    'Distributed traps': 0
+    'Distributed traps': 0,
+    'Impossible Machines': 0.18,
+    'Living Cosmos': 0.16,
+    'Monuments & Relics': 0.1,
+    'Chaotic Arenas': 0.22
   };
 
   function well(x, y, type, radius, strength) {
@@ -584,6 +599,206 @@
     well(0.82, 0.05, 'white', 0.1, 6)
   ], false, wideSurgeMetadata);
 
+  add('mobius-engine', 'Mobius Engine', 'Impossible Machines', 'Two interleaved figure-eight tracks exchange particles through four crossing gates.', [
+    well(-0.92, 0, 'black', 0.16, 19), well(-0.58, -0.5, 'black', 0.16, 18),
+    well(-0.18, -0.22, 'black', 0.15, 17), well(0.58, 0.5, 'black', 0.16, 19),
+    well(0.92, 0, 'black', 0.16, 19), well(0.58, -0.5, 'black', 0.16, 18),
+    well(0.18, 0.22, 'black', 0.15, 17), well(-0.58, 0.5, 'black', 0.16, 19),
+    well(-0.3, -0.02, 'white', 0.1, 6), well(0.3, 0.02, 'white', 0.1, 6),
+    well(-0.02, -0.34, 'white', 0.1, 6), well(0.02, 0.34, 'white', 0.1, 6)
+  ]);
+  add('gyroscope-temple', 'Gyroscope Temple', 'Impossible Machines', 'Three incomplete tilted orbital planes turn around displaced repulsive pivots.', [
+    well(-0.92, 0, 'black', 0.15, 18), well(0, -0.34, 'black', 0.17, 20),
+    well(0.92, 0, 'black', 0.15, 18), well(-0.65, -0.72, 'black', 0.15, 18),
+    well(0, 0.18, 'black', 0.16, 19), well(0.65, 0.72, 'black', 0.15, 18),
+    well(-0.65, 0.72, 'black', 0.15, 18), well(0, 0.48, 'black', 0.16, 19),
+    well(0.65, -0.72, 'black', 0.15, 18), well(-0.2, -0.04, 'white', 0.1, 6),
+    well(0.2, 0.05, 'white', 0.1, 6), well(0, -0.68, 'white', 0.11, 7)
+  ]);
+  add('parallax-gate', 'Parallax Gate', 'Impossible Machines', 'Two staggered rectangular frames form a deep diagonal passage through the canvas.', [
+    well(-0.92, -0.72, 'black', 0.15, 18), well(-0.25, -0.55, 'black', 0.15, 18),
+    well(-0.25, 0.55, 'black', 0.15, 18), well(-0.92, 0.72, 'black', 0.15, 18),
+    well(0.1, -0.88, 'black', 0.15, 18), well(0.92, -0.65, 'black', 0.15, 18),
+    well(0.92, 0.65, 'black', 0.15, 18), well(0.1, 0.88, 'black', 0.15, 18),
+    well(-0.55, -0.14, 'white', 0.1, 6), well(-0.12, 0.16, 'white', 0.1, 6),
+    well(0.32, -0.15, 'white', 0.1, 6), well(0.68, 0.16, 'white', 0.1, 6)
+  ], true, wideMetadata);
+  add('gravity-prism', 'Gravity Prism', 'Impossible Machines', 'An open triangular prism splits one incoming particle stream into two exits.', [
+    well(-0.82, -0.62, 'black', 0.16, 19), well(-0.82, 0.62, 'black', 0.16, 19),
+    well(-0.18, 0, 'black', 0.18, 21), well(0.12, -0.78, 'black', 0.16, 19),
+    well(0.12, 0.46, 'black', 0.16, 19), well(0.9, -0.16, 'black', 0.18, 21),
+    well(-0.98, 0, 'white', 0.1, 6), well(-0.48, -0.22, 'white', 0.1, 6),
+    well(-0.48, 0.22, 'white', 0.1, 6), well(0.5, -0.36, 'white', 0.11, 7),
+    well(0.72, 0.14, 'white', 0.11, 7)
+  ]);
+  add('kinetic-mobile', 'Kinetic Mobile', 'Impossible Machines', 'Asymmetric suspended rods carry unequal hanging masses around five live pivots.', [
+    well(-0.9, -0.62, 'black', 0.15, 18), well(-0.25, -0.62, 'black', 0.17, 20),
+    well(0.45, -0.62, 'black', 0.15, 18), well(0.9, -0.32, 'black', 0.16, 19),
+    well(-0.62, 0.05, 'black', 0.18, 22), well(0.12, 0.18, 'black', 0.16, 19),
+    well(0.66, 0.58, 'black', 0.2, 24), well(-0.58, -0.82, 'white', 0.1, 6),
+    well(0.2, -0.82, 'white', 0.1, 6), well(-0.6, -0.25, 'white', 0.1, 6),
+    well(0.12, -0.18, 'white', 0.1, 6), well(0.65, 0.08, 'white', 0.11, 7)
+  ]);
+  add('wave-interferometer', 'Wave Interferometer', 'Impossible Machines', 'Separated slit gates divide a source wave before an open receiver curve.', [
+    well(-0.95, 0, 'black', 0.2, 24), well(-0.65, -0.45, 'black', 0.15, 18),
+    well(-0.65, 0.45, 'black', 0.15, 18), well(0.55, -0.72, 'black', 0.15, 18),
+    well(0.78, 0, 'black', 0.17, 20), well(0.55, 0.72, 'black', 0.15, 18),
+    well(-0.25, -0.65, 'white', 0.1, 6), well(-0.25, -0.18, 'white', 0.1, 6),
+    well(-0.25, 0.18, 'white', 0.1, 6), well(-0.25, 0.65, 'white', 0.1, 6),
+    well(0.18, -0.35, 'white', 0.11, 7), well(0.18, 0.35, 'white', 0.11, 7)
+  ], true, wideMetadata);
+
+  add('dragonfly-rift', 'Dragonfly Rift', 'Living Cosmos', 'Four swept wings orbit a narrow thorax crossed by five repulsive seams.', [
+    well(0, -0.65, 'black', 0.17, 21), well(0, -0.15, 'black', 0.18, 22),
+    well(0, 0.48, 'black', 0.16, 19), well(-0.88, -0.55, 'black', 0.15, 18),
+    well(0.88, -0.55, 'black', 0.15, 18), well(-0.72, 0.55, 'black', 0.16, 19),
+    well(0.72, 0.55, 'black', 0.16, 19), well(0, -0.9, 'white', 0.1, 6),
+    well(-0.42, -0.14, 'white', 0.1, 6), well(0.42, -0.14, 'white', 0.1, 6),
+    well(-0.3, 0.2, 'white', 0.1, 6), well(0.3, 0.2, 'white', 0.1, 6)
+  ]);
+  add('jellyfish-gate', 'Jellyfish Gate', 'Living Cosmos', 'An open bell releases five uneven repulsive tendrils into the current below.', [
+    well(-0.82, -0.1, 'black', 0.15, 18), well(-0.55, -0.62, 'black', 0.16, 19),
+    well(0, -0.82, 'black', 0.18, 22), well(0.55, -0.62, 'black', 0.16, 19),
+    well(0.82, -0.1, 'black', 0.15, 18), well(-0.32, 0.45, 'black', 0.16, 19),
+    well(0.36, 0.72, 'black', 0.17, 20), well(-0.68, 0.35, 'white', 0.1, 6),
+    well(-0.18, 0.08, 'white', 0.1, 6), well(0.18, 0.2, 'white', 0.1, 6),
+    well(0.7, 0.28, 'white', 0.1, 6), well(0, 0.9, 'white', 0.11, 7)
+  ]);
+  add('phoenix-wake', 'Phoenix Wake', 'Living Cosmos', 'Raised wings surround a bright spine while three tail currents diverge behind it.', [
+    well(0, -0.2, 'black', 0.19, 23), well(0, 0.25, 'black', 0.17, 20),
+    well(0, 0.68, 'black', 0.16, 19), well(-0.25, -0.12, 'black', 0.16, 19),
+    well(-0.58, -0.48, 'black', 0.16, 19), well(-0.95, -0.2, 'black', 0.15, 18),
+    well(0.25, -0.12, 'black', 0.16, 19), well(0.58, -0.48, 'black', 0.16, 19),
+    well(0.95, -0.2, 'black', 0.15, 18), well(-0.48, 0.82, 'white', 0.1, 6),
+    well(0, 0.95, 'white', 0.11, 7), well(0.48, 0.82, 'white', 0.1, 6),
+    well(0, -0.72, 'white', 0.11, 7)
+  ], false, wideMetadata);
+  add('world-tree', 'World Tree', 'Living Cosmos', 'One trunk branches into an asymmetric canopy above five exposed repulsive roots.', [
+    well(0, 0.8, 'black', 0.18, 22), well(0, 0.38, 'black', 0.17, 20),
+    well(0, 0, 'black', 0.19, 23), well(-0.72, -0.05, 'black', 0.15, 18),
+    well(-0.52, -0.5, 'black', 0.16, 19), well(-0.15, -0.78, 'black', 0.16, 19),
+    well(0.3, -0.7, 'black', 0.16, 19), well(0.62, -0.4, 'black', 0.16, 19),
+    well(0.82, 0, 'black', 0.15, 18), well(-0.65, 0.72, 'white', 0.1, 6),
+    well(-0.25, 0.92, 'white', 0.1, 6), well(0.25, 0.92, 'white', 0.1, 6),
+    well(0.68, 0.72, 'white', 0.1, 6), well(0, -0.4, 'white', 0.11, 7)
+  ]);
+  add('skull-nebula', 'Skull Nebula', 'Living Cosmos', 'A broken skull outline surrounds two white eye cavities and an open jaw.', [
+    well(-0.7, -0.45, 'black', 0.16, 19), well(-0.32, -0.78, 'black', 0.16, 19),
+    well(0.32, -0.78, 'black', 0.16, 19), well(0.7, -0.45, 'black', 0.16, 19),
+    well(-0.82, 0.05, 'black', 0.15, 18), well(0.82, 0.05, 'black', 0.15, 18),
+    well(-0.5, 0.62, 'black', 0.16, 19), well(0.5, 0.62, 'black', 0.16, 19),
+    well(-0.32, -0.15, 'white', 0.12, 8), well(0.32, -0.15, 'white', 0.12, 8),
+    well(-0.18, 0.5, 'white', 0.1, 6), well(0.18, 0.5, 'white', 0.1, 6)
+  ]);
+  add('leviathan-jaw', 'Leviathan Jaw', 'Living Cosmos', 'Unequal upper and lower jaws surround a broad mouth of five repulsive teeth.', [
+    well(-0.95, -0.5, 'black', 0.15, 18), well(-0.45, -0.72, 'black', 0.16, 19),
+    well(0.15, -0.62, 'black', 0.17, 20), well(0.85, -0.28, 'black', 0.16, 19),
+    well(-0.82, 0.48, 'black', 0.16, 19), well(-0.32, 0.72, 'black', 0.17, 20),
+    well(0.25, 0.64, 'black', 0.16, 19), well(0.95, 0.18, 'black', 0.15, 18),
+    well(-0.58, -0.15, 'white', 0.1, 6), well(-0.12, -0.28, 'white', 0.1, 6),
+    well(0.35, -0.2, 'white', 0.1, 6), well(-0.28, 0.2, 'white', 0.1, 6),
+    well(0.38, 0.18, 'white', 0.1, 6)
+  ], false, wideMetadata);
+
+  add('cathedral-window', 'Cathedral Window', 'Monuments & Relics', 'A pointed arch surrounds sparse rose-window guides and an open central nave.', [
+    well(-0.85, 0.72, 'black', 0.15, 18), well(-0.85, 0.05, 'black', 0.15, 18),
+    well(-0.65, -0.48, 'black', 0.16, 19), well(-0.3, -0.82, 'black', 0.16, 19),
+    well(0, -0.98, 'black', 0.17, 21), well(0.3, -0.82, 'black', 0.16, 19),
+    well(0.65, -0.48, 'black', 0.16, 19), well(0.85, 0.05, 'black', 0.15, 18),
+    well(0.85, 0.72, 'black', 0.15, 18), well(-0.35, 0.12, 'white', 0.1, 6),
+    well(0, -0.2, 'white', 0.11, 7), well(0.35, 0.12, 'white', 0.1, 6),
+    well(0, 0.55, 'white', 0.11, 7)
+  ]);
+  add('crownless-king', 'Crownless King', 'Monuments & Relics', 'A seven-point crown leaves its apex missing around a displaced inner core.', [
+    well(-0.82, 0.55, 'black', 0.15, 18), well(-0.42, 0.48, 'black', 0.16, 19),
+    well(0, 0.62, 'black', 0.18, 22), well(0.42, 0.48, 'black', 0.16, 19),
+    well(0.82, 0.55, 'black', 0.15, 18), well(-0.62, -0.55, 'black', 0.17, 20),
+    well(0.62, -0.55, 'black', 0.17, 20), well(-0.32, -0.05, 'white', 0.1, 6),
+    well(0, 0.15, 'white', 0.11, 7), well(0.32, -0.05, 'white', 0.1, 6),
+    well(0, -0.5, 'white', 0.11, 7)
+  ]);
+  add('singularity-throne', 'Singularity Throne', 'Monuments & Relics', 'A tall-backed throne holds a floating seat between unequal open arms.', [
+    well(-0.72, -0.88, 'black', 0.15, 18), well(0, -0.78, 'black', 0.18, 22),
+    well(0.72, -0.88, 'black', 0.15, 18), well(-0.72, 0.2, 'black', 0.16, 19),
+    well(0.72, 0.2, 'black', 0.16, 19), well(-0.92, 0.48, 'black', 0.16, 19),
+    well(0.92, 0.48, 'black', 0.16, 19), well(0, 0.72, 'black', 0.19, 23),
+    well(-0.4, -0.38, 'white', 0.1, 6), well(0.4, -0.38, 'white', 0.1, 6),
+    well(-0.45, 0.35, 'white', 0.11, 7), well(0.45, 0.35, 'white', 0.11, 7)
+  ]);
+  add('cosmic-keyhole', 'Cosmic Keyhole', 'Monuments & Relics', 'A broken circular head flows into a long asymmetric notched shaft.', [
+    well(-0.58, -0.62, 'black', 0.16, 19), well(0, -0.9, 'black', 0.18, 22),
+    well(0.58, -0.62, 'black', 0.16, 19), well(0.72, -0.05, 'black', 0.16, 19),
+    well(0.38, 0.28, 'black', 0.17, 20), well(0.38, 0.88, 'black', 0.16, 19),
+    well(-0.38, 0.88, 'black', 0.16, 19), well(-0.32, -0.1, 'white', 0.11, 7),
+    well(0.32, -0.1, 'white', 0.11, 7), well(0, 0.5, 'white', 0.12, 8)
+  ]);
+  add('space-anchor', 'Space Anchor', 'Monuments & Relics', 'A central shank meets a crossbar, curved flukes, and separated chain points.', [
+    well(0, -0.92, 'black', 0.17, 20), well(0, -0.4, 'black', 0.16, 19),
+    well(0, 0.1, 'black', 0.18, 22), well(0, 0.72, 'black', 0.17, 20),
+    well(-0.72, -0.28, 'black', 0.16, 19), well(0.72, -0.28, 'black', 0.16, 19),
+    well(-0.9, 0.65, 'black', 0.16, 19), well(0.9, 0.65, 'black', 0.16, 19),
+    well(-0.42, 0.48, 'white', 0.1, 6), well(0.42, 0.48, 'white', 0.1, 6),
+    well(-0.55, 0.82, 'white', 0.1, 6), well(0.55, 0.82, 'white', 0.1, 6)
+  ]);
+  add('torii-rift', 'Torii Rift', 'Monuments & Relics', 'A curved upper beam and offset pillars preserve a wide active passage.', [
+    well(-0.95, -0.65, 'black', 0.15, 18), well(-0.35, -0.78, 'black', 0.16, 19),
+    well(0.35, -0.78, 'black', 0.16, 19), well(0.95, -0.65, 'black', 0.15, 18),
+    well(-0.72, -0.28, 'black', 0.16, 19), well(0.72, -0.28, 'black', 0.16, 19),
+    well(-0.58, 0.82, 'black', 0.18, 22), well(0.58, 0.82, 'black', 0.18, 22),
+    well(-0.45, 0.12, 'white', 0.1, 6), well(0.45, 0.12, 'white', 0.1, 6),
+    well(-0.18, 0.55, 'white', 0.11, 7), well(0.18, 0.55, 'white', 0.11, 7)
+  ]);
+
+  add('thunderhead', 'Thunderhead', 'Chaotic Arenas', 'An asymmetric storm mass hangs above a jagged repulsive strike lane.', [
+    well(-0.95, -0.28, 'black', 0.15, 18), well(-0.68, -0.62, 'black', 0.16, 19),
+    well(-0.25, -0.82, 'black', 0.17, 20), well(0.2, -0.68, 'black', 0.18, 22),
+    well(0.62, -0.88, 'black', 0.16, 19), well(0.95, -0.45, 'black', 0.15, 18),
+    well(0.55, -0.08, 'black', 0.17, 20), well(-0.22, -0.08, 'black', 0.17, 20),
+    well(0.15, 0.2, 'white', 0.1, 6), well(-0.08, 0.5, 'white', 0.1, 6),
+    well(0.25, 0.62, 'white', 0.1, 6), well(0, 0.92, 'white', 0.11, 7)
+  ], false, wideMetadata);
+  add('gravity-harp', 'Gravity Harp', 'Chaotic Arenas', 'A curved soundbox stretches graduated nonparallel strings across empty space.', [
+    well(-0.88, -0.72, 'black', 0.16, 19), well(-0.68, -0.25, 'black', 0.16, 19),
+    well(-0.55, 0.25, 'black', 0.17, 20), well(-0.32, 0.72, 'black', 0.18, 22),
+    well(0.85, -0.72, 'black', 0.15, 18), well(0.68, -0.2, 'black', 0.15, 18),
+    well(0.52, 0.3, 'black', 0.15, 18), well(0.32, 0.82, 'black', 0.16, 19),
+    well(-0.35, -0.45, 'white', 0.1, 6), well(-0.15, -0.2, 'white', 0.1, 6),
+    well(0.05, 0.05, 'white', 0.1, 6), well(0.22, 0.32, 'white', 0.11, 7)
+  ]);
+  add('volcano-rift', 'Volcano Rift', 'Chaotic Arenas', 'Broken mountain slopes surround a white vent and an asymmetric ejecta plume.', [
+    well(-0.92, 0.65, 'black', 0.15, 18), well(-0.62, 0.15, 'black', 0.16, 19),
+    well(-0.3, -0.25, 'black', 0.17, 20), well(0, -0.4, 'black', 0.19, 23),
+    well(0.32, -0.2, 'black', 0.17, 20), well(0.65, 0.28, 'black', 0.16, 19),
+    well(0.92, 0.68, 'black', 0.15, 18), well(0, -0.12, 'white', 0.12, 8),
+    well(-0.32, -0.65, 'white', 0.1, 6), well(0.1, -0.8, 'white', 0.1, 6),
+    well(0.5, -0.58, 'white', 0.1, 6), well(0.75, -0.35, 'white', 0.1, 6)
+  ]);
+  add('solar-sail', 'Solar Sail', 'Chaotic Arenas', 'A huge skewed sail pulls against a narrow mast and trailing counterweights.', [
+    well(-0.9, -0.75, 'black', 0.15, 18), well(0.4, -0.88, 'black', 0.17, 20),
+    well(0.15, 0.42, 'black', 0.18, 22), well(-0.65, 0.05, 'black', 0.16, 19),
+    well(0.3, 0.7, 'black', 0.17, 20), well(0.6, 0.42, 'black', 0.16, 19),
+    well(0.92, 0.72, 'black', 0.15, 18), well(-0.05, -0.55, 'white', 0.1, 6),
+    well(0.05, -0.05, 'white', 0.11, 7), well(0.18, 0.52, 'white', 0.1, 6),
+    well(0.72, 0.82, 'white', 0.1, 6)
+  ], false, wideMetadata);
+  add('orbital-fountain', 'Orbital Fountain', 'Chaotic Arenas', 'A central nozzle feeds unequal rising and falling arcs on both sides.', [
+    well(-0.18, 0.82, 'black', 0.16, 19), well(0.18, 0.82, 'black', 0.16, 19),
+    well(0, 0.45, 'black', 0.18, 22), well(-0.28, 0.12, 'black', 0.17, 20),
+    well(-0.6, -0.2, 'black', 0.16, 19), well(-0.85, -0.55, 'black', 0.15, 18),
+    well(0.35, -0.08, 'black', 0.17, 20), well(0.75, -0.42, 'black', 0.16, 19),
+    well(0, 0.7, 'white', 0.11, 7), well(0, 0.18, 'white', 0.11, 7),
+    well(-0.45, -0.48, 'white', 0.1, 6), well(0.45, -0.35, 'white', 0.1, 6),
+    well(0.9, -0.65, 'white', 0.1, 6)
+  ]);
+  add('quasar-lighthouse', 'Quasar Lighthouse', 'Chaotic Arenas', 'A tall beacon throws one sweeping beam from its displaced repulsive core.', [
+    well(0, -0.65, 'black', 0.18, 22), well(0, -0.2, 'black', 0.17, 20),
+    well(0, 0.25, 'black', 0.17, 20), well(-0.28, 0.8, 'black', 0.16, 19),
+    well(0.28, 0.8, 'black', 0.16, 19), well(-0.85, -0.35, 'black', 0.15, 18),
+    well(0.78, -0.68, 'black', 0.15, 18), well(0, -0.9, 'white', 0.12, 8),
+    well(-0.42, -0.52, 'white', 0.1, 6), well(0.35, -0.42, 'white', 0.1, 6),
+    well(0.9, -0.22, 'white', 0.1, 6)
+  ], false, wideMetadata);
+
   function finite(value, fallback) { return Number.isFinite(value) ? value : fallback; }
   function clamp(value, minimum, maximum) { return Math.max(minimum, Math.min(maximum, value)); }
 
@@ -607,6 +822,9 @@
     var strength = clamp(finite(options.strength, 100), 25, 200);
     var minRadius = Math.max(0, finite(options.minRadius, 24));
     var maxRadius = Math.max(minRadius, finite(options.maxRadius, 500));
+    var particleExtentScale = options.mobile === true
+      ? particleEnvelopeScale.touch
+      : particleEnvelopeScale.desktop;
     var orientation = preset.axial && height > width ? 90 : 0;
     var angle = (rotation + orientation) * Math.PI / 180;
     var cosine = Math.cos(angle);
@@ -619,7 +837,7 @@
     function radiusAt(item, scale) { return clamp(item.radius * scale, minRadius, maxRadius); }
     function fitsAt(scale) {
       return rotated.every(function(item) {
-        var extent = radiusAt(item, scale) * visualExtentScale + visualPadding;
+        var extent = radiusAt(item, scale) * particleExtentScale + visualPadding;
         // Reserve the maximum spacing so changing the slider moves centers while radii stay fixed.
         return Math.abs(item.x) * scale * 1.4 + extent <= halfWidth &&
           Math.abs(item.y) * scale * 1.4 + extent <= halfHeight;
@@ -645,7 +863,7 @@
         rotated.forEach(function(item) {
           var coordinate = Math.abs(item[axis]);
           if (coordinate <= 1e-9) return;
-          var extent = radiusAt(item, low) * visualExtentScale + visualPadding;
+          var extent = radiusAt(item, low) * particleExtentScale + visualPadding;
           result = Math.min(result, Math.max(0, (halfExtent - extent) / (coordinate * 1.4)));
         });
         return Number.isFinite(result) ? result : low;
@@ -655,6 +873,7 @@
     }
 
     var bounds = { left: Infinity, top: Infinity, right: -Infinity, bottom: -Infinity };
+    var particleBounds = { left: Infinity, top: Infinity, right: -Infinity, bottom: -Infinity };
     var wells = rotated.map(function(item) {
       var radius = radiusAt(item, low);
       var x = centerX + item.x * scaleX * spacing / 100;
@@ -664,6 +883,11 @@
       bounds.top = Math.min(bounds.top, y - extent);
       bounds.right = Math.max(bounds.right, x + extent);
       bounds.bottom = Math.max(bounds.bottom, y + extent);
+      var particleExtent = radius * particleExtentScale + visualPadding;
+      particleBounds.left = Math.min(particleBounds.left, x - particleExtent);
+      particleBounds.top = Math.min(particleBounds.top, y - particleExtent);
+      particleBounds.right = Math.max(particleBounds.right, x + particleExtent);
+      particleBounds.bottom = Math.max(particleBounds.bottom, y + particleExtent);
       return { x: x, y: y, type: item.type, radius: radius, strength: item.strength * strength / 100 };
     });
     return {
@@ -672,9 +896,10 @@
       layout: preset.layout, initialParticlePlacement: preset.initialParticlePlacement,
       trap: preset.trap, stableOrbit: preset.stableOrbit,
       center: { x: centerX, y: centerY }, scale: low, scaleX: scaleX, scaleY: scaleY,
-      fits: fits, bounds: bounds,
+      fits: fits, bounds: bounds, particleBounds: particleBounds,
       usableBounds: { left: left, top: top, right: width - right, bottom: height - bottom },
-      visualExtentScale: visualExtentScale, visualPadding: visualPadding
+      visualExtentScale: visualExtentScale, particleExtentScale: particleExtentScale,
+      visualPadding: visualPadding
     };
   }
 
@@ -683,6 +908,8 @@
     get: function(id) { return byId[id] || null; },
     resolve: resolve,
     visualExtentScale: visualExtentScale,
+    particleEnvelopeScale: particleEnvelopeScale,
+    orbitAssistRadiusRatio: orbitAssistRadiusRatio,
     visualPadding: visualPadding
   });
   if (typeof module !== 'undefined' && module.exports) module.exports = api;

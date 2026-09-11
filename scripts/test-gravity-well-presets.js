@@ -23,7 +23,7 @@ async function load(context) {
 async function seedAndEvolve(page, id, steps = 240) {
   return page.evaluate(({ id, steps }) => {
     const pn = window.particleInstance;
-    pn.setParticleCount(900);
+    pn.setParticleCount(1000);
     pn.options.particleAttraction = false;
     pn.options.particleRepulsion = false;
     pn.options.curvedDrift = false;

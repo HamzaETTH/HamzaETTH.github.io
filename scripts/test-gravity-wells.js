@@ -186,6 +186,7 @@ async function runDesktop(browser, options, browserErrors) {
     };
   }, middleSpawnBaseline);
   await page.mouse.move(720, 560);
+  const middleSpawnSecondBaseline = await page.evaluate(() => window.particleInstance.numParticles);
   await page.waitForTimeout(160);
   const middleSpawnSecond = await page.evaluate(start => {
     const pn = window.particleInstance;
@@ -202,7 +203,7 @@ async function runDesktop(browser, options, browserErrors) {
         Number.isFinite(particle.x) && Number.isFinite(particle.y) &&
         Number.isFinite(particle.velocity.x) && Number.isFinite(particle.velocity.y))
     };
-  }, middleSpawnFirst.count);
+  }, middleSpawnSecondBaseline);
   await page.mouse.up({ button: 'middle' });
   await page.waitForTimeout(120);
   const middleSpawnReleased = await page.evaluate(() => ({
@@ -1554,7 +1555,7 @@ async function runDesktop(browser, options, browserErrors) {
       defaultClickDraft.radius === 150 && defaultClickDraft.label === '150 px' && defaultClickPlacement?.type === 'white' &&
       defaultClickPlacement.x === 1050 && defaultClickPlacement.y === 120 && defaultClickPlacement.radius === 150,
     middleHoldSpawnsAtPointer: middleSpawnFirst.active && middleSpawnSecond.active &&
-      middleSpawnFirst.count > middleSpawnBaseline && middleSpawnSecond.count > middleSpawnFirst.count &&
+      middleSpawnFirst.count > middleSpawnBaseline && middleSpawnSecond.count > middleSpawnSecondBaseline &&
       middleSpawnFirst.allNearPointer && middleSpawnSecond.allNearPointer &&
       middleSpawnFirst.noneOnEdge && middleSpawnSecond.noneOnEdge,
     middleReleaseStopsSpawning: !middleSpawnReleased.active && !middleSpawnReleased.rafActive &&

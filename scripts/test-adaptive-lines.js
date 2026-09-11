@@ -389,6 +389,52 @@ async function main() {
         occupancyExit: pressureProbe(20, 0, true)
       };
 
+      setScene(1000);
+      pn.options.adaptiveLineDetail = true;
+      pn.options.cellularLineClusters = false;
+      const denseBefore = {
+        positionsX: Array.from(pn.posX.slice(0, pn.numParticles)),
+        positionsY: Array.from(pn.posY.slice(0, pn.numParticles)),
+        velocitiesX: Array.from(pn.velX.slice(0, pn.numParticles)),
+        velocitiesY: Array.from(pn.velY.slice(0, pn.numParticles))
+      };
+      let denseRenderedPoints = 0;
+      const denseRenderer = pn.glRenderer;
+      const denseAddPoint = denseRenderer && denseRenderer.addPoint;
+      if (denseAddPoint) {
+        denseRenderer.addPoint = function (...args) {
+          denseRenderedPoints++;
+          return denseAddPoint.apply(this, args);
+        };
+      }
+      let denseFirstFrame;
+      try {
+        denseFirstFrame = frame(1 / 60);
+      } finally {
+        if (denseAddPoint) denseRenderer.addPoint = denseAddPoint;
+      }
+      const denseStatePreserved =
+        JSON.stringify(denseBefore.positionsX) === JSON.stringify(Array.from(pn.posX.slice(0, pn.numParticles))) &&
+        JSON.stringify(denseBefore.positionsY) === JSON.stringify(Array.from(pn.posY.slice(0, pn.numParticles))) &&
+        JSON.stringify(denseBefore.velocitiesX) === JSON.stringify(Array.from(pn.velX.slice(0, pn.numParticles))) &&
+        JSON.stringify(denseBefore.velocitiesY) === JSON.stringify(Array.from(pn.velY.slice(0, pn.numParticles)));
+
+      setScene(1000, false);
+      const denseReleaseFrames = [];
+      for (let i = 0; i < 12; i++) denseReleaseFrames.push(frame(1 / 60));
+
+      setScene(180);
+      pn.options.adaptiveLineDetail = false;
+      pn.options.cellularLineClusters = false;
+      const denseManualBypass = frame(1 / 60);
+      const catastrophicDensity = {
+        firstFrame: denseFirstFrame,
+        renderedPoints: denseRenderedPoints,
+        statePreserved: denseStatePreserved,
+        releaseFrames: denseReleaseFrames,
+        manualBypass: denseManualBypass
+      };
+
       setScene(40, false);
       window.applyParamsToNetwork(pn, { ...pn.options, particleSize: 6 });
       const particleSizeAfterApply = {
@@ -424,6 +470,7 @@ async function main() {
         spatialBudget,
         thresholdStability,
         pressureHysteresis,
+        catastrophicDensity,
         particleSizeAfterApply,
         particleSizeAfterFrame,
         cellularIsGentlerInitially: cellularMode.acceptedLogicalLines > coverageMode.acceptedLogicalLines,
@@ -511,6 +558,21 @@ async function main() {
         runtime.pressureHysteresis.occupancyBand.maxCellOccupancy === 21 &&
         runtime.pressureHysteresis.occupancyExit.pressure === false &&
         Object.values(runtime.pressureHysteresis).every(result => result.qualityLevel === 'Full'),
+      catastrophicDensityUsesPointOnlyPath:
+        runtime.catastrophicDensity.firstFrame.denseOverload === true &&
+        runtime.catastrophicDensity.firstFrame.pointOnly === true &&
+        runtime.catastrophicDensity.firstFrame.predictedPairWork >= 250000 &&
+        runtime.catastrophicDensity.firstFrame.candidateConnections === 0 &&
+        runtime.catastrophicDensity.renderedPoints === 1000 &&
+        runtime.catastrophicDensity.statePreserved,
+      catastrophicDensityReleaseIsHysteretic:
+        runtime.catastrophicDensity.releaseFrames.slice(0, 11).every(frame => frame.denseOverload === true) &&
+        runtime.catastrophicDensity.releaseFrames[11].denseOverload === false &&
+        runtime.catastrophicDensity.releaseFrames[11].pointOnly === false,
+      manualAdaptiveOverrideDisablesPointOnly:
+        runtime.catastrophicDensity.manualBypass.denseOverload === false &&
+        runtime.catastrophicDensity.manualBypass.pointOnly === false &&
+        runtime.catastrophicDensity.manualBypass.candidateConnections > 0,
       particleSizeControlPersists: runtime.particleSizeAfterApply.option === 6 &&
         runtime.particleSizeAfterApply.objects && runtime.particleSizeAfterApply.typed &&
         runtime.particleSizeAfterFrame.objects && runtime.particleSizeAfterFrame.typed &&

@@ -69,19 +69,33 @@
   var mobileGravityWellInfluenceScale = 2;
   var mobileGravityWellViewportRadiusScale = 0.45;
   var mobileGravityWellContainmentTolerance = 0.01;
-  var presetOrbitVisualExtentScale = 1.65;
-  var blackHoleSafeOrbitRadiusScale = 1.8;
-  var blackHoleCoreRepulsionBoost = 3;
-  var presetOrbitDesktopRatioMin = 1.25;
-  var presetOrbitDesktopRatioMax = 1.70;
-  var presetOrbitTouchRatioMin = 1.08;
-  var presetOrbitTouchRatioMax = 1.20;
+  var gravityWellPresetContract = typeof window !== 'undefined' ? window.GravityWellPresets : null;
+  var presetEnvelopeContract = gravityWellPresetContract && gravityWellPresetContract.particleEnvelopeScale;
+  var presetOrbitAssistContract = gravityWellPresetContract && gravityWellPresetContract.orbitAssistRadiusRatio;
+  var presetOrbitVisualExtentScale = gravityWellPresetContract &&
+    Number.isFinite(gravityWellPresetContract.visualExtentScale)
+    ? gravityWellPresetContract.visualExtentScale
+    : 1.65;
+  var blackHoleSafeOrbitRadiusScale = presetEnvelopeContract &&
+    Number.isFinite(presetEnvelopeContract.purePhysics)
+    ? presetEnvelopeContract.purePhysics
+    : 1.8;
+  var blackHoleCoreRepulsionBoost = 4;
+  var presetOrbitDesktopRatioMin = presetOrbitAssistContract && presetOrbitAssistContract.desktop &&
+    Number.isFinite(presetOrbitAssistContract.desktop.min) ? presetOrbitAssistContract.desktop.min : 1.25;
+  var presetOrbitDesktopRatioMax = presetOrbitAssistContract && presetOrbitAssistContract.desktop &&
+    Number.isFinite(presetOrbitAssistContract.desktop.max) ? presetOrbitAssistContract.desktop.max : 1.70;
+  var presetOrbitTouchRatioMin = presetOrbitAssistContract && presetOrbitAssistContract.touch &&
+    Number.isFinite(presetOrbitAssistContract.touch.min) ? presetOrbitAssistContract.touch.min : 1.08;
+  var presetOrbitTouchRatioMax = presetOrbitAssistContract && presetOrbitAssistContract.touch &&
+    Number.isFinite(presetOrbitAssistContract.touch.max) ? presetOrbitAssistContract.touch.max : 1.20;
   var presetOrbitAnchorSwitchRatio = 1.35;
   var presetOrbitAnchorRescanMask = 15;
   var presetOrbitControlRefreshMask = 7;
   var presetOrbitRadialGain = 0.045;
   var presetOrbitSteeringGain = 0.12;
   var presetOrbitRawFieldShare = 0.25;
+  var presetOrbitBlackHaloEscapeBoost = 5;
   var mobileWellAdjustDeadZone = 12;
   var mobileWellStrengthPixelsPerStep = 8;
   var startupHeroDurationMs = 10000;
@@ -352,6 +366,12 @@
   var LINE_DETAIL_PRESSURE_RELEASE_SEGMENTS = 1536;
   var LINE_DETAIL_DENSITY_THRESHOLD = 24;
   var LINE_DETAIL_DENSITY_RELEASE_THRESHOLD = 20;
+  var LINE_DETAIL_OVERLOAD_MIN_PAIR_WORK = 250000;
+  var LINE_DETAIL_OVERLOAD_PAIR_WORK_SHARE = 0.25;
+  var LINE_DETAIL_OVERLOAD_MIN_CELL_OCCUPANCY = 768;
+  var LINE_DETAIL_OVERLOAD_PARTICLE_SHARE = 0.5;
+  var LINE_DETAIL_OVERLOAD_RELEASE_RATIO = 0.6;
+  var LINE_DETAIL_OVERLOAD_RELEASE_FRAMES = 12;
   var LINE_DETAIL_LEVELS = [
     { name: 'Full', maxLinks: 48, maxSegments: 96000, tileCapacity: 2048, sampleRate: 0.2 },
     { name: 'Balanced', maxLinks: 16, maxSegments: 32000, tileCapacity: 192, sampleRate: 0.08 },
@@ -373,6 +393,9 @@
       hardBudgetRejections: 0,
       coverageTileCrossings: 0,
       maxCellOccupancy: 0,
+      predictedPairWork: 0,
+      denseOverload: false,
+      pointOnly: false,
       pressure: false,
       qualityLevel: 'Full'
     };
@@ -389,6 +412,9 @@
     diagnostics.hardBudgetRejections = 0;
     diagnostics.coverageTileCrossings = 0;
     diagnostics.maxCellOccupancy = 0;
+    diagnostics.predictedPairWork = 0;
+    diagnostics.denseOverload = false;
+    diagnostics.pointOnly = false;
     diagnostics.pressure = false;
     diagnostics.qualityLevel = LINE_DETAIL_LEVELS[network._lineDetailQualityIndex || 0].name;
     return diagnostics;
@@ -506,6 +532,46 @@
     diagnostics.maxCellOccupancy = maxCellOccupancy;
     diagnostics.pressure = network._lineDetailFramePressure;
     diagnostics.qualityLevel = LINE_DETAIL_LEVELS[network._lineDetailQualityIndex].name;
+  }
+
+  function updateDenseLineOverload(network, predictedPairWork, maxCellOccupancy) {
+    var diagnostics = network.lineDetailDiagnostics;
+    diagnostics.predictedPairWork = predictedPairWork;
+    if (network.options.adaptiveLineDetail !== true) {
+      network._lineDetailDenseOverload = false;
+      network._lineDetailDenseSafeFrames = 0;
+      diagnostics.denseOverload = false;
+      diagnostics.pointOnly = false;
+      return false;
+    }
+
+    var particleCount = Math.max(0, network.numParticles | 0);
+    var pairThreshold = Math.max(
+      LINE_DETAIL_OVERLOAD_MIN_PAIR_WORK,
+      particleCount * particleCount * LINE_DETAIL_OVERLOAD_PAIR_WORK_SHARE
+    );
+    var occupancyThreshold = Math.max(
+      LINE_DETAIL_OVERLOAD_MIN_CELL_OCCUPANCY,
+      Math.ceil(particleCount * LINE_DETAIL_OVERLOAD_PARTICLE_SHARE)
+    );
+    var overloaded = predictedPairWork >= pairThreshold || maxCellOccupancy >= occupancyThreshold;
+    if (overloaded) {
+      network._lineDetailDenseOverload = true;
+      network._lineDetailDenseSafeFrames = 0;
+    } else if (network._lineDetailDenseOverload) {
+      var safelyBelow = predictedPairWork <= pairThreshold * LINE_DETAIL_OVERLOAD_RELEASE_RATIO &&
+        maxCellOccupancy <= occupancyThreshold * LINE_DETAIL_OVERLOAD_RELEASE_RATIO;
+      network._lineDetailDenseSafeFrames = safelyBelow
+        ? network._lineDetailDenseSafeFrames + 1
+        : 0;
+      if (network._lineDetailDenseSafeFrames >= LINE_DETAIL_OVERLOAD_RELEASE_FRAMES) {
+        network._lineDetailDenseOverload = false;
+        network._lineDetailDenseSafeFrames = 0;
+      }
+    }
+    diagnostics.denseOverload = network._lineDetailDenseOverload === true;
+    diagnostics.pointOnly = diagnostics.denseOverload;
+    return diagnostics.denseOverload;
   }
 
   function lineDetailCoverageAlpha(
@@ -851,6 +917,8 @@
       this._lineDetailPressure = false;
       this._lineDetailFramePressure = false;
       this._lineDetailPreviousCandidateSegments = 0;
+      this._lineDetailDenseOverload = false;
+      this._lineDetailDenseSafeFrames = 0;
       this._lineDetailLinkCounts = null;
       this._lineDetailParticleTiles = null;
       this._lineDetailCoverage = null;
@@ -5253,10 +5321,15 @@
       }
       var grid = this.grid;
       var gatherLinesSuppressed = this._gatherActive === true;
+      if (gatherLinesSuppressed) {
+        this._lineDetailDenseOverload = false;
+        this._lineDetailDenseSafeFrames = 0;
+      }
       var lineDetailEnabled = gatherLinesSuppressed
         ? (resetLineDetailDiagnostics(this), false)
         : prepareLineDetailFrame(this);
       var lineMaxCellOccupancy = 0;
+      var denseLineOverload = false;
 
       // Assign particles to grid cells
       for (i = 0; i < numParticles; i++) {
@@ -5379,16 +5452,30 @@
         }
       }
 
-      if (lineDetailEnabled) beginLineDetailFrame(this, now, elapsedSeconds, lineMaxCellOccupancy);
+      if (lineDetailEnabled) {
+        beginLineDetailFrame(this, now, elapsedSeconds, lineMaxCellOccupancy);
+        var possibleLinePairWork = numParticles * (numParticles - 1) / 2;
+        var predictedLinePairWork = possibleLinePairWork >= LINE_DETAIL_OVERLOAD_MIN_PAIR_WORK ||
+          lineMaxCellOccupancy >= LINE_DETAIL_OVERLOAD_MIN_CELL_OCCUPANCY ||
+          this._lineDetailDenseOverload
+          ? predictParticlePairWork(grid, gridWidth, gridHeight)
+          : 0;
+        denseLineOverload = updateDenseLineOverload(
+          this,
+          predictedLinePairWork,
+          lineMaxCellOccupancy
+        );
+      }
+      var linesSuppressed = gatherLinesSuppressed || denseLineOverload;
 
-      if (!gatherLinesSuppressed &&
+      if (!linesSuppressed &&
           ((this.glRenderer && this.glRenderer.addLine) || options.blackHoleLineColor === true)) {
         prepareFrameLineColors(this);
       }
-      if (!gatherLinesSuppressed) prepareBlackHoleLineTints(this, particles, numParticles);
+      if (!linesSuppressed) prepareBlackHoleLineTints(this, particles, numParticles);
 
       // Process interactions
-      if (gatherLinesSuppressed) {
+      if (linesSuppressed) {
         drawGatheredParticles(this, particles, numParticles);
         if (options.particleRepulsion || options.particleAttraction) {
           interactParticleForcesInGrid(this, grid, gridWidth, gridHeight);
@@ -5803,6 +5890,9 @@
           var gravityY = 0;
 	        var whiteGravityX = 0;
 	        var whiteGravityY = 0;
+            var strongestBlackHaloEscapeX = 0;
+            var strongestBlackHaloEscapeY = 0;
+            var strongestBlackHaloEscapeMagnitude = 0;
 	          for (var wi = 0; wi < gravityWells.length; wi++) {
 	            var gravityWell = gravityWells[wi];
 	            var wellX = Number.isFinite(gravityWell.x) ? gravityWell.x : width * 0.5;
@@ -5860,6 +5950,17 @@
             if (stablePresetOrbit && effectiveWellType === 'white') {
               whiteGravityX += gravityForceX;
               whiteGravityY += gravityForceY;
+            }
+            if (stablePresetOrbit && effectiveWellType === 'black' && radialSign < 0 &&
+                gravityDistance < wellRadius * presetOrbitVisualExtentScale) {
+              var blackHaloEscapeMagnitude = -radialSign * gravityMagnitude * presetOrbitBlackHaloEscapeBoost;
+              if (blackHaloEscapeMagnitude > strongestBlackHaloEscapeMagnitude) {
+                strongestBlackHaloEscapeMagnitude = blackHaloEscapeMagnitude;
+                strongestBlackHaloEscapeX = gravityUnitX * radialSign * gravityMagnitude *
+                  presetOrbitBlackHaloEscapeBoost;
+                strongestBlackHaloEscapeY = gravityUnitY * radialSign * gravityMagnitude *
+                  presetOrbitBlackHaloEscapeBoost;
+              }
             }
           }
           if (stablePresetOrbit) {
@@ -5978,6 +6079,12 @@
                 }
               }
             }
+            // The orbit controller may replace most of the raw black field, but
+            // it must never replace the strongest outward escape from a visible
+            // black halo. This keeps nearby white wells from driving particles
+            // through a different black core while preserving their full force.
+            gravityX += strongestBlackHaloEscapeX;
+            gravityY += strongestBlackHaloEscapeY;
           }
           if (this.gravityWellAccelerationCapped) {
             var gravityAcceleration = Math.sqrt(gravityX * gravityX + gravityY * gravityY);
@@ -6104,6 +6211,27 @@
     }),
     b
   );
+
+  function predictParticlePairWork(grid, gridWidth, gridHeight) {
+    var pairWork = 0;
+    for (var x = 0; x < gridWidth; x++) {
+      for (var y = 0; y < gridHeight; y++) {
+        var count = grid[x + y * gridWidth].length;
+        pairWork += count * (count - 1) / 2;
+        for (var offsetX = 0; offsetX <= 1; offsetX++) {
+          var neighborX = x + offsetX;
+          if (neighborX >= gridWidth) continue;
+          var firstOffsetY = offsetX === 0 ? 1 : -1;
+          for (var offsetY = firstOffsetY; offsetY <= 1; offsetY++) {
+            var neighborY = y + offsetY;
+            if (neighborY < 0 || neighborY >= gridHeight) continue;
+            pairWork += count * grid[neighborX + neighborY * gridWidth].length;
+          }
+        }
+      }
+    }
+    return pairWork;
+  }
 
   function drawGatheredParticles(network, particles, numParticles) {
     for (var i = 0; i < numParticles; i++) {

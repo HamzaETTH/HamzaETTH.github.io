@@ -5,6 +5,7 @@ const { chromium } = require('playwright');
 
 const SCENARIOS = [
   { name: 'normal', count: 185, inactiveBatch: 1000, gatherBatch: 30 },
+  { name: 'catastrophic', count: 1000, inactiveBatch: 10, gatherBatch: 10, clustered: true },
   { name: 'dense', count: 5000, inactiveBatch: 1, gatherBatch: 1 },
   { name: 'dense10k', count: 10000, inactiveBatch: 1, gatherBatch: 1 }
 ];
@@ -16,7 +17,7 @@ function usage() {
 Options:
   --trials <n>       Alternating trials per count and variant (default: 3)
   --samples <n>      Timing samples per phase (default: 5)
-  --counts <list>    Comma-separated 185,5000,10000 selection
+  --counts <list>    Comma-separated 185,1000,5000,10000 selection
   --output <path>    Save complete JSON output
   --headless         Run Edge headlessly
   --help             Show this help`);
@@ -142,8 +143,10 @@ async function runScenario(page, url, scenario, sampleCount) {
     const width = pn.i.size.width;
     const height = pn.i.size.height;
     for (let i = 0; i < scenario.count; i++) {
-      const x = random() * width;
-      const y = random() * height;
+      const angle = i * 2.399963229728653;
+      const radius = 8 + (i % 19) * 0.7;
+      const x = scenario.clustered ? width * 0.5 + Math.cos(angle) * radius : random() * width;
+      const y = scenario.clustered ? height * 0.5 + Math.sin(angle) * radius : random() * height;
       const particle = pn.o[i];
       particle.x = x;
       particle.y = y;
@@ -196,6 +199,8 @@ async function runScenario(page, url, scenario, sampleCount) {
         frameTimes,
         candidateConnections: pn.lineDetailDiagnostics.candidateConnections,
         emittedSegments: pn.lineDetailDiagnostics.emittedSegments,
+        predictedPairWork: pn.lineDetailDiagnostics.predictedPairWork || 0,
+        denseOverload: pn.lineDetailDiagnostics.denseOverload === true,
         vertexCount: pn.glRenderer.vertexCount,
         pointCount: pn.glRenderer.pointCount
       };
@@ -287,15 +292,23 @@ async function main() {
     }));
     environment.browserVersion = browser.version();
     const summary = summarize(records, scenarios);
-    const highCountRows = summary.filter(row => row.count >= 5000);
-    const assertions = {
+      const highCountRows = summary.filter(row => row.count >= 5000);
+      const catastrophicRows = records.filter(row => row.scenario === 'catastrophic');
+      const assertions = {
       gatherImprovesAtLeast50PctAtHighCounts: highCountRows.every(row => row.gatherImprovementPct >= 50),
       inactiveRegressionAtMost1Pct: summary.every(row => row.inactiveChangePct <= 1),
       optimizedGatherSkipsConnections: records.filter(row => row.variant === 'optimized').every(row =>
         row.gather.candidateConnections === 0 && row.gather.emittedSegments === 0 && row.gather.vertexCount === 0),
       particlesRemainVisible: records.every(row => row.gather.pointCount === row.count),
+      catastrophicAutoProtection: catastrophicRows.every(row => row.variant === 'baseline'
+        ? row.inactive.candidateConnections > 0
+        : row.inactive.denseOverload && row.inactive.predictedPairWork >= 250000 &&
+          row.inactive.candidateConnections === 0 && row.inactive.emittedSegments === 0 &&
+          row.inactive.pointCount === row.count),
       releaseRestoresLinesAndSettings: records.every(row => row.gatherInactiveAfterRelease && row.settingsRestored &&
-        row.released.candidateConnections > 0 && row.released.emittedSegments > 0 && row.released.vertexCount > 0),
+        (row.scenario === 'catastrophic' && row.variant === 'optimized'
+          ? row.released.candidateConnections === 0
+          : row.released.candidateConnections > 0 && row.released.emittedSegments > 0 && row.released.vertexCount > 0)),
       exactCountsAndDefaultPairForces: records.every(row => row.particleCount === row.count && row.defaultPairForces),
       webGlHealthy: records.every(row => row.hasGl && !row.glContextLost),
       noBrowserErrors: browserErrors.length === 0

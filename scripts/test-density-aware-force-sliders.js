@@ -316,7 +316,7 @@ async function main() {
       const repulsionDefault = state();
       const focusPreservedOnSwitch = document.activeElement === distanceInput;
       await setNumber('Interaction Distance', 37);
-      await setNumber('Repulsion Force', 4.1);
+      await setNumber('Repulsion Force', 2.35);
       const repulsionSet = state();
       await toggle('Particle Repulsion');
       const repulsionOff = state();
@@ -373,12 +373,12 @@ async function main() {
     );
     assert.deepStrictEqual(
       [forceProfileMemory.repulsionSet.distance, forceProfileMemory.repulsionSet.repulsionForce],
-      [37, 4.1]
+      [37, 2.35]
     );
     assert.strictEqual(forceProfileMemory.repulsionOff.repulsionEnabled, false);
     assert.deepStrictEqual(
       [forceProfileMemory.repulsionRestored.distance, forceProfileMemory.repulsionRestored.repulsionForce],
-      [37, 4.1]
+      [37, 2.35]
     );
     assert.deepStrictEqual(
       [forceProfileMemory.attractionRestored.distance, forceProfileMemory.attractionRestored.attractionForce],
